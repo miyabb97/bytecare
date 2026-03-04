@@ -1,59 +1,87 @@
 {
-  "user": {
-    "display_name": "Mr Tan",
-    "age": 68,
-    "timezone": "Asia/Singapore"
-  },
-  "conditions": [
-    "Type 2 Diabetes (synthea-derived)",
-    "Essential hypertension (synthea-derived)",
-    "Hyperlipidemia (synthea-derived)",
-    "Limited social contact (synthea-derived)"
-  ],
-  "medications": [
-    {
-      "name": "amLODIPine 2.5 MG Oral Tablet",
-      "dose_text": "2.5mg",
-      "schedule": { "frequency": "once_daily", "times": ["08:00"] },
-      "time_window_minutes": 120,
-      "criticality": "high",
-      "source": "synthea"
+    "user": {
+        "display_name": "Mr Tan",
+        "age": 68,
+        "timezone": "Asia/Singapore"
     },
-    {
-      "name": "hydrochlorothiazide 25 MG / valsartan 320 MG Oral Tablet",
-      "dose_text": "25mg/320mg",
-      "schedule": { "frequency": "once_daily", "times": ["08:00"] },
-      "time_window_minutes": 120,
-      "criticality": "high",
-      "source": "synthea"
-    },
-    {
-      "name": "aspirin 81 MG Oral Tablet",
-      "dose_text": "81mg",
-      "schedule": { "frequency": "once_daily", "times": ["08:00"] },
-      "time_window_minutes": 180,
-      "criticality": "medium",
-      "source": "synthea"
-    },
-    {
-      "name": "insulin isophane, human 70 / insulin, regular, human 30 [Humulin]",
-      "dose_text": "per regimen",
-      "schedule": { "frequency": "twice_daily", "times": ["08:00", "20:00"] },
-      "time_window_minutes": 120,
-      "criticality": "high",
-      "source": "synthea"
+    "conditions": [
+        "Type 2 Diabetes (synthea-derived)",
+        "Essential hypertension (synthea-derived)",
+        "Hyperlipidemia (synthea-derived)",
+        "Limited social contact (synthea-derived)"
+    ],
+    "medications": [
+        {
+            "name": "amLODIPine 2.5 MG Oral Tablet",
+            "dose_text": "2.5mg",
+            "schedule": {
+                "frequency": "once_daily",
+                "times": [
+                    "08:00"
+                ]
+            },
+            "time_window_minutes": 120,
+            "criticality": "high",
+            "source": "synthea"
+        },
+        {
+            "name": "hydrochlorothiazide 25 MG / valsartan 320 MG Oral Tablet",
+            "dose_text": "25mg/320mg",
+            "schedule": {
+                "frequency": "once_daily",
+                "times": [
+                    "08:00"
+                ]
+            },
+            "time_window_minutes": 120,
+            "criticality": "high",
+            "source": "synthea"
+        },
+        {
+            "name": "aspirin 81 MG Oral Tablet",
+            "dose_text": "81mg",
+            "schedule": {
+                "frequency": "once_daily",
+                "times": [
+                    "08:00"
+                ]
+            },
+            "time_window_minutes": 180,
+            "criticality": "medium",
+            "source": "synthea"
+        },
+        {
+            "name": "insulin isophane, human 70 / insulin, regular, human 30 [Humulin]",
+            "dose_text": "per regimen",
+            "schedule": {
+                "frequency": "twice_daily",
+                "times": [
+                    "08:00",
+                    "20:00"
+                ]
+            },
+            "time_window_minutes": 120,
+            "criticality": "high",
+            "source": "synthea"
+        }
+    ],
+    "appointments": [
+        {
+            "datetime": "2026-03-20T10:00:00+08:00",
+            "location": "Polyclinic",
+            "notes": "Chronic disease follow-up"
+        }
+    ],
+    "demo_simulation": {
+        "days": 14,
+        "seed": 42,
+        "pattern": "travel_confusion",
+        "intended_outcome": {
+            "week1_mes_target": 90,
+            "week2_mes_target": 60,
+            "missed_doses_last7d_target": 4,
+            "drift_expected": true,
+            "drift_severity_expected": "orange"
+        }
     }
-  ],
-  "appointments": [
-    {
-      "datetime": "2026-03-20T10:00:00+08:00",
-      "location": "Polyclinic",
-      "notes": "Chronic disease follow-up"
-    }
-  ],
-  "demo_simulation": {
-    "days": 14,
-    "seed": 42,
-    "pattern": "travel_confusion"
-  }
 }
