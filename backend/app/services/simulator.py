@@ -1,0 +1,1 @@
+"""Medication simulation service."""

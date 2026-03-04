@@ -1,0 +1,1 @@
+"""Scores endpoint router."""
