@@ -1,3 +1,10 @@
 {
-  "items": []
+  "drift_detected": true,
+  "severity": "red",
+  "trigger": "late_doses",
+  "details": {
+    "missed_doses": 6,
+    "late_doses": 7,
+    "avg_mes": 55.57
+  }
 }

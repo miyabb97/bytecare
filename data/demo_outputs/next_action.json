@@ -1,6 +1,6 @@
 {
-  "risk_level": "low",
-  "next_action": "none",
-  "reason": "MVP placeholder",
-  "suggested_message": "Hi Mr Tan, I am here if you need help staying on track."
+  "risk_level": "red",
+  "next_action": "caregiver_alert",
+  "reason": "avg_mes_7d=55.57; drift_severity=red; drift_trigger=late_doses; action=caregiver_alert.",
+  "suggested_message": "Caregiver follow-up is recommended due to sustained adherence risk."
 }
