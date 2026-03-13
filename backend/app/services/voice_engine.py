@@ -9,7 +9,8 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
-from app.db import DB
+from app.db import SessionLocal
+from app.models import User, VoiceLog
 from app.services.meralion_client import MeralionClient, MeralionClientError
 
 
@@ -104,10 +105,10 @@ def _build_prompt(transcript: str) -> str:
 
 def analyze_transcript(user_id: str, transcript: str) -> Dict[str, str]:
     """Interpret transcript with MERaLiON and persist structured voice log output."""
-    if user_id not in DB["users"]:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    DB.setdefault("voice_logs", [])
+    with SessionLocal() as db:
+        user = db.query(User).filter_by(user_id=user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
 
     client = MeralionClient()
     result: Dict[str, str]
@@ -124,15 +125,15 @@ def analyze_transcript(user_id: str, transcript: str) -> Dict[str, str]:
         except (MeralionClientError, ValueError, json.JSONDecodeError):
             result = _rule_based_analysis(transcript)
 
-    DB["voice_logs"].append(
-        {
-            "log_id": str(uuid4()),
-            "user_id": user_id,
-            "transcript": transcript,
-            "result": result,
-            "source": source,
-            "created_at": datetime.now().isoformat(timespec="seconds"),
-        }
-    )
+    with SessionLocal() as db:
+        db.add(VoiceLog(
+            log_id=str(uuid4()),
+            user_id=user_id,
+            transcript=transcript,
+            result_json=json.dumps(result),
+            source=source,
+            created_at=datetime.now().isoformat(timespec="seconds"),
+        ))
+        db.commit()
 
     return result

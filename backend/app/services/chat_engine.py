@@ -6,7 +6,8 @@ from typing import Any, Dict
 
 from fastapi import HTTPException
 
-from app.db import DB
+from app.db import SessionLocal
+from app.models import User
 from app.services.agent_engine import determine_next_action
 from app.services.drift_engine import detect_adherence_drift
 from app.services.meralion_client import MeralionClient, MeralionClientError
@@ -48,9 +49,11 @@ def _build_prompt(user: Dict[str, Any], message: str, drift: Dict[str, Any], act
 
 def generate_patient_reply(user_id: str, message: str) -> Dict[str, Any]:
     """Generate a short patient-facing chat reply using context from deterministic engines."""
-    user = DB["users"].get(user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    with SessionLocal() as db:
+        user_obj = db.query(User).filter_by(user_id=user_id).first()
+        if not user_obj:
+            raise HTTPException(status_code=404, detail="User not found")
+        user = user_obj.to_dict()
 
     drift = detect_adherence_drift(user_id)
     action = determine_next_action(user_id)

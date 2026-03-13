@@ -5,11 +5,14 @@ import { useParams, useRouter } from "next/navigation";
 
 import {
   api,
+  type AppointmentItem,
+  type AppointmentListResponse,
   type AppointmentResponse,
   type ChatResponse,
   type CommunityResponse,
   type DriftResponse,
   type FoodResponse,
+  type MedicationItem,
   type MedicationListResponse,
   type NextActionResponse,
   type ReportSummaryResponse,
@@ -90,6 +93,38 @@ export default function DashboardPage() {
 
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+
+  // --- Profile edit state ---
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileName, setProfileName] = useState("");
+  const [profileAge, setProfileAge] = useState("");
+  const [profileTz, setProfileTz] = useState("");
+  const [profileLang, setProfileLang] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMsg, setProfileMsg] = useState<string | null>(null);
+
+  // --- Medications CRUD state ---
+  const [allMeds, setAllMeds] = useState<MedicationItem[]>([]);
+  const [showMedForm, setShowMedForm] = useState(false);
+  const [editMedId, setEditMedId] = useState<string | null>(null);
+  const [medName, setMedName] = useState("");
+  const [medDose, setMedDose] = useState("");
+  const [medFreq, setMedFreq] = useState("once_daily");
+  const [medTimes, setMedTimes] = useState("08:00");
+  const [medWindow, setMedWindow] = useState("120");
+  const [medCrit, setMedCrit] = useState("medium");
+  const [medSaving, setMedSaving] = useState(false);
+  const [medMsg, setMedMsg] = useState<string | null>(null);
+
+  // --- Appointments CRUD state ---
+  const [allAppts, setAllAppts] = useState<AppointmentItem[]>([]);
+  const [showApptForm, setShowApptForm] = useState(false);
+  const [editApptId, setEditApptId] = useState<string | null>(null);
+  const [apptDatetime, setApptDatetime] = useState("");
+  const [apptLocation, setApptLocation] = useState("");
+  const [apptNotes, setApptNotes] = useState("");
+  const [apptSaving, setApptSaving] = useState(false);
+  const [apptMsg, setApptMsg] = useState<string | null>(null);
 
   const loadDashboard = useCallback(async () => {
     if (!userId) {
@@ -259,6 +294,178 @@ export default function DashboardPage() {
     }
   }
 
+  // --- Profile CRUD handlers ---
+  function startEditProfile() {
+    if (!userProfile) return;
+    setProfileName(userProfile.name);
+    setProfileAge(String(userProfile.age));
+    setProfileTz(userProfile.timezone);
+    setProfileLang(userProfile.language_preference ?? "English");
+    setEditingProfile(true);
+    setProfileMsg(null);
+  }
+
+  async function handleSaveProfile() {
+    const ageNum = parseInt(profileAge, 10);
+    if (!profileName.trim() || isNaN(ageNum) || ageNum < 0 || ageNum > 120) {
+      setProfileMsg("Please enter a valid name and age (0–120).");
+      return;
+    }
+    setProfileSaving(true);
+    setProfileMsg(null);
+    try {
+      const updated = await api.updateUser(userId, {
+        name: profileName.trim(),
+        age: ageNum,
+        timezone: profileTz.trim(),
+        language_preference: profileLang.trim(),
+      });
+      setUserProfile(updated);
+      setEditingProfile(false);
+      setProfileMsg("Profile updated.");
+    } catch (e) {
+      setProfileMsg(safeMessage(e));
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  // --- Medications CRUD handlers ---
+  async function loadAllMeds() {
+    try {
+      const res = await api.getMedications(userId);
+      setAllMeds((res.items ?? []) as MedicationItem[]);
+    } catch { setAllMeds([]); }
+  }
+
+  function resetMedForm() {
+    setShowMedForm(false);
+    setEditMedId(null);
+    setMedName("");
+    setMedDose("");
+    setMedFreq("once_daily");
+    setMedTimes("08:00");
+    setMedWindow("120");
+    setMedCrit("medium");
+    setMedMsg(null);
+  }
+
+  function startEditMed(med: MedicationItem) {
+    setEditMedId(med.medication_id);
+    setMedName(med.name);
+    setMedDose(med.dose_text);
+    setMedFreq(med.schedule.frequency);
+    setMedTimes(med.schedule.times.join(", "));
+    setMedWindow(String(med.time_window_minutes));
+    setMedCrit(med.criticality);
+    setShowMedForm(true);
+    setMedMsg(null);
+  }
+
+  async function handleSaveMed() {
+    if (!medName.trim()) { setMedMsg("Name is required."); return; }
+    const times = medTimes.split(",").map(t => t.trim()).filter(Boolean);
+    const payload = {
+      name: medName.trim(),
+      dose_text: medDose.trim(),
+      schedule: { frequency: medFreq, times },
+      time_window_minutes: parseInt(medWindow, 10) || 120,
+      criticality: medCrit,
+    };
+    setMedSaving(true);
+    setMedMsg(null);
+    try {
+      if (editMedId) {
+        await api.updateMedication(userId, editMedId, payload);
+      } else {
+        await api.createMedication(userId, payload);
+      }
+      resetMedForm();
+      await loadAllMeds();
+    } catch (e) {
+      setMedMsg(safeMessage(e));
+    } finally {
+      setMedSaving(false);
+    }
+  }
+
+  async function handleDeleteMed(medId: string) {
+    try {
+      await api.deleteMedication(userId, medId);
+      await loadAllMeds();
+    } catch (e) {
+      setMedMsg(safeMessage(e));
+    }
+  }
+
+  // --- Appointments CRUD handlers ---
+  async function loadAllAppts() {
+    try {
+      const res = await api.getAllAppointments(userId);
+      setAllAppts(res.items ?? []);
+    } catch { setAllAppts([]); }
+  }
+
+  function resetApptForm() {
+    setShowApptForm(false);
+    setEditApptId(null);
+    setApptDatetime("");
+    setApptLocation("");
+    setApptNotes("");
+    setApptMsg(null);
+  }
+
+  function startEditAppt(appt: AppointmentItem) {
+    setEditApptId(appt.appointment_id);
+    setApptDatetime(appt.datetime.slice(0, 16)); // fit datetime-local input
+    setApptLocation(appt.location);
+    setApptNotes(appt.notes);
+    setShowApptForm(true);
+    setApptMsg(null);
+  }
+
+  async function handleSaveAppt() {
+    if (!apptDatetime) { setApptMsg("Date & time is required."); return; }
+    const payload = {
+      datetime: apptDatetime,
+      location: apptLocation.trim(),
+      notes: apptNotes.trim(),
+    };
+    setApptSaving(true);
+    setApptMsg(null);
+    try {
+      if (editApptId) {
+        await api.updateAppointment(userId, editApptId, payload);
+      } else {
+        await api.createAppointment(userId, payload);
+      }
+      resetApptForm();
+      await loadAllAppts();
+    } catch (e) {
+      setApptMsg(safeMessage(e));
+    } finally {
+      setApptSaving(false);
+    }
+  }
+
+  async function handleDeleteAppt(apptId: string) {
+    try {
+      await api.deleteAppointment(userId, apptId);
+      await loadAllAppts();
+    } catch (e) {
+      setApptMsg(safeMessage(e));
+    }
+  }
+
+  // Load meds & appts when switching to profile tab
+  useEffect(() => {
+    if (activeTab === "profile" && userId) {
+      void loadAllMeds();
+      void loadAllAppts();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, userId]);
+
   if (!userId) {
     return (
       <main className="demo-shell">
@@ -267,7 +474,7 @@ export default function DashboardPage() {
             <section className="card">
               <h2 className="auth-title">Invalid patient selection</h2>
               <p className="muted">No user id was provided in the dashboard route.</p>
-              <button type="button" onClick={() => router.push("/")}>Back to User Selection</button>
+              <button type="button" onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}>Sign Out</button>
             </section>
           </section>
         </div>
@@ -450,14 +657,146 @@ export default function DashboardPage() {
           ) : null}
 
           {activeTab === "profile" ? (
-            <section className="card">
-              <div className="card-title">Selected Profile</div>
-              <p className="muted">Name: {userProfile?.name ?? "-"}</p>
-              <p className="muted">Age: {userProfile?.age ?? "-"}</p>
-              <p className="muted">Timezone: {userProfile?.timezone ?? "-"}</p>
-              <p className="muted">User ID: {userId}</p>
-              <button type="button" className="secondary-button" onClick={() => router.push("/")}>Switch Patient</button>
-            </section>
+            <>
+              {/* --- Profile Section --- */}
+              <section className="card">
+                <div className="card-row">
+                  <div className="card-title">Patient Profile</div>
+                  {!editingProfile ? (
+                    <button type="button" className="icon-button" onClick={startEditProfile}>Edit</button>
+                  ) : null}
+                </div>
+
+                {!editingProfile ? (
+                  <>
+                    <p className="muted">Name: {userProfile?.name ?? "-"}</p>
+                    <p className="muted">Age: {userProfile?.age ?? "-"}</p>
+                    <p className="muted">Timezone: {userProfile?.timezone ?? "-"}</p>
+                    <p className="muted">Language: {userProfile?.language_preference ?? "-"}</p>
+                    <p className="muted">User ID: {userId}</p>
+                  </>
+                ) : (
+                  <div className="form-group">
+                    <label className="form-label">Display Name</label>
+                    <input value={profileName} onChange={(e) => setProfileName(e.target.value)} />
+                    <label className="form-label">Age</label>
+                    <input type="number" min={0} max={120} value={profileAge} onChange={(e) => setProfileAge(e.target.value)} />
+                    <label className="form-label">Timezone</label>
+                    <input value={profileTz} onChange={(e) => setProfileTz(e.target.value)} />
+                    <label className="form-label">Language Preference</label>
+                    <input value={profileLang} onChange={(e) => setProfileLang(e.target.value)} />
+                    <button type="button" onClick={() => void handleSaveProfile()} disabled={profileSaving}>
+                      {profileSaving ? "Saving..." : "Save Profile"}
+                    </button>
+                    <button type="button" className="secondary-button" onClick={() => setEditingProfile(false)}>Cancel</button>
+                  </div>
+                )}
+                {profileMsg ? <p className="status-ok">{profileMsg}</p> : null}
+                <button type="button" className="secondary-button" onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}>Sign Out</button>
+              </section>
+
+              {/* --- Medications Section --- */}
+              <section className="card">
+                <div className="card-row">
+                  <div className="card-title">Medications</div>
+                  <button type="button" className="icon-button" onClick={() => { resetMedForm(); setShowMedForm(true); }}>+ Add</button>
+                </div>
+
+                {showMedForm ? (
+                  <div className="form-group">
+                    <label className="form-label">Medication Name</label>
+                    <input value={medName} onChange={(e) => setMedName(e.target.value)} placeholder="e.g. Amlodipine 5mg" />
+                    <label className="form-label">Dose Text</label>
+                    <input value={medDose} onChange={(e) => setMedDose(e.target.value)} placeholder="e.g. 5mg" />
+                    <label className="form-label">Frequency</label>
+                    <select value={medFreq} onChange={(e) => setMedFreq(e.target.value)}>
+                      <option value="once_daily">Once daily</option>
+                      <option value="twice_daily">Twice daily</option>
+                      <option value="thrice_daily">Thrice daily</option>
+                      <option value="as_needed">As needed</option>
+                    </select>
+                    <label className="form-label">Times (comma-separated, e.g. 08:00, 20:00)</label>
+                    <input value={medTimes} onChange={(e) => setMedTimes(e.target.value)} placeholder="08:00" />
+                    <label className="form-label">Window (minutes)</label>
+                    <input type="number" value={medWindow} onChange={(e) => setMedWindow(e.target.value)} />
+                    <label className="form-label">Criticality</label>
+                    <select value={medCrit} onChange={(e) => setMedCrit(e.target.value)}>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                    {medMsg ? <p className="status-error">{medMsg}</p> : null}
+                    <button type="button" onClick={() => void handleSaveMed()} disabled={medSaving}>
+                      {medSaving ? "Saving..." : editMedId ? "Update Medication" : "Add Medication"}
+                    </button>
+                    <button type="button" className="secondary-button" onClick={resetMedForm}>Cancel</button>
+                  </div>
+                ) : null}
+
+                {allMeds.length === 0 ? (
+                  <p className="muted">No medications added yet.</p>
+                ) : (
+                  <div className="item-list">
+                    {allMeds.map((med) => (
+                      <div key={med.medication_id} className="item-row">
+                        <div>
+                          <div className="item-name">{med.name}</div>
+                          <div className="muted">{med.dose_text} &middot; {med.schedule.frequency} &middot; {med.schedule.times.join(", ")} &middot; {med.criticality}</div>
+                        </div>
+                        <div className="item-actions">
+                          <button type="button" className="icon-button" onClick={() => startEditMed(med)}>Edit</button>
+                          <button type="button" className="icon-button danger-btn" onClick={() => void handleDeleteMed(med.medication_id)}>Del</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              {/* --- Appointments Section --- */}
+              <section className="card">
+                <div className="card-row">
+                  <div className="card-title">Appointments</div>
+                  <button type="button" className="icon-button" onClick={() => { resetApptForm(); setShowApptForm(true); }}>+ Add</button>
+                </div>
+
+                {showApptForm ? (
+                  <div className="form-group">
+                    <label className="form-label">Date &amp; Time</label>
+                    <input type="datetime-local" value={apptDatetime} onChange={(e) => setApptDatetime(e.target.value)} />
+                    <label className="form-label">Location</label>
+                    <input value={apptLocation} onChange={(e) => setApptLocation(e.target.value)} placeholder="e.g. Polyclinic" />
+                    <label className="form-label">Notes</label>
+                    <textarea value={apptNotes} onChange={(e) => setApptNotes(e.target.value)} placeholder="e.g. Follow-up visit" />
+                    {apptMsg ? <p className="status-error">{apptMsg}</p> : null}
+                    <button type="button" onClick={() => void handleSaveAppt()} disabled={apptSaving}>
+                      {apptSaving ? "Saving..." : editApptId ? "Update Appointment" : "Add Appointment"}
+                    </button>
+                    <button type="button" className="secondary-button" onClick={resetApptForm}>Cancel</button>
+                  </div>
+                ) : null}
+
+                {allAppts.length === 0 ? (
+                  <p className="muted">No appointments added yet.</p>
+                ) : (
+                  <div className="item-list">
+                    {allAppts.map((appt) => (
+                      <div key={appt.appointment_id} className="item-row">
+                        <div>
+                          <div className="item-name">{new Date(appt.datetime).toLocaleString()}</div>
+                          <div className="muted">{appt.location}{appt.notes ? ` — ${appt.notes}` : ""}</div>
+                        </div>
+                        <div className="item-actions">
+                          <button type="button" className="icon-button" onClick={() => startEditAppt(appt)}>Edit</button>
+                          <button type="button" className="icon-button danger-btn" onClick={() => void handleDeleteAppt(appt.appointment_id)}>Del</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {apptMsg && !showApptForm ? <p className="status-error">{apptMsg}</p> : null}
+              </section>
+            </>
           ) : null}
         </section>
 

@@ -8,7 +8,8 @@ from typing import Any, Dict
 
 from fastapi import HTTPException
 
-from app.db import DB
+from app.db import SessionLocal
+from app.models import Appointment, User
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -20,14 +21,16 @@ def _as_utc(dt: datetime) -> datetime:
 
 def get_upcoming_appointments(user_id: str) -> Dict[str, Any]:
     """Return the next upcoming appointment and remaining days."""
-    if user_id not in DB["users"]:
-        raise HTTPException(status_code=404, detail="User not found")
+    with SessionLocal() as db:
+        user = db.query(User).filter_by(user_id=user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        appts = db.query(Appointment).filter_by(user_id=user_id).all()
+        appt_dicts = [a.to_dict() for a in appts]
 
     now_utc = datetime.now(timezone.utc)
     appointments: list[tuple[Dict[str, Any], datetime]] = []
-    for appt in DB["appointments"].values():
-        if appt.get("user_id") != user_id:
-            continue
+    for appt in appt_dicts:
         appt_dt = datetime.fromisoformat(appt["datetime"])
         appt_utc = _as_utc(appt_dt)
         if appt_utc >= now_utc:

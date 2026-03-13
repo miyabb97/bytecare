@@ -6,7 +6,8 @@ from typing import Any, Dict
 
 from fastapi import HTTPException
 
-from app.db import DB
+from app.db import SessionLocal
+from app.models import User
 from app.services.agent_engine import determine_next_action
 from app.services.drift_engine import detect_adherence_drift
 from app.services.meralion_client import MeralionClient, MeralionClientError
@@ -63,9 +64,11 @@ def _rewrite_summary_for_clinician(raw_summary: str) -> str:
 
 def generate_report_summary(user_id: str) -> Dict[str, Any]:
     """Generate structured clinician report summary from backend rule outputs."""
-    user = DB["users"].get(user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    with SessionLocal() as db:
+        user_obj = db.query(User).filter_by(user_id=user_id).first()
+        if not user_obj:
+            raise HTTPException(status_code=404, detail="User not found")
+        user = user_obj.to_dict()
 
     drift = detect_adherence_drift(user_id)
     next_action_payload = determine_next_action(user_id)

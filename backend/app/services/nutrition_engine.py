@@ -6,7 +6,8 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from app.db import DB
+from app.db import SessionLocal
+from app.models import Medication, User
 
 
 DIABETES_HINTS = {"diabetes", "insulin", "metformin", "humulin"}
@@ -27,7 +28,8 @@ LOW_SODIUM_RECOMMENDATIONS = [
 
 
 def _infer_conditions(user_id: str) -> List[str]:
-    meds = [m.get("name", "").lower() for m in DB["medications"].values() if m.get("user_id") == user_id]
+    with SessionLocal() as db:
+        meds = [m.name.lower() for m in db.query(Medication).filter_by(user_id=user_id).all()]
     inferred: List[str] = []
 
     if any(any(hint in med for hint in DIABETES_HINTS) for med in meds):
@@ -41,7 +43,9 @@ def _infer_conditions(user_id: str) -> List[str]:
 
 def recommend_food(user_id: str) -> Dict[str, Any]:
     """Recommend food options based on user condition heuristics."""
-    if user_id not in DB["users"]:
+    with SessionLocal() as db:
+        user = db.query(User).filter_by(user_id=user_id).first()
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     inferred = _infer_conditions(user_id)

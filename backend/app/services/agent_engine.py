@@ -7,7 +7,8 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from app.db import DB
+from app.db import SessionLocal
+from app.models import MesScore, User
 from app.services.drift_engine import detect_adherence_drift
 
 
@@ -17,19 +18,20 @@ def _recent_mes_values(user_id: str) -> List[float]:
     lower = today - timedelta(days=7)
     upper = today - timedelta(days=1)
 
+    with SessionLocal() as db:
+        scores = db.query(MesScore).filter_by(user_id=user_id).all()
+
     values: List[float] = []
-    for item in DB["mes_scores"]:
-        if item.get("user_id") != user_id:
-            continue
-        scheduled_dt = item.get("scheduled_datetime")
+    for item in scores:
+        scheduled_dt = item.scheduled_datetime
         if not scheduled_dt:
             continue
         scheduled_date = datetime.fromisoformat(scheduled_dt).date()
         if lower <= scheduled_date <= upper:
-            values.append(float(item.get("mes", 0)))
+            values.append(float(item.mes))
 
     if not values:
-        fallback = [float(item.get("mes", 0)) for item in DB["mes_scores"] if item.get("user_id") == user_id]
+        fallback = [float(item.mes) for item in scores]
         return fallback
     return values
 
@@ -87,7 +89,9 @@ def _suggested_message_for_action(action: str) -> str:
 
 def determine_next_action(user_id: str) -> Dict[str, Any]:
     """Determine next action using MES tier + drift severity floor."""
-    if user_id not in DB["users"]:
+    with SessionLocal() as db:
+        user = db.query(User).filter_by(user_id=user_id).first()
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     values = _recent_mes_values(user_id)

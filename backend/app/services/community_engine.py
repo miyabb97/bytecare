@@ -7,12 +7,15 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from app.db import DB
+from app.db import SessionLocal
+from app.models import User
 
 
 def recommend_community_events(user_id: str) -> Dict[str, Any]:
     """Return simple community event suggestions for social engagement."""
-    if user_id not in DB["users"]:
+    with SessionLocal() as db:
+        user = db.query(User).filter_by(user_id=user_id).first()
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     base_date = datetime.now().date()

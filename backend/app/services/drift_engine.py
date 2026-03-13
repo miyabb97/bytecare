@@ -7,7 +7,8 @@ from typing import Any, Dict, List, Tuple
 
 from fastapi import HTTPException
 
-from app.db import DB
+from app.db import SessionLocal
+from app.models import DoseEvent, Medication, MesScore, User
 
 
 def _parse_hhmm(hhmm: str) -> Tuple[int, int]:
@@ -35,16 +36,17 @@ def _avg_mes_last_7_days(user_id: str) -> float:
     lower = today - timedelta(days=7)
     upper = today - timedelta(days=1)
 
+    with SessionLocal() as db:
+        scores = db.query(MesScore).filter_by(user_id=user_id).all()
+
     values: List[float] = []
-    for item in DB["mes_scores"]:
-        if item.get("user_id") != user_id:
-            continue
-        scheduled_dt = item.get("scheduled_datetime")
+    for item in scores:
+        scheduled_dt = item.scheduled_datetime
         if not scheduled_dt:
             continue
         scheduled_date = datetime.fromisoformat(scheduled_dt).date()
         if lower <= scheduled_date <= upper:
-            values.append(float(item.get("mes", 0)))
+            values.append(float(item.mes))
 
     if not values:
         return 100.0
@@ -53,8 +55,13 @@ def _avg_mes_last_7_days(user_id: str) -> float:
 
 def detect_adherence_drift(user_id: str) -> Dict[str, Any]:
     """Detect adherence drift for a user using missed doses, late doses, and MES average."""
-    if user_id not in DB["users"]:
-        raise HTTPException(status_code=404, detail="User not found")
+    with SessionLocal() as db:
+        user = db.query(User).filter_by(user_id=user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        meds = [m.to_dict() for m in db.query(Medication).filter_by(user_id=user_id).all()]
+        dose_events = [e.to_dict() for e in db.query(DoseEvent).filter_by(user_id=user_id).all()]
 
     today = datetime.now().date()
     lower = today - timedelta(days=7)
@@ -62,16 +69,14 @@ def detect_adherence_drift(user_id: str) -> Dict[str, Any]:
 
     missed_doses = 0
     late_doses = 0
-    meds = [m for m in DB["medications"].values() if m.get("user_id") == user_id]
 
     for med in meds:
         med_id = med.get("medication_id")
         scheduled = _scheduled_datetimes_last_7_days(med)
         events = [
             datetime.fromisoformat(ev["timestamp"])
-            for ev in DB["dose_events"]
-            if ev.get("user_id") == user_id
-            and ev.get("medication_id") == med_id
+            for ev in dose_events
+            if ev.get("medication_id") == med_id
             and lower <= datetime.fromisoformat(ev["timestamp"]).date() <= upper
         ]
         used = [False] * len(events)

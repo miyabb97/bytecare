@@ -1,16 +1,26 @@
 """Main FastAPI application entry point."""
 from __future__ import annotations
 
-from datetime import datetime
+import json
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
-
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
-from datetime import timedelta
 import random
 
-from app.db import DB
+from fastapi import Depends, FastAPI, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from app.db import SessionLocal, _hash_password, get_db, init_db
+from app.models import (
+    Account,
+    Appointment,
+    DoseEvent,
+    Medication,
+    MesScore,
+    Simulation,
+    User,
+)
 from app.routers.agent import router as agent_router
 from app.routers.appointments import router as appointments_router
 from app.routers.chat import router as chat_router
@@ -23,6 +33,109 @@ from app.routers.voice import router as voice_router
 
 app = FastAPI(title="ByteCare API", version="0.1.0")
 
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
+
+
+# -------------------------
+# Auth Models
+# -------------------------
+
+class SignUpRequest(BaseModel):
+    name: str
+    email: str
+    password: str = Field(min_length=6)
+    role: Literal["patient", "caregiver"]
+
+
+class SignInRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AccountOut(BaseModel):
+    account_id: str
+    name: str
+    email: str
+    role: str
+    user_id: Optional[str] = None
+
+
+# -------------------------
+# Auth Routes
+# -------------------------
+
+@app.post("/api/v1/auth/signup", response_model=AccountOut, status_code=201)
+def sign_up(payload: SignUpRequest, db: Session = Depends(get_db)):
+    email = payload.email.strip().lower()
+    existing = db.query(Account).filter_by(email=email).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Email already registered")
+    account_id = str(uuid4())
+    account = Account(
+        account_id=account_id,
+        name=payload.name.strip(),
+        email=email,
+        password_hash=_hash_password(payload.password),
+        role=payload.role,
+    )
+    db.add(account)
+
+    # Auto-create a linked patient profile
+    user_id = str(uuid4())
+    user = User(
+        user_id=user_id,
+        account_id=account_id,
+        name=payload.name.strip(),
+        age=0,
+        timezone="Asia/Singapore",
+        language_preference="English",
+        created_at=datetime.utcnow().isoformat(),
+    )
+    db.add(user)
+    db.commit()
+    return AccountOut(account_id=account_id, name=account.name, email=email, role=payload.role, user_id=user_id)
+
+
+@app.post("/api/v1/auth/signin", response_model=AccountOut)
+def sign_in(payload: SignInRequest, db: Session = Depends(get_db)):
+    email = payload.email.strip().lower()
+    account = db.query(Account).filter_by(email=email).first()
+    if not account or account.password_hash != _hash_password(payload.password):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    # Look up linked user profile
+    linked_user = db.query(User).filter_by(account_id=account.account_id).first()
+    return AccountOut(
+        account_id=account.account_id,
+        name=account.name,
+        email=account.email,
+        role=account.role,
+        user_id=linked_user.user_id if linked_user else None,
+    )
+
+
+@app.get("/api/v1/auth/me")
+def get_current_account(account_id: str, db: Session = Depends(get_db)):
+    account = db.query(Account).filter_by(account_id=account_id).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return AccountOut(
+        account_id=account.account_id,
+        name=account.name,
+        email=account.email,
+        role=account.role,
+    )
+
 
 # -------------------------
 # Models (MVP)
@@ -32,6 +145,14 @@ class UserCreate(BaseModel):
     name: str
     age: int = Field(ge=0, le=120)
     timezone: str = "Asia/Singapore"
+    language_preference: str = "English"
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    age: Optional[int] = Field(default=None, ge=0, le=120)
+    timezone: Optional[str] = None
+    language_preference: Optional[str] = None
 
 
 class UserOut(BaseModel):
@@ -39,12 +160,13 @@ class UserOut(BaseModel):
     name: str
     age: int
     timezone: str
+    language_preference: str
     created_at: str
 
 
 class Schedule(BaseModel):
     frequency: Literal["once_daily", "twice_daily", "thrice_daily", "as_needed"]
-    times: List[str] = Field(default_factory=list)  # ["08:00", "20:00"]
+    times: List[str] = Field(default_factory=list)
 
 
 class MedicationCreate(BaseModel):
@@ -96,13 +218,9 @@ def parse_hhmm(hhmm: str) -> tuple[int, int]:
 
 
 def scheduled_datetimes_for_med(days: int, med: Dict[str, Any]) -> List[datetime]:
-    """
-    Generate scheduled dose datetimes counting backwards from now for the last N days.
-    """
     result = []
     now = datetime.now()
     times = med["schedule"]["times"]
-
     for day_offset in range(days, 0, -1):
         base_date = (now - timedelta(days=day_offset)).date()
         for t in times:
@@ -112,49 +230,47 @@ def scheduled_datetimes_for_med(days: int, med: Dict[str, Any]) -> List[datetime
 
 
 def nearest_event_for_schedule(
+    db: Session,
     user_id: str,
     medication_id: str,
     scheduled_dt: datetime,
-    window_minutes: int
+    window_minutes: int,
 ) -> Optional[Dict[str, Any]]:
-    """
-    Find the nearest matching dose event within the same day and return it.
-    """
+    events = (
+        db.query(DoseEvent)
+        .filter_by(user_id=user_id, medication_id=medication_id)
+        .all()
+    )
     candidates = []
-    for ev in DB["dose_events"]:
-        if ev["user_id"] != user_id or ev["medication_id"] != medication_id:
-            continue
-        ev_dt = datetime.fromisoformat(ev["timestamp"])
+    for ev in events:
+        ev_dt = datetime.fromisoformat(ev.timestamp)
         if ev_dt.date() != scheduled_dt.date():
             continue
         diff_minutes = abs((ev_dt - scheduled_dt).total_seconds()) / 60
-        candidates.append((diff_minutes, ev))
+        candidates.append((diff_minutes, ev.to_dict()))
 
     if not candidates:
         return None
 
     candidates.sort(key=lambda x: x[0])
-    diff, ev = candidates[0]
-    ev = {**ev, "_diff_minutes": diff, "_within_window": diff <= window_minutes}
-    return ev
+    diff, ev_dict = candidates[0]
+    ev_dict["_diff_minutes"] = diff
+    ev_dict["_within_window"] = diff <= window_minutes
+    return ev_dict
 
 
 def compute_mes_for_scheduled_dose(
+    db: Session,
     user_id: str,
     med: Dict[str, Any],
-    scheduled_dt: datetime
+    scheduled_dt: datetime,
 ) -> Dict[str, Any]:
-    """
-    Exact MES algorithm for MVP.
-    Score range: 0-100
-    """
     score = 0
     explanations = []
 
     window_minutes = med["time_window_minutes"]
-    event = nearest_event_for_schedule(user_id, med["medication_id"], scheduled_dt, window_minutes)
+    event = nearest_event_for_schedule(db, user_id, med["medication_id"], scheduled_dt, window_minutes)
 
-    # 1. Dose event evidence
     if event:
         if event["event_type"] == "pillbox_open":
             score += 50
@@ -166,7 +282,6 @@ def compute_mes_for_scheduled_dose(
             score += 30
             explanations.append("voice confirmation recorded")
 
-        # 2. Timing consistency
         diff = event["_diff_minutes"]
         if diff <= 30:
             score += 20
@@ -180,31 +295,22 @@ def compute_mes_for_scheduled_dose(
     else:
         explanations.append("no supporting event found")
 
-    # 3. Behavioural penalty: missed streak in last 7 days
-    recent_events = [
-        ev for ev in DB["dose_events"]
-        if ev["user_id"] == user_id and ev["medication_id"] == med["medication_id"]
-    ]
+    recent_events = (
+        db.query(DoseEvent)
+        .filter_by(user_id=user_id, medication_id=med["medication_id"])
+        .all()
+    )
     recent_dates = {
-        datetime.fromisoformat(ev["timestamp"]).date()
-        for ev in recent_events
+        datetime.fromisoformat(ev.timestamp).date() for ev in recent_events
     }
-
     last_7_days = [
-        (datetime.now().date() - timedelta(days=i))
-        for i in range(1, 8)
+        (datetime.now().date() - timedelta(days=i)) for i in range(1, 8)
     ]
-
-    missed_days = 0
-    for d in last_7_days:
-        if d not in recent_dates:
-            missed_days += 1
-
+    missed_days = sum(1 for d in last_7_days if d not in recent_dates)
     if missed_days >= 3:
         score -= 10
         explanations.append("missed streak penalty applied")
 
-    # Clamp 0-100
     score = max(0, min(100, score))
 
     return {
@@ -217,25 +323,32 @@ def compute_mes_for_scheduled_dose(
     }
 
 
-def recompute_mes_for_user(user_id: str, days: int = 14) -> List[Dict[str, Any]]:
-    """
-    Recompute MES timeline for all medications for a user.
-    """
-    meds = [m for m in DB["medications"].values() if m["user_id"] == user_id]
+def recompute_mes_for_user(db: Session, user_id: str, days: int = 14) -> List[Dict[str, Any]]:
+    meds = db.query(Medication).filter_by(user_id=user_id).all()
+    med_dicts = [m.to_dict() for m in meds]
     results = []
 
-    for med in meds:
+    for med in med_dicts:
         schedules = scheduled_datetimes_for_med(days, med)
         for scheduled_dt in schedules:
-            results.append(compute_mes_for_scheduled_dose(user_id, med, scheduled_dt))
+            results.append(compute_mes_for_scheduled_dose(db, user_id, med, scheduled_dt))
 
-    DB["mes_scores"] = [x for x in DB["mes_scores"] if x["user_id"] != user_id]
-    DB["mes_scores"].extend(results)
-
+    db.query(MesScore).filter_by(user_id=user_id).delete()
+    for r in results:
+        db.add(MesScore(
+            user_id=r["user_id"],
+            medication_id=r["medication_id"],
+            scheduled_datetime=r["scheduled_datetime"],
+            mes=r["mes"],
+            explanations_json=json.dumps(r["explanations"]),
+            computed_at=r["computed_at"],
+        ))
+    db.commit()
     return results
 
-def get_user_or_404(user_id: str) -> Dict[str, Any]:
-    u = DB["users"].get(user_id)
+
+def get_user_or_404(db: Session, user_id: str) -> User:
+    u = db.query(User).filter_by(user_id=user_id).first()
     if not u:
         raise HTTPException(status_code=404, detail="User not found")
     return u
@@ -251,86 +364,180 @@ def health():
 
 
 @app.post("/api/v1/users", response_model=UserOut, status_code=201)
-def create_user(payload: UserCreate):
+def create_user(payload: UserCreate, db: Session = Depends(get_db)):
     user_id = str(uuid4())
-    user = {
-        "user_id": user_id,
-        "name": payload.name,
-        "age": payload.age,
-        "timezone": payload.timezone,
-        "created_at": now_iso(),
-    }
-    DB["users"][user_id] = user
-    return user
+    user = User(
+        user_id=user_id,
+        name=payload.name,
+        age=payload.age,
+        timezone=payload.timezone,
+        language_preference=payload.language_preference,
+        created_at=now_iso(),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user.to_dict()
 
 
 @app.get("/api/v1/users")
-def list_users():
-    items = sorted(DB["users"].values(), key=lambda x: x.get("created_at", ""))
-    return {"items": items}
+def list_users(db: Session = Depends(get_db)):
+    items = db.query(User).order_by(User.created_at).all()
+    return {"items": [u.to_dict() for u in items]}
 
 
 @app.get("/api/v1/users/{user_id}", response_model=UserOut)
-def get_user(user_id: str):
-    return get_user_or_404(user_id)
+def get_user(user_id: str, db: Session = Depends(get_db)):
+    return get_user_or_404(db, user_id).to_dict()
+
+
+@app.put("/api/v1/users/{user_id}", response_model=UserOut)
+def update_user(user_id: str, payload: UserUpdate, db: Session = Depends(get_db)):
+    user = get_user_or_404(db, user_id)
+    updates = payload.model_dump(exclude_none=True)
+    for key, value in updates.items():
+        setattr(user, key, value)
+    db.commit()
+    db.refresh(user)
+    return user.to_dict()
 
 
 @app.post("/api/v1/users/{user_id}/medications", response_model=MedicationOut, status_code=201)
-def add_medication(user_id: str, payload: MedicationCreate):
-    get_user_or_404(user_id)
+def add_medication(user_id: str, payload: MedicationCreate, db: Session = Depends(get_db)):
+    get_user_or_404(db, user_id)
     med_id = str(uuid4())
-    med = {
-        "medication_id": med_id,
-        "user_id": user_id,
-        "name": payload.name,
-        "dose_text": payload.dose_text,
-        "schedule": payload.schedule.model_dump(),
-        "time_window_minutes": payload.time_window_minutes,
-        "criticality": payload.criticality,
-        "created_at": now_iso(),
-    }
-    DB["medications"][med_id] = med
-    return med
+    med = Medication(
+        medication_id=med_id,
+        user_id=user_id,
+        name=payload.name,
+        dose_text=payload.dose_text,
+        schedule_json=json.dumps(payload.schedule.model_dump()),
+        time_window_minutes=payload.time_window_minutes,
+        criticality=payload.criticality,
+        created_at=now_iso(),
+    )
+    db.add(med)
+    db.commit()
+    db.refresh(med)
+    return med.to_dict()
 
 
 @app.get("/api/v1/users/{user_id}/medications")
-def list_medications(user_id: str):
-    get_user_or_404(user_id)
-    items = [m for m in DB["medications"].values() if m["user_id"] == user_id]
-    return {"items": items}
+def list_medications(user_id: str, db: Session = Depends(get_db)):
+    get_user_or_404(db, user_id)
+    items = db.query(Medication).filter_by(user_id=user_id).all()
+    return {"items": [m.to_dict() for m in items]}
+
+
+@app.get("/api/v1/users/{user_id}/medications/{medication_id}", response_model=MedicationOut)
+def get_medication(user_id: str, medication_id: str, db: Session = Depends(get_db)):
+    get_user_or_404(db, user_id)
+    med = db.query(Medication).filter_by(medication_id=medication_id, user_id=user_id).first()
+    if not med:
+        raise HTTPException(status_code=404, detail="Medication not found")
+    return med.to_dict()
+
+
+@app.put("/api/v1/users/{user_id}/medications/{medication_id}", response_model=MedicationOut)
+def update_medication(user_id: str, medication_id: str, payload: MedicationCreate, db: Session = Depends(get_db)):
+    get_user_or_404(db, user_id)
+    med = db.query(Medication).filter_by(medication_id=medication_id, user_id=user_id).first()
+    if not med:
+        raise HTTPException(status_code=404, detail="Medication not found")
+    med.name = payload.name
+    med.dose_text = payload.dose_text
+    med.schedule_json = json.dumps(payload.schedule.model_dump())
+    med.time_window_minutes = payload.time_window_minutes
+    med.criticality = payload.criticality
+    db.commit()
+    db.refresh(med)
+    return med.to_dict()
+
+
+@app.delete("/api/v1/users/{user_id}/medications/{medication_id}", status_code=204)
+def delete_medication(user_id: str, medication_id: str, db: Session = Depends(get_db)):
+    get_user_or_404(db, user_id)
+    med = db.query(Medication).filter_by(medication_id=medication_id, user_id=user_id).first()
+    if not med:
+        raise HTTPException(status_code=404, detail="Medication not found")
+    db.delete(med)
+    db.commit()
+    return None
 
 
 @app.post("/api/v1/users/{user_id}/appointments", response_model=AppointmentOut, status_code=201)
-def add_appointment(user_id: str, payload: AppointmentCreate):
-    get_user_or_404(user_id)
+def add_appointment(user_id: str, payload: AppointmentCreate, db: Session = Depends(get_db)):
+    get_user_or_404(db, user_id)
     appt_id = str(uuid4())
-    appt = {
-        "appointment_id": appt_id,
-        "user_id": user_id,
-        "datetime": payload.datetime,
-        "location": payload.location,
-        "notes": payload.notes,
-        "created_at": now_iso(),
-    }
-    DB["appointments"][appt_id] = appt
-    return appt
+    appt = Appointment(
+        appointment_id=appt_id,
+        user_id=user_id,
+        datetime_str=payload.datetime,
+        location=payload.location,
+        notes=payload.notes,
+        created_at=now_iso(),
+    )
+    db.add(appt)
+    db.commit()
+    db.refresh(appt)
+    return appt.to_dict()
+
+
+@app.get("/api/v1/users/{user_id}/appointments/all")
+def list_all_appointments(user_id: str, db: Session = Depends(get_db)):
+    get_user_or_404(db, user_id)
+    items = db.query(Appointment).filter_by(user_id=user_id).all()
+    return {"items": [a.to_dict() for a in items]}
+
+
+@app.get("/api/v1/users/{user_id}/appointments/{appointment_id}", response_model=AppointmentOut)
+def get_appointment(user_id: str, appointment_id: str, db: Session = Depends(get_db)):
+    get_user_or_404(db, user_id)
+    appt = db.query(Appointment).filter_by(appointment_id=appointment_id, user_id=user_id).first()
+    if not appt:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    return appt.to_dict()
+
+
+@app.put("/api/v1/users/{user_id}/appointments/{appointment_id}", response_model=AppointmentOut)
+def update_appointment(user_id: str, appointment_id: str, payload: AppointmentCreate, db: Session = Depends(get_db)):
+    get_user_or_404(db, user_id)
+    appt = db.query(Appointment).filter_by(appointment_id=appointment_id, user_id=user_id).first()
+    if not appt:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    appt.datetime_str = payload.datetime
+    appt.location = payload.location
+    appt.notes = payload.notes
+    db.commit()
+    db.refresh(appt)
+    return appt.to_dict()
+
+
+@app.delete("/api/v1/users/{user_id}/appointments/{appointment_id}", status_code=204)
+def delete_appointment(user_id: str, appointment_id: str, db: Session = Depends(get_db)):
+    get_user_or_404(db, user_id)
+    appt = db.query(Appointment).filter_by(appointment_id=appointment_id, user_id=user_id).first()
+    if not appt:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    db.delete(appt)
+    db.commit()
+    return None
 
 
 @app.post("/api/v1/users/{user_id}/simulate/pillbox")
-@app.post("/api/v1/users/{user_id}/simulate/pillbox")
-def simulate_pillbox(user_id: str, payload: SimulatorRun):
-    get_user_or_404(user_id)
-    meds = [m for m in DB["medications"].values() if m["user_id"] == user_id]
+def simulate_pillbox(user_id: str, payload: SimulatorRun, db: Session = Depends(get_db)):
+    get_user_or_404(db, user_id)
+    meds = [m.to_dict() for m in db.query(Medication).filter_by(user_id=user_id).all()]
 
     rng = random.Random(payload.seed)
-    DB["dose_events"] = [ev for ev in DB["dose_events"] if ev["user_id"] != user_id]
+
+    # Clear old dose events for this user
+    db.query(DoseEvent).filter_by(user_id=user_id).delete()
 
     missed_doses = 0
     late_doses = 0
     events_created = 0
     total_scheduled_doses = 0
-
-    now = datetime.now()
 
     for med in meds:
         schedules = scheduled_datetimes_for_med(payload.days, med)
@@ -338,9 +545,6 @@ def simulate_pillbox(user_id: str, payload: SimulatorRun):
         for idx, scheduled_dt in enumerate(schedules):
             total_scheduled_doses += 1
 
-            # travel_confusion pattern:
-            # first week mostly adherent
-            # second week some missed + late doses
             if payload.pattern == "travel_confusion":
                 if idx >= len(schedules) // 2:
                     roll = rng.random()
@@ -365,28 +569,38 @@ def simulate_pillbox(user_id: str, payload: SimulatorRun):
                 else:
                     ev_dt = scheduled_dt + timedelta(minutes=rng.randint(0, 20))
 
-            DB["dose_events"].append({
-                "event_id": str(uuid4()),
-                "user_id": user_id,
-                "medication_id": med["medication_id"],
-                "event_type": "pillbox_open",
-                "source": "simulator",
-                "timestamp": ev_dt.isoformat(timespec="seconds"),
-                "created_at": now_iso(),
-            })
+            db.add(DoseEvent(
+                event_id=str(uuid4()),
+                user_id=user_id,
+                medication_id=med["medication_id"],
+                event_type="pillbox_open",
+                source="simulator",
+                timestamp=ev_dt.isoformat(timespec="seconds"),
+                created_at=now_iso(),
+            ))
             events_created += 1
 
-    sim = {
-        "user_id": user_id,
-        "days": payload.days,
-        "seed": payload.seed,
-        "pattern": payload.pattern,
-        "total_medications": len(meds),
-        "created_at": now_iso(),
-    }
-    DB["simulations"][user_id] = sim
+    # Upsert simulation record
+    existing_sim = db.query(Simulation).filter_by(user_id=user_id).first()
+    if existing_sim:
+        existing_sim.days = payload.days
+        existing_sim.seed = payload.seed
+        existing_sim.pattern = payload.pattern
+        existing_sim.total_medications = len(meds)
+        existing_sim.created_at = now_iso()
+    else:
+        db.add(Simulation(
+            user_id=user_id,
+            days=payload.days,
+            seed=payload.seed,
+            pattern=payload.pattern,
+            total_medications=len(meds),
+            created_at=now_iso(),
+        ))
 
-    recompute_mes_for_user(user_id, payload.days)
+    db.commit()
+
+    recompute_mes_for_user(db, user_id, payload.days)
 
     return {
         "generated_days": payload.days,
@@ -396,15 +610,17 @@ def simulate_pillbox(user_id: str, payload: SimulatorRun):
         "late_doses": late_doses,
     }
 
+
 @app.get("/api/v1/users/{user_id}/mes")
-def get_mes(user_id: str):
-    get_user_or_404(user_id)
+def get_mes(user_id: str, db: Session = Depends(get_db)):
+    get_user_or_404(db, user_id)
 
-    results = [x for x in DB["mes_scores"] if x["user_id"] == user_id]
-    if not results:
-        results = recompute_mes_for_user(user_id, days=14)
+    scores = db.query(MesScore).filter_by(user_id=user_id).all()
+    if not scores:
+        results = recompute_mes_for_user(db, user_id, days=14)
+        return {"items": results}
 
-    return {"items": results}
+    return {"items": [s.to_dict() for s in scores]}
 
 
 app.include_router(drift_router, prefix="/api/v1")
