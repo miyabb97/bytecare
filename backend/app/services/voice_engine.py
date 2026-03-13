@@ -137,3 +137,91 @@ def analyze_transcript(user_id: str, transcript: str) -> Dict[str, str]:
         db.commit()
 
     return result
+
+
+# ─── Voice Agent (Singlish chat) ───────────────────────────
+
+_SINGLISH_REPLIES = {
+    "missed_medication": (
+        "Aiyoh, looks like you missed your medicine today lah. "
+        "No worries, take it now if you can. "
+        "Next time set alarm on your phone, confirm won't forget one!"
+    ),
+    "side_effect_concern": (
+        "Wah, sorry to hear you not feeling well leh. "
+        "Side effects can happen sometimes. "
+        "If it doesn't get better, better go see your doctor, okay?"
+    ),
+    "schedule_help": (
+        "Sure can! Let me check your schedule ah. "
+        "Remember to take your medicine on time every day. "
+        "I'm here to help you keep track, don't worry!"
+    ),
+    "general_check_in": (
+        "Hello! How are you today? "
+        "Hope you're taking your medicine on time. "
+        "If got anything bothering you, just let me know lah!"
+    ),
+}
+
+
+def _build_singlish_prompt(user_name: str, message: str) -> str:
+    return (
+        "You are ByteCare, a friendly medication safety assistant in Singapore. "
+        "You speak in a warm, casual Singlish tone (use lah, leh, lor, aiyoh naturally). "
+        "Rules: "
+        "1) Do NOT give medical diagnosis or recommend medication changes. "
+        "2) If asked about diagnosis or changing meds, advise to see doctor. "
+        "3) Be supportive, encouraging, and concise (2-3 sentences max). "
+        "4) Use simple English suitable for elderly Singaporean users. "
+        "5) Sound like a caring friend, not a robot.\n\n"
+        f"Patient name: {user_name}\n"
+        f"Patient says: {message}\n\n"
+        "Reply in Singlish tone:"
+    )
+
+
+def voice_agent_reply(user_id: str, message: str) -> Dict[str, Any]:
+    """Generate a Singlish-friendly voice agent reply."""
+    with SessionLocal() as db:
+        user_obj = db.query(User).filter_by(user_id=user_id).first()
+        if not user_obj:
+            raise HTTPException(status_code=404, detail="User not found")
+        user_name = user_obj.name
+
+    # Try MERaLiON first
+    client = MeralionClient()
+    if client.enabled:
+        prompt = _build_singlish_prompt(user_name, message)
+        try:
+            reply = client.chat(prompt, hyperparameters={"temperature": 0.4, "topP": 0.9})
+            return {"reply": reply, "source": "meralion"}
+        except MeralionClientError:
+            pass
+
+    # Rule-based fallback with Singlish tone
+    analysis = _rule_based_analysis(message)
+    intent = analysis["intent"]
+    reply = _SINGLISH_REPLIES.get(intent, _SINGLISH_REPLIES["general_check_in"])
+
+    # Personalize with name
+    if user_name and user_name != "Patient":
+        reply = f"{user_name} ah, " + reply[0].lower() + reply[1:]
+
+    return {"reply": reply, "source": "rule_based"}
+
+
+# ─── Text-to-Speech ────────────────────────────────────────
+
+def text_to_speech(text: str) -> bytes:
+    """Convert text to MP3 audio bytes using gTTS."""
+    try:
+        from gtts import gTTS
+        tts = gTTS(text=text, lang="en", slow=False)
+        buf = __import__("io").BytesIO()
+        tts.write_to_fp(buf)
+        buf.seek(0)
+        return buf.read()
+    except Exception:
+        # Return empty bytes if TTS fails
+        return b""

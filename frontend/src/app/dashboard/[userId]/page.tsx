@@ -18,6 +18,7 @@ import {
   type ReportSummaryResponse,
   type TCMResponse,
   type UserProfile,
+  type VoiceAgentResponse,
   type VoiceResponse
 } from "../../../lib/api";
 
@@ -86,10 +87,22 @@ export default function DashboardPage() {
   const [voiceLoading, setVoiceLoading] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
 
-  const [herb, setHerb] = useState("ginseng");
+  const [herb, setHerb] = useState("");
   const [tcmResult, setTCMResult] = useState<TCMResponse | null>(null);
   const [tcmLoading, setTCMLoading] = useState(false);
   const [tcmError, setTCMError] = useState<string | null>(null);
+  const [tcmImageFile, setTcmImageFile] = useState<File | null>(null);
+  const [tcmMode, setTcmMode] = useState<"manual" | "image">("manual");
+  const [tcmAudioUrl, setTcmAudioUrl] = useState<string | null>(null);
+  const [tcmAudioLoading, setTcmAudioLoading] = useState(false);
+
+  // --- Voice Agent state ---
+  const [vaMessage, setVaMessage] = useState("");
+  const [vaReply, setVaReply] = useState<string | null>(null);
+  const [vaLoading, setVaLoading] = useState(false);
+  const [vaError, setVaError] = useState<string | null>(null);
+  const [vaAudioUrl, setVaAudioUrl] = useState<string | null>(null);
+  const [vaAudioLoading, setVaAudioLoading] = useState(false);
 
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
@@ -258,21 +271,74 @@ export default function DashboardPage() {
   }
 
   async function handleTCMCheck() {
-    const herbText = herb.trim();
-    if (!herbText || !userId) {
-      return;
-    }
-
+    if (!userId) return;
     setTCMLoading(true);
     setTCMError(null);
+    setTCMResult(null);
+    setTcmAudioUrl(null);
 
     try {
-      const response = await api.postTCMCheck(userId, herbText);
+      let response: TCMResponse;
+      if (tcmMode === "image" && tcmImageFile) {
+        response = await api.postTCMScan(userId, tcmImageFile);
+      } else {
+        const herbText = herb.trim();
+        if (!herbText) { setTCMError("Please enter a herb name."); setTCMLoading(false); return; }
+        response = await api.postTCMCheck(userId, herbText);
+      }
       setTCMResult(response);
+
+      // Auto-play TTS for the Singlish result message
+      const ttsText = response.singlish_message || response.message;
+      if (ttsText) {
+        setTcmAudioLoading(true);
+        try {
+          const blob = await api.postTTS(ttsText);
+          const url = URL.createObjectURL(blob);
+          setTcmAudioUrl(url);
+          const audio = new Audio(url);
+          audio.play().catch(() => {});
+        } catch { /* TTS is best-effort */ }
+        setTcmAudioLoading(false);
+      }
     } catch (error) {
       setTCMError(safeMessage(error));
     } finally {
       setTCMLoading(false);
+    }
+  }
+
+  // --- Voice Agent handlers ---
+  async function handleVoiceAgent() {
+    const msg = vaMessage.trim();
+    if (!msg || !userId) return;
+    setVaLoading(true);
+    setVaError(null);
+    setVaReply(null);
+    setVaAudioUrl(null);
+    try {
+      const response = await api.postVoiceAgent(userId, msg);
+      setVaReply(response.reply);
+    } catch (error) {
+      setVaError(safeMessage(error));
+    } finally {
+      setVaLoading(false);
+    }
+  }
+
+  async function handlePlayAudio() {
+    if (!vaReply) return;
+    setVaAudioLoading(true);
+    try {
+      const blob = await api.postTTS(vaReply);
+      const url = URL.createObjectURL(blob);
+      setVaAudioUrl(url);
+      const audio = new Audio(url);
+      audio.play();
+    } catch (error) {
+      setVaError(`Audio: ${safeMessage(error)}`);
+    } finally {
+      setVaAudioLoading(false);
     }
   }
 
@@ -530,42 +596,6 @@ export default function DashboardPage() {
               </section>
 
               <section className="card">
-                <div className="card-title">Voice Transcript Analysis</div>
-                <textarea
-                  value={voiceTranscript}
-                  onChange={(event) => setVoiceTranscript(event.target.value)}
-                  placeholder='Example: "I forgot my medicine today lah."'
-                />
-                <button type="button" onClick={() => void handleAnalyzeVoice()} disabled={voiceLoading}>
-                  {voiceLoading ? "Analyzing..." : "Analyze Voice"}
-                </button>
-                {voiceError ? <p className="status-error">{voiceError}</p> : null}
-                {voiceResult ? (
-                  <div className="chip-wrap">
-                    <span className="chip">{voiceResult.language_hint}</span>
-                    <span className="chip">{voiceResult.emotion_tag}</span>
-                    <span className="chip">{voiceResult.intent}</span>
-                    <p className="muted">{voiceResult.cleaned_text}</p>
-                  </div>
-                ) : null}
-              </section>
-
-              <section className="card">
-                <div className="card-title">TCM Safety Check</div>
-                <input value={herb} onChange={(event) => setHerb(event.target.value)} placeholder="e.g. ginseng" />
-                <button type="button" onClick={() => void handleTCMCheck()} disabled={tcmLoading}>
-                  {tcmLoading ? "Checking..." : "Check Herb"}
-                </button>
-                {tcmError ? <p className="status-error">{tcmError}</p> : null}
-                {tcmResult ? (
-                  <div className={`alert-box ${tcmResult.interaction_warning ? "alert-danger" : "alert-safe"}`}>
-                    <p>{tcmResult.interaction_warning ? "Interaction Warning" : "No Major Warning"}</p>
-                    <p>{tcmResult.message}</p>
-                  </div>
-                ) : null}
-              </section>
-
-              <section className="card">
                 <div className="card-title">Diet Suggestions</div>
                 <ul className="list">
                   {(food?.recommendations ?? []).map((item) => (
@@ -587,6 +617,165 @@ export default function DashboardPage() {
                 ) : (
                   <p className="muted">No events available.</p>
                 )}
+              </section>
+
+              <section className="card">
+                <div className="card-title">TCM Safety Check</div>
+                <p className="muted">Check herb-drug interactions against your current medications.</p>
+
+                <div className="tcm-mode-picker">
+                  <button
+                    type="button"
+                    className={tcmMode === "manual" ? "role-btn role-btn-active" : "role-btn"}
+                    onClick={() => setTcmMode("manual")}
+                  >
+                    Type Herb Name
+                  </button>
+                  <button
+                    type="button"
+                    className={tcmMode === "image" ? "role-btn role-btn-active" : "role-btn"}
+                    onClick={() => setTcmMode("image")}
+                  >
+                    Upload Image
+                  </button>
+                </div>
+
+                {tcmMode === "manual" ? (
+                  <div className="form-group">
+                    <label className="form-label">Herb Name</label>
+                    <input
+                      value={herb}
+                      onChange={(e) => setHerb(e.target.value)}
+                      placeholder="e.g. ginseng, ginkgo, dong quai"
+                    />
+                  </div>
+                ) : (
+                  <div className="form-group">
+                    <label className="form-label">Upload TCM Herb Label / Bottle Image</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setTcmImageFile(e.target.files?.[0] ?? null)}
+                      className="file-input"
+                    />
+                    {tcmImageFile ? <p className="muted">Selected: {tcmImageFile.name}</p> : null}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => void handleTCMCheck()}
+                  disabled={tcmLoading || (tcmMode === "image" && !tcmImageFile) || (tcmMode === "manual" && !herb.trim())}
+                >
+                  {tcmLoading ? "Scanning..." : "Check Herb"}
+                </button>
+
+                {tcmError ? <p className="status-error">{tcmError}</p> : null}
+
+                {tcmResult ? (
+                  <div className="tcm-result">
+                    {tcmResult.extracted_text ? (
+                      <div className="tcm-ocr-box">
+                        <div className="card-title small">Extracted Text (OCR)</div>
+                        <p className="muted">{tcmResult.extracted_text}</p>
+                      </div>
+                    ) : null}
+
+                    <div className={`alert-box ${tcmResult.interaction_warning ? "alert-danger" : "alert-safe"}`}>
+                      <div className="tcm-result-header">
+                        <strong>{tcmResult.herb_detected ?? "Unknown Herb"}</strong>
+                        <span className={`risk-badge risk-${tcmResult.risk_level}`}>
+                          {tcmResult.risk_level.toUpperCase()} RISK
+                        </span>
+                      </div>
+                      <p>{tcmResult.message}</p>
+                      {tcmResult.flagged_medications.length > 0 ? (
+                        <div className="flagged-meds">
+                          <p className="muted"><strong>Flagged medications:</strong></p>
+                          <ul className="list">
+                            {tcmResult.flagged_medications.map((m) => <li key={m}>{m}</li>)}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="va-reply-box">
+                      <div className="card-title small">ByteCare says (Singlish):</div>
+                      <p className="va-reply-text">{tcmResult.singlish_message}</p>
+                    </div>
+
+                    {tcmAudioLoading ? (
+                      <p className="muted">Loading audio...</p>
+                    ) : tcmAudioUrl ? (
+                      <audio controls src={tcmAudioUrl} className="va-audio-player" />
+                    ) : null}
+                  </div>
+                ) : null}
+              </section>
+
+              <section className="card">
+                <div className="card-title">Voice Agent</div>
+                <p className="muted">Talk to ByteCare in Singlish. Type your message and get a friendly reply!</p>
+
+                <div className="form-group">
+                  <textarea
+                    value={vaMessage}
+                    onChange={(e) => setVaMessage(e.target.value)}
+                    placeholder='e.g. "I forgot take my medicine today lah"'
+                    rows={3}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => void handleVoiceAgent()}
+                  disabled={vaLoading || !vaMessage.trim()}
+                >
+                  {vaLoading ? "Thinking..." : "Send Message"}
+                </button>
+
+                {vaError ? <p className="status-error">{vaError}</p> : null}
+
+                {vaReply ? (
+                  <div className="va-reply-box">
+                    <div className="card-title small">ByteCare says:</div>
+                    <p className="va-reply-text">{vaReply}</p>
+                    <button
+                      type="button"
+                      className="play-audio-btn"
+                      onClick={() => void handlePlayAudio()}
+                      disabled={vaAudioLoading}
+                    >
+                      {vaAudioLoading ? "Loading audio..." : "Play Audio"}
+                    </button>
+                    {vaAudioUrl ? (
+                      <audio controls src={vaAudioUrl} className="va-audio-player" />
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <hr className="section-divider" />
+
+                <div className="card-title small">Voice Transcript Analysis</div>
+                <p className="muted">Paste a voice transcript to analyze language, emotion, and intent.</p>
+                <textarea
+                  value={voiceTranscript}
+                  onChange={(event) => setVoiceTranscript(event.target.value)}
+                  placeholder='Example: "I forgot my medicine today lah."'
+                  rows={2}
+                />
+                <button type="button" onClick={() => void handleAnalyzeVoice()} disabled={voiceLoading}>
+                  {voiceLoading ? "Analyzing..." : "Analyze Transcript"}
+                </button>
+                {voiceError ? <p className="status-error">{voiceError}</p> : null}
+                {voiceResult ? (
+                  <div className="chip-wrap">
+                    <span className="chip">{voiceResult.language_hint}</span>
+                    <span className="chip">{voiceResult.emotion_tag}</span>
+                    <span className="chip">{voiceResult.intent}</span>
+                    <p className="muted">{voiceResult.cleaned_text}</p>
+                  </div>
+                ) : null}
               </section>
             </>
           ) : null}

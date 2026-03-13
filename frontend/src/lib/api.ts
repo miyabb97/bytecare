@@ -70,8 +70,18 @@ export type VoiceResponse = {
 };
 
 export type TCMResponse = {
+  extracted_text?: string;
   interaction_warning: boolean;
+  herb_detected: string | null;
+  risk_level: string;
+  flagged_medications: string[];
   message: string;
+  singlish_message: string;
+};
+
+export type VoiceAgentResponse = {
+  reply: string;
+  source: string;
 };
 
 export type ReportSummaryResponse = {
@@ -174,6 +184,33 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ herb })
     }),
+  postTCMScan: async (userId: string, imageFile: File): Promise<TCMResponse> => {
+    const formData = new FormData();
+    formData.append("image", imageFile);
+    const response = await fetch(`${API_BASE}/users/${userId}/tcm-scan`, {
+      method: "POST",
+      body: formData,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.detail || `HTTP ${response.status}`);
+    }
+    return payload as TCMResponse;
+  },
+  postVoiceAgent: (userId: string, message: string) =>
+    apiRequest<VoiceAgentResponse>(`/users/${userId}/voice/agent`, {
+      method: "POST",
+      body: JSON.stringify({ message })
+    }),
+  postTTS: async (text: string): Promise<Blob> => {
+    const response = await fetch(`${API_BASE}/voice/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!response.ok) throw new Error(`TTS failed: HTTP ${response.status}`);
+    return response.blob();
+  },
 
   // --- User CRUD ---
   createUser: (data: { name: string; age: number; timezone: string; language_preference: string }) =>
