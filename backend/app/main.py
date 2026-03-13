@@ -3,9 +3,17 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 import random
+
+from dotenv import load_dotenv
+
+# Load .env from project root (one level up from backend/)
+_env_file = Path(__file__).resolve().parents[2] / ".env"
+if _env_file.exists():
+    load_dotenv(_env_file)
 
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field

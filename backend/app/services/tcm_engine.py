@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import io
 import re
 from typing import Any, Dict, List, Optional
@@ -158,26 +159,36 @@ def detect_herb_from_text(text: str) -> Optional[str]:
         if any(part in lower for part in display.split() if len(part) > 2):
             return herb_key
 
+    # Fuzzy match — catches typos like "ginsng", "ginko", "tumeric"
+    all_names = list(HERB_INTERACTIONS.keys()) + list(HERB_ALIASES.keys())
+    close = difflib.get_close_matches(lower, all_names, n=1, cutoff=0.6)
+    if close:
+        match = close[0]
+        return HERB_ALIASES.get(match, match)
+
     return None
 
 
 # ── Singlish Fallback Templates ──
 _SINGLISH_TCM_TEMPLATES = {
     "high": (
-        "Wah, this one {herb} is quite risky leh! {guidance} "
-        "Better don't anyhow mix with your medicine, go ask doctor first ah!"
+        "Ah, thank you for checking ah. This one {herb} can be quite serious when taken with certain medicine. "
+        "{guidance} "
+        "Please do check with your doctor first before taking, okay? Better to be safe lah."
     ),
     "moderate": (
-        "Eh, {herb} can be a bit tricky lah. {guidance} "
-        "Be careful when taking with your medicine okay?"
+        "Good that you checked! This {herb} one, need to be a bit careful lah. "
+        "{guidance} "
+        "If you're not sure, best to ask your doctor or pharmacist, they can advise you properly."
     ),
     "low": (
-        "This one {herb} should be okay lah, not too bad. {guidance} "
-        "But still good to let your doctor know, just in case!"
+        "Don't worry too much ah, this {herb} is generally quite safe one. "
+        "{guidance} "
+        "But still good to let your doctor know you're taking it, just to be sure!"
     ),
     "unknown": (
-        "Hmm, I not sure about this herb leh. "
-        "Cannot find in my database. Better ask your doctor or pharmacist ah!"
+        "Hmm, sorry ah, I cannot find this herb in my database leh. "
+        "No worries, you can check with your doctor or pharmacist — they will know best!"
     ),
 }
 
@@ -185,15 +196,16 @@ _SINGLISH_TCM_TEMPLATES = {
 def _build_singlish_tcm_prompt(herb_name: str, guidance: str, risk_level: str, flagged: List[str]) -> str:
     flagged_str = ", ".join(flagged) if flagged else "none"
     return (
-        "You are ByteCare, a friendly medication safety assistant in Singapore. "
-        "Rephrase the following herb-drug interaction warning in warm, casual Singlish "
-        "(use lah, leh, lor, aiyoh naturally). "
+        "You are ByteCare, a friendly and polite medication safety assistant in Singapore. "
+        "Rephrase the following herb-drug interaction warning in warm, respectful Singlish "
+        "(use lah, ah, leh gently — do NOT use harsh words like aiyoh or wah). "
         "Rules: "
         "1) Keep all the medical facts accurate — do NOT change the medical meaning. "
         "2) Be concise (2-3 sentences). "
-        "3) Sound like a caring aunty/uncle giving advice, not a robot. "
+        "3) Sound like a kind, respectful caregiver speaking to an elderly person. "
         "4) Use simple English suitable for elderly Singaporean users. "
-        "5) If there are flagged medications, mention them.\n\n"
+        "5) Always encourage them to check with their doctor. "
+        "6) If there are flagged medications, mention them gently.\n\n"
         f"Herb: {herb_name}\n"
         f"Risk level: {risk_level}\n"
         f"Flagged medications: {flagged_str}\n"

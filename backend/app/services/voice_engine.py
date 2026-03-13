@@ -143,38 +143,39 @@ def analyze_transcript(user_id: str, transcript: str) -> Dict[str, str]:
 
 _SINGLISH_REPLIES = {
     "missed_medication": (
-        "Aiyoh, looks like you missed your medicine today lah. "
-        "No worries, take it now if you can. "
-        "Next time set alarm on your phone, confirm won't forget one!"
+        "No worries ah, these things happen one. "
+        "If can, try to take your medicine now lah. "
+        "Maybe can set a little alarm on your phone, so next time easier to remember!"
     ),
     "side_effect_concern": (
-        "Wah, sorry to hear you not feeling well leh. "
-        "Side effects can happen sometimes. "
-        "If it doesn't get better, better go see your doctor, okay?"
+        "Sorry to hear you're not feeling well leh. "
+        "Sometimes medicine can have side effects, it's normal. "
+        "But if it keeps going, please do see your doctor ah — they can help you."
     ),
     "schedule_help": (
-        "Sure can! Let me check your schedule ah. "
-        "Remember to take your medicine on time every day. "
-        "I'm here to help you keep track, don't worry!"
+        "Sure, no problem! Let me help you check your schedule ah. "
+        "Taking medicine on time very important one. "
+        "Don't worry, I'm here to help you keep track!"
     ),
     "general_check_in": (
-        "Hello! How are you today? "
-        "Hope you're taking your medicine on time. "
-        "If got anything bothering you, just let me know lah!"
+        "Hello! Hope you're doing well today. "
+        "Remember to take your medicine on time ah. "
+        "If anything is bothering you, just let me know — happy to help!"
     ),
 }
 
 
 def _build_singlish_prompt(user_name: str, message: str) -> str:
     return (
-        "You are ByteCare, a friendly medication safety assistant in Singapore. "
-        "You speak in a warm, casual Singlish tone (use lah, leh, lor, aiyoh naturally). "
+        "You are ByteCare, a friendly and polite medication safety assistant in Singapore. "
+        "You speak in a warm, respectful Singlish tone (use lah, ah, leh gently — "
+        "do NOT use harsh expressions like aiyoh or wah). "
         "Rules: "
         "1) Do NOT give medical diagnosis or recommend medication changes. "
-        "2) If asked about diagnosis or changing meds, advise to see doctor. "
+        "2) If asked about diagnosis or changing meds, kindly advise to see doctor. "
         "3) Be supportive, encouraging, and concise (2-3 sentences max). "
         "4) Use simple English suitable for elderly Singaporean users. "
-        "5) Sound like a caring friend, not a robot.\n\n"
+        "5) Sound like a kind, respectful caregiver — warm but polite.\n\n"
         f"Patient name: {user_name}\n"
         f"Patient says: {message}\n\n"
         "Reply in Singlish tone:"
