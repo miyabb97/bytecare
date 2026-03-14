@@ -1,20 +1,8 @@
 {
   "items": [
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "410de018-7e1b-462a-b81f-b4b80da45448",
-      "scheduled_datetime": "2026-02-27T08:00:00",
-      "mes": 60,
-      "explanations": [
-        "pillbox_open recorded",
-        "taken within 30 minutes",
-        "missed streak penalty applied"
-      ],
-      "computed_at": "2026-03-13T08:52:15"
-    },
-    {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "410de018-7e1b-462a-b81f-b4b80da45448",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba06f66f-190a-4561-be00-d21d9ca0a7f2",
       "scheduled_datetime": "2026-02-28T08:00:00",
       "mes": 60,
       "explanations": [
@@ -22,11 +10,11 @@
         "taken within 30 minutes",
         "missed streak penalty applied"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "410de018-7e1b-462a-b81f-b4b80da45448",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba06f66f-190a-4561-be00-d21d9ca0a7f2",
       "scheduled_datetime": "2026-03-01T08:00:00",
       "mes": 60,
       "explanations": [
@@ -34,11 +22,11 @@
         "taken within 30 minutes",
         "missed streak penalty applied"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "410de018-7e1b-462a-b81f-b4b80da45448",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba06f66f-190a-4561-be00-d21d9ca0a7f2",
       "scheduled_datetime": "2026-03-02T08:00:00",
       "mes": 60,
       "explanations": [
@@ -46,11 +34,11 @@
         "taken within 30 minutes",
         "missed streak penalty applied"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "410de018-7e1b-462a-b81f-b4b80da45448",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba06f66f-190a-4561-be00-d21d9ca0a7f2",
       "scheduled_datetime": "2026-03-03T08:00:00",
       "mes": 60,
       "explanations": [
@@ -58,11 +46,11 @@
         "taken within 30 minutes",
         "missed streak penalty applied"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "410de018-7e1b-462a-b81f-b4b80da45448",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba06f66f-190a-4561-be00-d21d9ca0a7f2",
       "scheduled_datetime": "2026-03-04T08:00:00",
       "mes": 60,
       "explanations": [
@@ -70,11 +58,11 @@
         "taken within 30 minutes",
         "missed streak penalty applied"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "410de018-7e1b-462a-b81f-b4b80da45448",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba06f66f-190a-4561-be00-d21d9ca0a7f2",
       "scheduled_datetime": "2026-03-05T08:00:00",
       "mes": 60,
       "explanations": [
@@ -82,11 +70,11 @@
         "taken within 30 minutes",
         "missed streak penalty applied"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "410de018-7e1b-462a-b81f-b4b80da45448",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba06f66f-190a-4561-be00-d21d9ca0a7f2",
       "scheduled_datetime": "2026-03-06T08:00:00",
       "mes": 60,
       "explanations": [
@@ -94,11 +82,11 @@
         "taken within 30 minutes",
         "missed streak penalty applied"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "410de018-7e1b-462a-b81f-b4b80da45448",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba06f66f-190a-4561-be00-d21d9ca0a7f2",
       "scheduled_datetime": "2026-03-07T08:00:00",
       "mes": 60,
       "explanations": [
@@ -106,678 +94,690 @@
         "taken within 30 minutes",
         "missed streak penalty applied"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "410de018-7e1b-462a-b81f-b4b80da45448",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba06f66f-190a-4561-be00-d21d9ca0a7f2",
       "scheduled_datetime": "2026-03-08T08:00:00",
+      "mes": 60,
+      "explanations": [
+        "pillbox_open recorded",
+        "taken within 30 minutes",
+        "missed streak penalty applied"
+      ],
+      "computed_at": "2026-03-14T20:40:24"
+    },
+    {
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba06f66f-190a-4561-be00-d21d9ca0a7f2",
+      "scheduled_datetime": "2026-03-09T08:00:00",
       "mes": 0,
       "explanations": [
         "no supporting event found",
         "missed streak penalty applied"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "410de018-7e1b-462a-b81f-b4b80da45448",
-      "scheduled_datetime": "2026-03-09T08:00:00",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba06f66f-190a-4561-be00-d21d9ca0a7f2",
+      "scheduled_datetime": "2026-03-10T08:00:00",
       "mes": 45,
       "explanations": [
         "pillbox_open recorded",
         "taken outside preferred window",
         "missed streak penalty applied"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "410de018-7e1b-462a-b81f-b4b80da45448",
-      "scheduled_datetime": "2026-03-10T08:00:00",
-      "mes": 0,
-      "explanations": [
-        "no supporting event found",
-        "missed streak penalty applied"
-      ],
-      "computed_at": "2026-03-13T08:52:15"
-    },
-    {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "410de018-7e1b-462a-b81f-b4b80da45448",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba06f66f-190a-4561-be00-d21d9ca0a7f2",
       "scheduled_datetime": "2026-03-11T08:00:00",
       "mes": 0,
       "explanations": [
         "no supporting event found",
         "missed streak penalty applied"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "410de018-7e1b-462a-b81f-b4b80da45448",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba06f66f-190a-4561-be00-d21d9ca0a7f2",
       "scheduled_datetime": "2026-03-12T08:00:00",
+      "mes": 0,
+      "explanations": [
+        "no supporting event found",
+        "missed streak penalty applied"
+      ],
+      "computed_at": "2026-03-14T20:40:24"
+    },
+    {
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba06f66f-190a-4561-be00-d21d9ca0a7f2",
+      "scheduled_datetime": "2026-03-13T08:00:00",
       "mes": 60,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes",
         "missed streak penalty applied"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "c9e2cb67-64cd-4e48-beee-415f62b413ab",
-      "scheduled_datetime": "2026-02-27T08:00:00",
-      "mes": 70,
-      "explanations": [
-        "pillbox_open recorded",
-        "taken within 30 minutes"
-      ],
-      "computed_at": "2026-03-13T08:52:15"
-    },
-    {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "c9e2cb67-64cd-4e48-beee-415f62b413ab",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "5a56fcae-5f19-48d5-925c-61d89cd1c8f8",
       "scheduled_datetime": "2026-02-28T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "c9e2cb67-64cd-4e48-beee-415f62b413ab",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "5a56fcae-5f19-48d5-925c-61d89cd1c8f8",
       "scheduled_datetime": "2026-03-01T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "c9e2cb67-64cd-4e48-beee-415f62b413ab",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "5a56fcae-5f19-48d5-925c-61d89cd1c8f8",
       "scheduled_datetime": "2026-03-02T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "c9e2cb67-64cd-4e48-beee-415f62b413ab",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "5a56fcae-5f19-48d5-925c-61d89cd1c8f8",
       "scheduled_datetime": "2026-03-03T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "c9e2cb67-64cd-4e48-beee-415f62b413ab",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "5a56fcae-5f19-48d5-925c-61d89cd1c8f8",
       "scheduled_datetime": "2026-03-04T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "c9e2cb67-64cd-4e48-beee-415f62b413ab",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "5a56fcae-5f19-48d5-925c-61d89cd1c8f8",
       "scheduled_datetime": "2026-03-05T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "c9e2cb67-64cd-4e48-beee-415f62b413ab",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "5a56fcae-5f19-48d5-925c-61d89cd1c8f8",
       "scheduled_datetime": "2026-03-06T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "c9e2cb67-64cd-4e48-beee-415f62b413ab",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "5a56fcae-5f19-48d5-925c-61d89cd1c8f8",
       "scheduled_datetime": "2026-03-07T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "c9e2cb67-64cd-4e48-beee-415f62b413ab",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "5a56fcae-5f19-48d5-925c-61d89cd1c8f8",
       "scheduled_datetime": "2026-03-08T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "c9e2cb67-64cd-4e48-beee-415f62b413ab",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "5a56fcae-5f19-48d5-925c-61d89cd1c8f8",
       "scheduled_datetime": "2026-03-09T08:00:00",
-      "mes": 55,
+      "mes": 70,
       "explanations": [
         "pillbox_open recorded",
-        "taken outside preferred window"
+        "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "c9e2cb67-64cd-4e48-beee-415f62b413ab",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "5a56fcae-5f19-48d5-925c-61d89cd1c8f8",
       "scheduled_datetime": "2026-03-10T08:00:00",
       "mes": 55,
       "explanations": [
         "pillbox_open recorded",
         "taken outside preferred window"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "c9e2cb67-64cd-4e48-beee-415f62b413ab",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "5a56fcae-5f19-48d5-925c-61d89cd1c8f8",
       "scheduled_datetime": "2026-03-11T08:00:00",
+      "mes": 55,
+      "explanations": [
+        "pillbox_open recorded",
+        "taken outside preferred window"
+      ],
+      "computed_at": "2026-03-14T20:40:24"
+    },
+    {
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "5a56fcae-5f19-48d5-925c-61d89cd1c8f8",
+      "scheduled_datetime": "2026-03-12T08:00:00",
       "mes": 0,
       "explanations": [
         "no supporting event found"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "c9e2cb67-64cd-4e48-beee-415f62b413ab",
-      "scheduled_datetime": "2026-03-12T08:00:00",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "5a56fcae-5f19-48d5-925c-61d89cd1c8f8",
+      "scheduled_datetime": "2026-03-13T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "ea59048a-0a5f-4237-b1be-25e4d24117d0",
-      "scheduled_datetime": "2026-02-27T08:00:00",
-      "mes": 70,
-      "explanations": [
-        "pillbox_open recorded",
-        "taken within 30 minutes"
-      ],
-      "computed_at": "2026-03-13T08:52:15"
-    },
-    {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "ea59048a-0a5f-4237-b1be-25e4d24117d0",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "aca12691-d06a-4dee-a950-519e0465c422",
       "scheduled_datetime": "2026-02-28T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "ea59048a-0a5f-4237-b1be-25e4d24117d0",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "aca12691-d06a-4dee-a950-519e0465c422",
       "scheduled_datetime": "2026-03-01T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "ea59048a-0a5f-4237-b1be-25e4d24117d0",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "aca12691-d06a-4dee-a950-519e0465c422",
       "scheduled_datetime": "2026-03-02T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "ea59048a-0a5f-4237-b1be-25e4d24117d0",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "aca12691-d06a-4dee-a950-519e0465c422",
       "scheduled_datetime": "2026-03-03T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "ea59048a-0a5f-4237-b1be-25e4d24117d0",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "aca12691-d06a-4dee-a950-519e0465c422",
       "scheduled_datetime": "2026-03-04T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "ea59048a-0a5f-4237-b1be-25e4d24117d0",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "aca12691-d06a-4dee-a950-519e0465c422",
       "scheduled_datetime": "2026-03-05T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "ea59048a-0a5f-4237-b1be-25e4d24117d0",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "aca12691-d06a-4dee-a950-519e0465c422",
       "scheduled_datetime": "2026-03-06T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "ea59048a-0a5f-4237-b1be-25e4d24117d0",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "aca12691-d06a-4dee-a950-519e0465c422",
       "scheduled_datetime": "2026-03-07T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "ea59048a-0a5f-4237-b1be-25e4d24117d0",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "aca12691-d06a-4dee-a950-519e0465c422",
       "scheduled_datetime": "2026-03-08T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "ea59048a-0a5f-4237-b1be-25e4d24117d0",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "aca12691-d06a-4dee-a950-519e0465c422",
       "scheduled_datetime": "2026-03-09T08:00:00",
+      "mes": 70,
+      "explanations": [
+        "pillbox_open recorded",
+        "taken within 30 minutes"
+      ],
+      "computed_at": "2026-03-14T20:40:24"
+    },
+    {
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "aca12691-d06a-4dee-a950-519e0465c422",
+      "scheduled_datetime": "2026-03-10T08:00:00",
       "mes": 0,
       "explanations": [
         "no supporting event found"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "ea59048a-0a5f-4237-b1be-25e4d24117d0",
-      "scheduled_datetime": "2026-03-10T08:00:00",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "aca12691-d06a-4dee-a950-519e0465c422",
+      "scheduled_datetime": "2026-03-11T08:00:00",
       "mes": 60,
       "explanations": [
         "pillbox_open recorded",
         "taken within allowed time window"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "ea59048a-0a5f-4237-b1be-25e4d24117d0",
-      "scheduled_datetime": "2026-03-11T08:00:00",
-      "mes": 70,
-      "explanations": [
-        "pillbox_open recorded",
-        "taken within 30 minutes"
-      ],
-      "computed_at": "2026-03-13T08:52:15"
-    },
-    {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "ea59048a-0a5f-4237-b1be-25e4d24117d0",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "aca12691-d06a-4dee-a950-519e0465c422",
       "scheduled_datetime": "2026-03-12T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
-      "scheduled_datetime": "2026-02-27T08:00:00",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "aca12691-d06a-4dee-a950-519e0465c422",
+      "scheduled_datetime": "2026-03-13T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
-      "scheduled_datetime": "2026-02-27T20:00:00",
-      "mes": 70,
-      "explanations": [
-        "pillbox_open recorded",
-        "taken within 30 minutes"
-      ],
-      "computed_at": "2026-03-13T08:52:15"
-    },
-    {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-02-28T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-02-28T20:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-01T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-01T20:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-02T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-02T20:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-03T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-03T20:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-04T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-04T20:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-05T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-05T20:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-06T08:00:00",
-      "mes": 55,
+      "mes": 70,
       "explanations": [
         "pillbox_open recorded",
-        "taken outside preferred window"
+        "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-06T20:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-07T08:00:00",
-      "mes": 70,
-      "explanations": [
-        "pillbox_open recorded",
-        "taken within 30 minutes"
-      ],
-      "computed_at": "2026-03-13T08:52:15"
-    },
-    {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
-      "scheduled_datetime": "2026-03-07T20:00:00",
       "mes": 55,
       "explanations": [
         "pillbox_open recorded",
         "taken outside preferred window"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
+      "scheduled_datetime": "2026-03-07T20:00:00",
+      "mes": 70,
+      "explanations": [
+        "pillbox_open recorded",
+        "taken within 30 minutes"
+      ],
+      "computed_at": "2026-03-14T20:40:24"
+    },
+    {
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-08T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-08T20:00:00",
-      "mes": 70,
+      "mes": 55,
       "explanations": [
         "pillbox_open recorded",
-        "taken within 30 minutes"
+        "taken outside preferred window"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-09T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-09T20:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-10T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-10T20:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-11T08:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-11T20:00:00",
       "mes": 70,
       "explanations": [
         "pillbox_open recorded",
         "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-12T08:00:00",
-      "mes": 55,
+      "mes": 70,
       "explanations": [
         "pillbox_open recorded",
-        "taken outside preferred window"
+        "taken within 30 minutes"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
     },
     {
-      "user_id": "97e1e7c0-fd88-4efa-90f3-0455064897a0",
-      "medication_id": "9b40be28-456b-4227-87be-659ecaa54bcb",
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
       "scheduled_datetime": "2026-03-12T20:00:00",
+      "mes": 70,
+      "explanations": [
+        "pillbox_open recorded",
+        "taken within 30 minutes"
+      ],
+      "computed_at": "2026-03-14T20:40:24"
+    },
+    {
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
+      "scheduled_datetime": "2026-03-13T08:00:00",
       "mes": 55,
       "explanations": [
         "pillbox_open recorded",
         "taken outside preferred window"
       ],
-      "computed_at": "2026-03-13T08:52:15"
+      "computed_at": "2026-03-14T20:40:24"
+    },
+    {
+      "user_id": "f2980c52-4c61-45f2-8966-71c1edd92c16",
+      "medication_id": "ba12f0b3-b60f-47f6-83db-23eec144453f",
+      "scheduled_datetime": "2026-03-13T20:00:00",
+      "mes": 55,
+      "explanations": [
+        "pillbox_open recorded",
+        "taken outside preferred window"
+      ],
+      "computed_at": "2026-03-14T20:40:24"
     }
   ]
 }

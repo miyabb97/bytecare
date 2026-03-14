@@ -9,6 +9,8 @@ import {
   type AppointmentListResponse,
   type AppointmentResponse,
   type ChatResponse,
+  type CommunityEventItem,
+  type CommunityMyEventsResponse,
   type CommunityResponse,
   type DriftResponse,
   type FoodResponse,
@@ -50,6 +52,10 @@ function formatAppointment(appointment: AppointmentResponse["next_appointment"],
   return `${when} at ${appointment.location} (${daysRemaining} day(s) remaining)`;
 }
 
+function formatDateTime(value: string): string {
+  return new Date(value).toLocaleString();
+}
+
 export default function DashboardPage() {
   const params = useParams<{ userId: string }>();
   const router = useRouter();
@@ -66,10 +72,13 @@ export default function DashboardPage() {
   const [food, setFood] = useState<FoodResponse | null>(null);
   const [appointments, setAppointments] = useState<AppointmentResponse | null>(null);
   const [community, setCommunity] = useState<CommunityResponse | null>(null);
+  const [myCommunityEvents, setMyCommunityEvents] = useState<CommunityMyEventsResponse | null>(null);
   const [reportSummary, setReportSummary] = useState<ReportSummaryResponse | null>(null);
 
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const [communityActionLoading, setCommunityActionLoading] = useState<string | null>(null);
+  const [communityActionError, setCommunityActionError] = useState<string | null>(null);
 
   const [chatDraft, setChatDraft] = useState("");
   const [chatResult, setChatResult] = useState<ChatResponse | null>(null);
@@ -150,14 +159,15 @@ export default function DashboardPage() {
     setDashboardLoading(true);
     setDashboardError(null);
 
-    const [userRes, medsRes, driftRes, nextRes, foodRes, appointmentRes, communityRes] = await Promise.allSettled([
+    const [userRes, medsRes, driftRes, nextRes, foodRes, appointmentRes, communityRes, myEventsRes] = await Promise.allSettled([
       api.getUser(userId),
       api.getMedications(userId),
       api.getDrift(userId),
       api.getNextAction(userId),
       api.getFoodRecommendations(userId),
       api.getAppointments(userId),
-      api.getCommunityEvents(userId)
+      api.getCommunityEvents(userId),
+      api.getMyCommunityEvents(userId)
     ]);
 
     const errors: string[] = [];
@@ -211,6 +221,13 @@ export default function DashboardPage() {
       errors.push(`community: ${safeMessage(communityRes.reason)}`);
     }
 
+    if (myEventsRes.status === "fulfilled") {
+      setMyCommunityEvents(myEventsRes.value);
+    } else {
+      setMyCommunityEvents(null);
+      errors.push(`my-events: ${safeMessage(myEventsRes.reason)}`);
+    }
+
     if (errors.length > 0) {
       setDashboardError(`Some modules failed: ${errors.join(" | ")}`);
     }
@@ -227,8 +244,12 @@ export default function DashboardPage() {
     [appointments]
   );
 
-  const primaryEvent = community?.events?.[0] ?? null;
+  const recommendedEvents = community?.events ?? [];
   const medicationCount = medications?.items?.length ?? 0;
+  const joinedEventIds = useMemo(
+    () => new Set((myCommunityEvents?.joined ?? []).map((event) => event.event_id)),
+    [myCommunityEvents]
+  );
 
   async function handleSendChat() {
     const message = chatDraft.trim();
@@ -377,6 +398,38 @@ export default function DashboardPage() {
       setReportError(safeMessage(error));
     } finally {
       setReportLoading(false);
+    }
+  }
+
+  async function refreshCommunityPanels() {
+    if (!userId) return;
+    try {
+      const [recommended, mine] = await Promise.all([
+        api.getCommunityEvents(userId),
+        api.getMyCommunityEvents(userId)
+      ]);
+      setCommunity(recommended);
+      setMyCommunityEvents(mine);
+    } catch (error) {
+      setCommunityActionError(safeMessage(error));
+    }
+  }
+
+  async function handleToggleCommunityEvent(event: CommunityEventItem) {
+    if (!userId) return;
+    setCommunityActionError(null);
+    setCommunityActionLoading(event.event_id);
+    try {
+      if (joinedEventIds.has(event.event_id)) {
+        await api.postCancelCommunityEvent(userId, event.event_id);
+      } else {
+        await api.postJoinCommunityEvent(userId, event.event_id);
+      }
+      await refreshCommunityPanels();
+    } catch (error) {
+      setCommunityActionError(safeMessage(error));
+    } finally {
+      setCommunityActionLoading(null);
     }
   }
 
@@ -626,17 +679,48 @@ export default function DashboardPage() {
 
               <section className="card">
                 <div className="card-title">Community Activities</div>
-                {primaryEvent ? (
-                  <>
-                    <h3>{primaryEvent.title}</h3>
-                    <p className="muted">
-                      {primaryEvent.date} at {primaryEvent.location}
-                    </p>
-                    <p className="muted">{primaryEvent.reason}</p>
-                  </>
-                ) : (
-                  <p className="muted">No events available.</p>
-                )}
+                {communityActionError ? <p className="status-error">{communityActionError}</p> : null}
+
+                {recommendedEvents.length === 0 ? <p className="muted">No recommended events available.</p> : null}
+
+                <div className="community-events-list">
+                  {recommendedEvents.map((event) => {
+                    const isJoined = joinedEventIds.has(event.event_id);
+                    const isLoading = communityActionLoading === event.event_id;
+                    return (
+                      <article className="community-event-card" key={event.event_id}>
+                        <h3>{event.title}</h3>
+                        <p className="muted">{formatDateTime(event.datetime)}</p>
+                        <p className="muted">{event.location}</p>
+                        <p className="muted">{event.description}</p>
+                        <p className="muted">{event.reason}</p>
+                        <div className="community-event-actions">
+                          <button
+                            type="button"
+                            className={isJoined ? "cancel-button" : "join-button"}
+                            onClick={() => void handleToggleCommunityEvent(event)}
+                            disabled={isLoading}
+                          >
+                            {isLoading ? "Updating..." : isJoined ? "Cancel" : "Join Event"}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+
+                <div className="my-events-section">
+                  <h3>My Events</h3>
+                  <p className="muted">Joined</p>
+                  <ul className="list">
+                    {(myCommunityEvents?.joined ?? []).map((event) => (
+                      <li key={`joined-${event.event_id}`}>
+                        {event.title} - {formatDateTime(event.datetime)}
+                      </li>
+                    ))}
+                  </ul>
+                  {(myCommunityEvents?.joined ?? []).length === 0 ? <p className="muted">No joined events yet.</p> : null}
+                </div>
               </section>
             </>
           ) : null}

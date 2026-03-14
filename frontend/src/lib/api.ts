@@ -44,13 +44,24 @@ export type AppointmentResponse = {
   days_remaining: number | null;
 };
 
+export type CommunityEventItem = {
+  event_id: string;
+  title: string;
+  location: string;
+  datetime: string;
+  reason?: string;
+  type: string;
+  description: string;
+  organiser: string;
+};
+
 export type CommunityResponse = {
-  events: Array<{
-    title: string;
-    location: string;
-    date: string;
-    reason: string;
-  }>;
+  events: CommunityEventItem[];
+};
+
+export type CommunityMyEventsResponse = {
+  joined: CommunityEventItem[];
+  saved: CommunityEventItem[];
 };
 
 export type ChatResponse = {
@@ -175,6 +186,18 @@ export const api = {
     apiRequest<AppointmentResponse>(`/users/${userId}/appointments`),
   getCommunityEvents: (userId: string) =>
     apiRequest<CommunityResponse>(`/users/${userId}/community-events`),
+  getMyCommunityEvents: (userId: string) =>
+    apiRequest<CommunityMyEventsResponse>(`/users/${userId}/community-events/my-events`),
+  postJoinCommunityEvent: (userId: string, eventId: string) =>
+    apiRequest<{ status: string; event_id: string }>(`/users/${userId}/community-events/join`, {
+      method: "POST",
+      body: JSON.stringify({ event_id: eventId })
+    }),
+  postCancelCommunityEvent: (userId: string, eventId: string) =>
+    apiRequest<{ status: string; event_id: string }>(`/users/${userId}/community-events/cancel`, {
+      method: "POST",
+      body: JSON.stringify({ event_id: eventId })
+    }),
   getReportSummary: (userId: string) =>
     apiRequest<ReportSummaryResponse>(`/users/${userId}/report-summary`),
   postChat: (userId: string, message: string) =>

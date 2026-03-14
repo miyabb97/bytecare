@@ -246,6 +246,47 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+.community-events-list {
+  margin-top: 0.6rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.community-event-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.7rem;
+  background: #f8fafc;
+}
+
+.community-event-actions {
+  margin-top: 0.55rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.45rem;
+}
+
+.community-event-actions button {
+  margin-top: 0;
+}
+
+.join-button {
+  background: #15803d;
+  color: #ffffff;
+}
+
+.cancel-button {
+  background: #ffffff;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+
+.my-events-section {
+  margin-top: 0.85rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.7rem;
+}
+
 .chip-wrap {
   margin-top: 0.55rem;
 }

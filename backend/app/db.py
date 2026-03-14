@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from typing import Any, Dict
 
 DATABASE_PATH = Path(__file__).resolve().parent.parent / "bytecare.db"
 DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
@@ -24,6 +25,16 @@ def _set_sqlite_pragma(dbapi_conn, connection_record):
 
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+
+
+# Shared runtime store for hackathon-only ephemeral state.
+# This complements SQL storage and resets on server restart.
+RUNTIME_DB: Dict[str, Any] = {
+    "user_events": {}
+}
+
+# Backward-compatible alias for lightweight in-memory modules.
+DB = RUNTIME_DB
 
 
 class Base(DeclarativeBase):
