@@ -105,6 +105,8 @@ class DoseEvent(Base):
     medication_id = Column(String, nullable=False, index=True)
     event_type = Column(String, nullable=False)
     source = Column(String, default="")
+    scheduled_for = Column(String, default="", index=True)
+    response_status = Column(String, default="")
     timestamp = Column(String, nullable=False)
     created_at = Column(String, nullable=False)
 
@@ -115,6 +117,8 @@ class DoseEvent(Base):
             "medication_id": self.medication_id,
             "event_type": self.event_type,
             "source": self.source,
+            "scheduled_for": self.scheduled_for,
+            "response_status": self.response_status,
             "timestamp": self.timestamp,
             "created_at": self.created_at,
         }

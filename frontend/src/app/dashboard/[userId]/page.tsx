@@ -13,6 +13,7 @@ import {
   type CommunityMyEventsResponse,
   type CommunityResponse,
   type DemoPatient,
+  type DoseEventItem,
   type DriftResponse,
   type FoodResponse,
   type MedicationItem,
@@ -31,6 +32,16 @@ type ChatMessage = {
   sender: "user" | "bot";
   text: string;
 };
+
+type ReminderResponseStatus = "taken" | "skipped" | "snoozed";
+type ReminderMedication = Pick<MedicationItem, "medication_id" | "name" | "dose_text">;
+type ReminderGroup = {
+  scheduled_for: string;
+  scheduled_label: string;
+  medications: ReminderMedication[];
+};
+
+const SNOOZE_MINUTES = 5;
 
 function safeMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -54,6 +65,38 @@ function formatAppointment(appointment: AppointmentResponse["next_appointment"],
 
 function formatDateTime(value: string): string {
   return new Date(value).toLocaleString();
+}
+
+function normalizeHour(hour: string): string {
+  return hour === "24" ? "00" : hour;
+}
+
+function getClockParts(timezone: string) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+  const parts = formatter.formatToParts(new Date());
+  const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const hour = normalizeHour(lookup.hour ?? "00");
+
+  return {
+    date: `${lookup.year}-${lookup.month}-${lookup.day}`,
+    time: `${hour}:${lookup.minute ?? "00"}`
+  };
+}
+
+function buildScheduledFor(date: string, time: string): string {
+  return `${date}T${time}:00`;
+}
+
+function formatScheduledLabel(scheduledFor: string): string {
+  return scheduledFor.slice(11, 16);
 }
 
 export default function DashboardPage() {
@@ -157,6 +200,10 @@ export default function DashboardPage() {
   const [apptNotes, setApptNotes] = useState("");
   const [apptSaving, setApptSaving] = useState(false);
   const [apptMsg, setApptMsg] = useState<string | null>(null);
+  const [doseEvents, setDoseEvents] = useState<DoseEventItem[]>([]);
+  const [reminderGroup, setReminderGroup] = useState<ReminderGroup | null>(null);
+  const [reminderBusy, setReminderBusy] = useState(false);
+  const [reminderError, setReminderError] = useState<string | null>(null);
 
   const loadDashboard = useCallback(async () => {
     if (!userId) {
@@ -188,8 +235,10 @@ export default function DashboardPage() {
 
     if (medsRes.status === "fulfilled") {
       setMedications(medsRes.value);
+      setAllMeds((medsRes.value.items ?? []) as MedicationItem[]);
     } else {
       setMedications(null);
+      setAllMeds([]);
       errors.push(`medications: ${safeMessage(medsRes.reason)}`);
     }
 
@@ -242,9 +291,23 @@ export default function DashboardPage() {
     setDashboardLoading(false);
   }, [userId]);
 
+  const loadDoseEvents = useCallback(async () => {
+    if (!userId) {
+      return;
+    }
+
+    try {
+      const response = await api.getDoseEvents(userId, 7);
+      setDoseEvents(response.items ?? []);
+    } catch {
+      setDoseEvents([]);
+    }
+  }, [userId]);
+
   useEffect(() => {
     void loadDashboard();
-  }, [loadDashboard]);
+    void loadDoseEvents();
+  }, [loadDashboard, loadDoseEvents]);
 
   const appointmentText = useMemo(
     () => formatAppointment(appointments?.next_appointment ?? null, appointments?.days_remaining ?? null),
@@ -257,6 +320,97 @@ export default function DashboardPage() {
     () => new Set((myCommunityEvents?.joined ?? []).map((event) => event.event_id)),
     [myCommunityEvents]
   );
+  const latestDoseEventBySlot = useMemo(() => {
+    const latest = new Map<string, DoseEventItem>();
+    for (const event of doseEvents) {
+      if (!event.scheduled_for) {
+        continue;
+      }
+      const key = `${event.medication_id}:${event.scheduled_for}`;
+      const previous = latest.get(key);
+      if (!previous || new Date(event.timestamp).getTime() > new Date(previous.timestamp).getTime()) {
+        latest.set(key, event);
+      }
+    }
+    return latest;
+  }, [doseEvents]);
+  const recentIntakeEvents = useMemo(
+    () => doseEvents.filter((event) => event.response_status).slice(0, 4),
+    [doseEvents]
+  );
+
+  const findDueReminderGroup = useCallback((): ReminderGroup | null => {
+    const timezone = userProfile?.timezone || "Asia/Singapore";
+    const medicationItems = medications?.items ?? [];
+    if (medicationItems.length === 0) {
+      return null;
+    }
+
+    const { date, time } = getClockParts(timezone);
+    const dueGroups = new Map<string, ReminderMedication[]>();
+
+    for (const medication of medicationItems) {
+      const times = medication.schedule?.times ?? [];
+      for (const scheduledTime of times) {
+        if (!scheduledTime || scheduledTime > time) {
+          continue;
+        }
+
+        const scheduledFor = buildScheduledFor(date, scheduledTime);
+        const latestEvent = latestDoseEventBySlot.get(`${medication.medication_id}:${scheduledFor}`);
+
+        if (latestEvent?.response_status === "taken" || latestEvent?.response_status === "skipped") {
+          continue;
+        }
+
+        if (latestEvent?.response_status === "snoozed") {
+          const snoozeUntil = new Date(latestEvent.timestamp).getTime() + SNOOZE_MINUTES * 60_000;
+          if (Date.now() < snoozeUntil) {
+            continue;
+          }
+        }
+
+        const medsForSlot = dueGroups.get(scheduledFor) ?? [];
+        medsForSlot.push({
+          medication_id: medication.medication_id,
+          name: medication.name,
+          dose_text: medication.dose_text
+        });
+        dueGroups.set(scheduledFor, medsForSlot);
+      }
+    }
+
+    const nextScheduledFor = [...dueGroups.keys()].sort()[0];
+    if (!nextScheduledFor) {
+      return null;
+    }
+
+    return {
+      scheduled_for: nextScheduledFor,
+      scheduled_label: formatScheduledLabel(nextScheduledFor),
+      medications: dueGroups.get(nextScheduledFor) ?? []
+    };
+  }, [latestDoseEventBySlot, medications, userProfile]);
+
+  useEffect(() => {
+    const evaluateReminder = () => {
+      const nextReminder = findDueReminderGroup();
+      setReminderGroup((current) => {
+        if (!nextReminder) {
+          return null;
+        }
+        if (current?.scheduled_for === nextReminder.scheduled_for) {
+          return current;
+        }
+        return nextReminder;
+      });
+    };
+
+    evaluateReminder();
+    const intervalId = window.setInterval(evaluateReminder, 30_000);
+
+    return () => window.clearInterval(intervalId);
+  }, [findDueReminderGroup]);
 
   async function handleSeedDemo() {
     setDemoLoading(true);
@@ -516,6 +670,7 @@ export default function DashboardPage() {
       }
       resetMedForm();
       await loadAllMeds();
+      void loadDashboard();
     } catch (e) {
       setMedMsg(safeMessage(e));
     } finally {
@@ -527,6 +682,7 @@ export default function DashboardPage() {
     try {
       await api.deleteMedication(userId, medId);
       await loadAllMeds();
+      void loadDashboard();
     } catch (e) {
       setMedMsg(safeMessage(e));
     }
@@ -599,6 +755,32 @@ export default function DashboardPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, userId]);
+
+  async function handleReminderResponse(responseStatus: ReminderResponseStatus) {
+    if (!userId || !reminderGroup) {
+      return;
+    }
+
+    setReminderBusy(true);
+    setReminderError(null);
+
+    try {
+      const response = await api.postMedicationIntake(userId, {
+        medication_ids: reminderGroup.medications.map((medication) => medication.medication_id),
+        scheduled_for: reminderGroup.scheduled_for,
+        response_status: responseStatus,
+        source: "dashboard_popup"
+      });
+
+      setDoseEvents((current) => [...response.items, ...current]);
+      setReminderGroup(null);
+      void loadDashboard();
+    } catch (error) {
+      setReminderError(safeMessage(error));
+    } finally {
+      setReminderBusy(false);
+    }
+  }
 
   if (!userId) {
     return (
@@ -1059,6 +1241,18 @@ export default function DashboardPage() {
                 <p>Drift detected: {String(drift?.drift_detected ?? false)}</p>
                 <p>Next action: {nextAction?.next_action ?? "-"}</p>
                 <p className="muted">{nextAction?.suggested_message ?? "-"}</p>
+                {recentIntakeEvents.length > 0 ? (
+                  <div className="reminder-history">
+                    {recentIntakeEvents.map((event) => (
+                      <div key={event.event_id} className="reminder-history-row">
+                        <span className="muted">{formatScheduledLabel(event.scheduled_for || event.timestamp)}</span>
+                        <span className={`intake-status intake-${event.response_status || "taken"}`}>
+                          {event.response_status || event.event_type}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 {allMeds.length > 0 ? (
                   <div className="item-list" style={{ marginTop: 8 }}>
                     {allMeds.map((med) => (
@@ -1269,6 +1463,60 @@ export default function DashboardPage() {
             Profile
           </button>
         </nav>
+
+        {reminderGroup ? (
+          <div className="medication-modal-backdrop" role="presentation">
+            <section
+              className="medication-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="medication-reminder-title"
+            >
+              <p className="modal-kicker">Medication reminder</p>
+              <h2 id="medication-reminder-title">Have you taken your medication?</h2>
+              <p className="muted">
+                Scheduled for {reminderGroup.scheduled_label}. This reminder stays active until you respond.
+              </p>
+
+              <div className="medication-modal-list">
+                {reminderGroup.medications.map((medication) => (
+                  <div key={medication.medication_id} className="medication-modal-item">
+                    <strong>{medication.name}</strong>
+                    <span>{medication.dose_text || "Dose not specified"}</span>
+                  </div>
+                ))}
+              </div>
+
+              {reminderError ? <p className="status-error modal-status">{reminderError}</p> : null}
+
+              <div className="medication-modal-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void handleReminderResponse("snoozed")}
+                  disabled={reminderBusy}
+                >
+                  {reminderBusy ? "Saving..." : `Snooze ${SNOOZE_MINUTES} min`}
+                </button>
+                <button
+                  type="button"
+                  className="skip-button"
+                  onClick={() => void handleReminderResponse("skipped")}
+                  disabled={reminderBusy}
+                >
+                  {reminderBusy ? "Saving..." : "Skip"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleReminderResponse("taken")}
+                  disabled={reminderBusy}
+                >
+                  {reminderBusy ? "Saving..." : "Taken"}
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
       </div>
     </main>
   );

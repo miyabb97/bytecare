@@ -232,6 +232,29 @@ class SimulatorRun(BaseModel):
     pattern: Literal["default", "travel_confusion"] = "default"
 
 
+class DoseEventOut(BaseModel):
+    event_id: str
+    user_id: str
+    medication_id: str
+    event_type: str
+    source: str
+    scheduled_for: str = ""
+    response_status: str = ""
+    timestamp: str
+    created_at: str
+
+
+class DoseEventListOut(BaseModel):
+    items: List[DoseEventOut]
+
+
+class IntakeResponseCreate(BaseModel):
+    medication_ids: List[str] = Field(min_length=1)
+    scheduled_for: str
+    response_status: Literal["taken", "skipped", "snoozed"]
+    source: str = "dashboard_popup"
+
+
 def now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -270,13 +293,21 @@ def nearest_event_for_schedule(
         if ev_dt.date() != scheduled_dt.date():
             continue
         diff_minutes = abs((ev_dt - scheduled_dt).total_seconds()) / 60
-        candidates.append((diff_minutes, ev.to_dict()))
+        ev_dict = ev.to_dict()
+        priority = 3
+        if ev.event_type in {"pillbox_open", "tap_confirm", "voice_confirm"} or ev.response_status == "taken":
+            priority = 0
+        elif ev.response_status == "skipped" or ev.event_type == "dose_skipped":
+            priority = 1
+        elif ev.response_status == "snoozed" or ev.event_type == "dose_snoozed":
+            priority = 2
+        candidates.append((priority, diff_minutes, ev_dict))
 
     if not candidates:
         return None
 
-    candidates.sort(key=lambda x: x[0])
-    diff, ev_dict = candidates[0]
+    candidates.sort(key=lambda x: (x[0], x[1]))
+    _, diff, ev_dict = candidates[0]
     ev_dict["_diff_minutes"] = diff
     ev_dict["_within_window"] = diff <= window_minutes
     return ev_dict
@@ -304,17 +335,24 @@ def compute_mes_for_scheduled_dose(
         elif event["event_type"] == "voice_confirm":
             score += 30
             explanations.append("voice confirmation recorded")
-
-        diff = event["_diff_minutes"]
-        if diff <= 30:
-            score += 20
-            explanations.append("taken within 30 minutes")
-        elif diff <= window_minutes:
-            score += 10
-            explanations.append("taken within allowed time window")
+        elif event["event_type"] == "dose_skipped":
+            explanations.append("dose marked as skipped")
+        elif event["event_type"] == "dose_snoozed":
+            explanations.append("dose reminder snoozed")
         else:
-            score += 5
-            explanations.append("taken outside preferred window")
+            explanations.append(f"event recorded: {event['event_type']}")
+
+        if event["event_type"] in {"pillbox_open", "tap_confirm", "voice_confirm"}:
+            diff = event["_diff_minutes"]
+            if diff <= 30:
+                score += 20
+                explanations.append("taken within 30 minutes")
+            elif diff <= window_minutes:
+                score += 10
+                explanations.append("taken within allowed time window")
+            else:
+                score += 5
+                explanations.append("taken outside preferred window")
     else:
         explanations.append("no supporting event found")
 
@@ -549,6 +587,64 @@ def delete_appointment(user_id: str, appointment_id: str, db: Session = Depends(
     db.delete(appt)
     db.commit()
     return None
+
+
+@app.get("/api/v1/users/{user_id}/dose-events", response_model=DoseEventListOut)
+def list_dose_events(user_id: str, days: int = 7, db: Session = Depends(get_db)):
+    get_user_or_404(db, user_id)
+    days = max(1, min(days, 30))
+    since = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+    items = (
+        db.query(DoseEvent)
+        .filter(DoseEvent.user_id == user_id, DoseEvent.timestamp >= since)
+        .order_by(DoseEvent.timestamp.desc(), DoseEvent.created_at.desc())
+        .all()
+    )
+    return {"items": [item.to_dict() for item in items]}
+
+
+@app.post("/api/v1/users/{user_id}/dose-events/intake", response_model=DoseEventListOut, status_code=201)
+def record_medication_intake(user_id: str, payload: IntakeResponseCreate, db: Session = Depends(get_db)):
+    get_user_or_404(db, user_id)
+
+    medication_ids = list(dict.fromkeys(payload.medication_ids))
+    medications = (
+        db.query(Medication)
+        .filter(Medication.user_id == user_id, Medication.medication_id.in_(medication_ids))
+        .all()
+    )
+    if len(medications) != len(medication_ids):
+        raise HTTPException(status_code=404, detail="One or more medications were not found")
+
+    event_type_map = {
+        "taken": "tap_confirm",
+        "skipped": "dose_skipped",
+        "snoozed": "dose_snoozed",
+    }
+    timestamp = now_iso()
+    created_events: List[Dict[str, Any]] = []
+
+    for medication in medications:
+        dose_event = DoseEvent(
+            event_id=str(uuid4()),
+            user_id=user_id,
+            medication_id=medication.medication_id,
+            event_type=event_type_map[payload.response_status],
+            source=payload.source,
+            scheduled_for=payload.scheduled_for,
+            response_status=payload.response_status,
+            timestamp=timestamp,
+            created_at=timestamp,
+        )
+        db.add(dose_event)
+        created_events.append(dose_event.to_dict())
+
+    db.commit()
+
+    if payload.response_status in {"taken", "skipped"}:
+        recompute_mes_for_user(db, user_id, days=14)
+
+    return {"items": created_events}
 
 
 @app.post("/api/v1/users/{user_id}/simulate/pillbox")

@@ -150,6 +150,22 @@ export type AppointmentListResponse = {
   items: AppointmentItem[];
 };
 
+export type DoseEventItem = {
+  event_id: string;
+  user_id: string;
+  medication_id: string;
+  event_type: string;
+  source: string;
+  scheduled_for: string;
+  response_status: "taken" | "skipped" | "snoozed" | "";
+  timestamp: string;
+  created_at: string;
+};
+
+export type DoseEventListResponse = {
+  items: DoseEventItem[];
+};
+
 export type Account = {
   account_id: string;
   name: string;
@@ -191,6 +207,8 @@ export const api = {
     apiRequest<FoodResponse>(`/users/${userId}/food-recommendations`),
   getAppointments: (userId: string) =>
     apiRequest<AppointmentResponse>(`/users/${userId}/appointments`),
+  getDoseEvents: (userId: string, days: number = 7) =>
+    apiRequest<DoseEventListResponse>(`/users/${userId}/dose-events?days=${days}`),
   getCommunityEvents: (userId: string) =>
     apiRequest<CommunityResponse>(`/users/${userId}/community-events`),
   getMyCommunityEvents: (userId: string) =>
@@ -293,6 +311,19 @@ export const api = {
   updateMedication: (userId: string, medId: string, data: { name: string; dose_text: string; schedule: { frequency: string; times: string[] }; time_window_minutes: number; criticality: string }) =>
     apiRequest<MedicationItem>(`/users/${userId}/medications/${medId}`, {
       method: "PUT",
+      body: JSON.stringify(data)
+    }),
+  postMedicationIntake: (
+    userId: string,
+    data: {
+      medication_ids: string[];
+      scheduled_for: string;
+      response_status: "taken" | "skipped" | "snoozed";
+      source?: string;
+    }
+  ) =>
+    apiRequest<DoseEventListResponse>(`/users/${userId}/dose-events/intake`, {
+      method: "POST",
       body: JSON.stringify(data)
     }),
   deleteMedication: (userId: string, medId: string) =>

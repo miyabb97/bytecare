@@ -61,12 +61,19 @@ def init_db():
 
     Base.metadata.create_all(bind=engine)
 
-    # Lightweight schema migration: add conditions_json to users if missing
+    # Lightweight schema migration for local SQLite development.
     with engine.connect() as conn:
-        cols = [row[1] for row in conn.execute(text("PRAGMA table_info(users)"))]
-        if "conditions_json" not in cols:
+        user_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(users)"))]
+        if "conditions_json" not in user_cols:
             conn.execute(text("ALTER TABLE users ADD COLUMN conditions_json TEXT DEFAULT '[]'"))
-            conn.commit()
+
+        dose_event_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(dose_events)"))]
+        if "scheduled_for" not in dose_event_cols:
+            conn.execute(text("ALTER TABLE dose_events ADD COLUMN scheduled_for TEXT DEFAULT ''"))
+        if "response_status" not in dose_event_cols:
+            conn.execute(text("ALTER TABLE dose_events ADD COLUMN response_status TEXT DEFAULT ''"))
+
+        conn.commit()
 
     db = SessionLocal()
     try:

@@ -781,3 +781,127 @@ select {
   font-size: 0.9rem;
   margin-bottom: 0.3rem;
 }
+
+.reminder-history {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.reminder-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.intake-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 4.75rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.intake-taken {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.intake-skipped {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.intake-snoozed {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.medication-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.medication-modal {
+  width: 100%;
+  max-width: 440px;
+  background: #ffffff;
+  border-radius: 22px;
+  padding: 1rem;
+  box-shadow: 0 24px 50px rgba(15, 23, 42, 0.24);
+}
+
+.medication-modal h2 {
+  margin: 0.2rem 0 0.5rem;
+  font-size: 1.2rem;
+}
+
+.modal-kicker {
+  margin: 0;
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.medication-modal-list {
+  margin-top: 0.85rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.medication-modal-item {
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.medication-modal-item strong,
+.medication-modal-item span {
+  display: block;
+}
+
+.medication-modal-item span {
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.medication-modal-actions {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.medication-modal-actions button {
+  margin-top: 0;
+}
+
+.skip-button {
+  background: #fff1f2;
+  color: #be123c;
+  border: 1px solid #fecdd3;
+}
+
+.modal-status {
+  margin: 0.75rem 0 0;
+}
+
+@media (min-width: 900px) {
+  .medication-modal-backdrop {
+    align-items: center;
+  }
+}
