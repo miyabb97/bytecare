@@ -543,9 +543,9 @@ export default function DashboardPage() {
     }
   }
 
-  // Load meds & appts when switching to profile tab
+  // Load meds & appts when switching to profile or health tab
   useEffect(() => {
-    if (activeTab === "profile" && userId) {
+    if ((activeTab === "profile" || activeTab === "health") && userId) {
       void loadAllMeds();
       void loadAllAppts();
     }
@@ -638,7 +638,126 @@ export default function DashboardPage() {
                   <p className="muted">No events available.</p>
                 )}
               </section>
+            </>
+          ) : null}
 
+          {/* ── CHAT TAB ── */}
+          {activeTab === "chat" ? (
+            <>
+              <section className="card chat-card">
+                <div className="card-row">
+                  <div className="card-title">Chat with ByteCare</div>
+                  <span className="live-dot" />
+                </div>
+
+                <div className="chat-log">
+                  {chatMessages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={message.sender === "user" ? "chat-row user" : "chat-row bot"}
+                    >
+                      <div className={message.sender === "user" ? "bubble bubble-user" : "bubble bubble-bot"}>
+                        {message.text}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="chat-input-row">
+                  <input
+                    value={chatDraft}
+                    onChange={(event) => setChatDraft(event.target.value)}
+                    placeholder="Type a message..."
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        void handleSendChat();
+                      }
+                    }}
+                  />
+                  <button type="button" onClick={() => void handleSendChat()} disabled={chatLoading}>
+                    {chatLoading ? "..." : "Send"}
+                  </button>
+                </div>
+
+                {chatError ? <p className="status-error">{chatError}</p> : null}
+                {chatResult ? (
+                  <p className="muted chat-context">
+                    Context: drift={String(chatResult.context.drift_detected)}, severity={chatResult.context.severity},
+                    action={chatResult.context.next_action}
+                  </p>
+                ) : null}
+              </section>
+
+              <section className="card">
+                <div className="card-title">Voice Agent</div>
+                <p className="muted">Talk to ByteCare in Singlish. Type your message and get a friendly reply!</p>
+
+                <div className="form-group">
+                  <textarea
+                    value={vaMessage}
+                    onChange={(e) => setVaMessage(e.target.value)}
+                    placeholder='e.g. "I forgot take my medicine today lah"'
+                    rows={3}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => void handleVoiceAgent()}
+                  disabled={vaLoading || !vaMessage.trim()}
+                >
+                  {vaLoading ? "Thinking..." : "Send Message"}
+                </button>
+
+                {vaError ? <p className="status-error">{vaError}</p> : null}
+
+                {vaReply ? (
+                  <div className="va-reply-box">
+                    <div className="card-title small">ByteCare says:</div>
+                    <p className="va-reply-text">{vaReply}</p>
+                    <button
+                      type="button"
+                      className="play-audio-btn"
+                      onClick={() => void handlePlayAudio()}
+                      disabled={vaAudioLoading}
+                    >
+                      {vaAudioLoading ? "Loading audio..." : "Play Audio"}
+                    </button>
+                    {vaAudioUrl ? (
+                      <audio controls src={vaAudioUrl} className="va-audio-player" />
+                    ) : null}
+                  </div>
+                ) : null}
+              </section>
+
+              <section className="card">
+                <div className="card-title small">Voice Transcript Analysis</div>
+                <p className="muted">Paste a voice transcript to analyze language, emotion, and intent.</p>
+                <textarea
+                  value={voiceTranscript}
+                  onChange={(event) => setVoiceTranscript(event.target.value)}
+                  placeholder='Example: "I forgot my medicine today lah."'
+                  rows={2}
+                />
+                <button type="button" onClick={() => void handleAnalyzeVoice()} disabled={voiceLoading}>
+                  {voiceLoading ? "Analyzing..." : "Analyze Transcript"}
+                </button>
+                {voiceError ? <p className="status-error">{voiceError}</p> : null}
+                {voiceResult ? (
+                  <div className="chip-wrap">
+                    <span className="chip">{voiceResult.language_hint}</span>
+                    <span className="chip">{voiceResult.emotion_tag}</span>
+                    <span className="chip">{voiceResult.intent}</span>
+                    <p className="muted">{voiceResult.cleaned_text}</p>
+                  </div>
+                ) : null}
+              </section>
+            </>
+          ) : null}
+
+          {/* ── HEALTH TAB ── */}
+          {activeTab === "health" ? (
+            <>
               <section className="card">
                 <div className="card-title">TCM Safety Check</div>
                 <p className="muted">Check herb-drug interactions against your current medications.</p>
@@ -683,7 +802,17 @@ export default function DashboardPage() {
                       }}
                       className="file-input"
                     />
-                    {tcmImageFile ? <p className="muted">Selected: {tcmImageFile.name}</p> : null}
+                    {tcmImageFile ? (
+                      <div style={{ marginTop: 8 }}>
+                        <p className="muted">Selected: {tcmImageFile.name}</p>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={URL.createObjectURL(tcmImageFile)}
+                          alt="Uploaded herb"
+                          style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 8, marginTop: 6, objectFit: "contain" }}
+                        />
+                      </div>
+                    ) : null}
 
                     {!tcmIdentifyResult && tcmImageFile && (
                       <button
@@ -799,135 +928,66 @@ export default function DashboardPage() {
               </section>
 
               <section className="card">
-                <div className="card-title">Voice Agent</div>
-                <p className="muted">Talk to ByteCare in Singlish. Type your message and get a friendly reply!</p>
-
-                <div className="form-group">
-                  <textarea
-                    value={vaMessage}
-                    onChange={(e) => setVaMessage(e.target.value)}
-                    placeholder='e.g. "I forgot take my medicine today lah"'
-                    rows={3}
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => void handleVoiceAgent()}
-                  disabled={vaLoading || !vaMessage.trim()}
-                >
-                  {vaLoading ? "Thinking..." : "Send Message"}
+                <div className="card-title">Clinician Summary</div>
+                <button type="button" onClick={() => void handleLoadReportSummary()} disabled={reportLoading}>
+                  {reportLoading ? "Loading..." : "Fetch Report Summary"}
                 </button>
-
-                {vaError ? <p className="status-error">{vaError}</p> : null}
-
-                {vaReply ? (
-                  <div className="va-reply-box">
-                    <div className="card-title small">ByteCare says:</div>
-                    <p className="va-reply-text">{vaReply}</p>
-                    <button
-                      type="button"
-                      className="play-audio-btn"
-                      onClick={() => void handlePlayAudio()}
-                      disabled={vaAudioLoading}
-                    >
-                      {vaAudioLoading ? "Loading audio..." : "Play Audio"}
-                    </button>
-                    {vaAudioUrl ? (
-                      <audio controls src={vaAudioUrl} className="va-audio-player" />
-                    ) : null}
-                  </div>
-                ) : null}
-
-                <hr className="section-divider" />
-
-                <div className="card-title small">Voice Transcript Analysis</div>
-                <p className="muted">Paste a voice transcript to analyze language, emotion, and intent.</p>
-                <textarea
-                  value={voiceTranscript}
-                  onChange={(event) => setVoiceTranscript(event.target.value)}
-                  placeholder='Example: "I forgot my medicine today lah."'
-                  rows={2}
-                />
-                <button type="button" onClick={() => void handleAnalyzeVoice()} disabled={voiceLoading}>
-                  {voiceLoading ? "Analyzing..." : "Analyze Transcript"}
-                </button>
-                {voiceError ? <p className="status-error">{voiceError}</p> : null}
-                {voiceResult ? (
-                  <div className="chip-wrap">
-                    <span className="chip">{voiceResult.language_hint}</span>
-                    <span className="chip">{voiceResult.emotion_tag}</span>
-                    <span className="chip">{voiceResult.intent}</span>
-                    <p className="muted">{voiceResult.cleaned_text}</p>
+                {reportError ? <p className="status-error">{reportError}</p> : null}
+                {reportSummary ? (
+                  <div className="report-box">
+                    <p>{reportSummary.summary}</p>
+                    <p className="muted">Average MES 7d: {reportSummary.avg_mes_7d}</p>
+                    <p className="muted">Missed doses 7d: {reportSummary.missed_doses_7d}</p>
+                    <p className="muted">Late doses 7d: {reportSummary.late_doses_7d}</p>
+                    <p className="muted">Recommended follow-up: {reportSummary.recommended_follow_up}</p>
                   </div>
                 ) : null}
               </section>
-            </>
-          ) : null}
 
-          {activeTab === "chat" ? (
-            <section className="card chat-card">
-              <div className="card-row">
-                <div className="card-title">Chat with ByteCare</div>
-                <span className="live-dot" />
-              </div>
-
-              <div className="chat-log">
-                {chatMessages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={message.sender === "user" ? "chat-row user" : "chat-row bot"}
-                  >
-                    <div className={message.sender === "user" ? "bubble bubble-user" : "bubble bubble-bot"}>
-                      {message.text}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="chat-input-row">
-                <input
-                  value={chatDraft}
-                  onChange={(event) => setChatDraft(event.target.value)}
-                  placeholder="Type a message..."
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      void handleSendChat();
-                    }
-                  }}
-                />
-                <button type="button" onClick={() => void handleSendChat()} disabled={chatLoading}>
-                  {chatLoading ? "..." : "Send"}
-                </button>
-              </div>
-
-              {chatError ? <p className="status-error">{chatError}</p> : null}
-              {chatResult ? (
-                <p className="muted chat-context">
-                  Context: drift={String(chatResult.context.drift_detected)}, severity={chatResult.context.severity},
-                  action={chatResult.context.next_action}
-                </p>
-              ) : null}
-            </section>
-          ) : null}
-
-          {activeTab === "health" ? (
-            <section className="card">
-              <div className="card-title">Clinician Summary</div>
-              <button type="button" onClick={() => void handleLoadReportSummary()} disabled={reportLoading}>
-                {reportLoading ? "Loading..." : "Fetch Report Summary"}
-              </button>
-              {reportError ? <p className="status-error">{reportError}</p> : null}
-              {reportSummary ? (
-                <div className="report-box">
-                  <p>{reportSummary.summary}</p>
-                  <p className="muted">Average MES 7d: {reportSummary.avg_mes_7d}</p>
-                  <p className="muted">Missed doses 7d: {reportSummary.missed_doses_7d}</p>
-                  <p className="muted">Late doses 7d: {reportSummary.late_doses_7d}</p>
-                  <p className="muted">Recommended follow-up: {reportSummary.recommended_follow_up}</p>
+              <section className="card">
+                <div className="card-row">
+                  <div className="card-title">Medication Tracking</div>
+                  <span className={`severity-pill severity-${drift?.severity ?? "green"}`}>
+                    {drift?.severity ?? "green"}
+                  </span>
                 </div>
-              ) : null}
-            </section>
+                <p>Drift detected: {String(drift?.drift_detected ?? false)}</p>
+                <p>Next action: {nextAction?.next_action ?? "-"}</p>
+                <p className="muted">{nextAction?.suggested_message ?? "-"}</p>
+                {allMeds.length > 0 ? (
+                  <div className="item-list" style={{ marginTop: 8 }}>
+                    {allMeds.map((med) => (
+                      <div key={med.medication_id} className="item-row">
+                        <div>
+                          <div className="item-name">{med.name}</div>
+                          <div className="muted">{med.dose_text} &middot; {med.schedule.frequency} &middot; {med.schedule.times.join(", ")}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="muted">No medications recorded yet.</p>
+                )}
+              </section>
+
+              <section className="card">
+                <div className="card-title">Appointment Tracking</div>
+                {allAppts.length > 0 ? (
+                  <div className="item-list">
+                    {allAppts.map((appt) => (
+                      <div key={appt.appointment_id} className="item-row">
+                        <div>
+                          <div className="item-name">{new Date(appt.datetime).toLocaleString()}</div>
+                          <div className="muted">{appt.location}{appt.notes ? ` — ${appt.notes}` : ""}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="muted">No appointments scheduled.</p>
+                )}
+              </section>
+            </>
           ) : null}
 
           {activeTab === "profile" ? (
