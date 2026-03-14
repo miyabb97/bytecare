@@ -67,11 +67,38 @@ export type CommunityMyEventsResponse = {
 
 export type ChatResponse = {
   reply: string;
+  alerts: Array<{ type: string; message: string }>;
   context: {
     drift_detected: boolean;
     severity: string;
-    next_action: string;
+    missed_today: number;
+    adherence_7d_avg: number;
+    upcoming_appointments: number;
   };
+};
+
+export type AdherenceEvent = {
+  medication_name: string;
+  medication_id: string;
+  dose_text?: string;
+  scheduled_time: string;
+  taken_time: string | null;
+  status: "taken" | "late" | "missed" | "upcoming";
+  date: string;
+};
+
+export type AdherenceDay = {
+  date: string;
+  total: number;
+  taken: number;
+  late: number;
+  missed: number;
+  adherence_pct: number;
+};
+
+export type ProactiveAlert = {
+  type: string;
+  message: string;
 };
 
 export type VoiceResponse = {
@@ -225,10 +252,16 @@ export const api = {
     }),
   getReportSummary: (userId: string) =>
     apiRequest<ReportSummaryResponse>(`/users/${userId}/report-summary`),
-  postChat: (userId: string, message: string) =>
+  postChat: (userId: string, message: string, conversationHistory?: Array<{sender: string; text: string}>, tcmResult?: Record<string, unknown>, lang?: string) =>
     apiRequest<ChatResponse>(`/users/${userId}/chat`, {
       method: "POST",
-      body: JSON.stringify({ message })
+      body: JSON.stringify({ message, conversation_history: conversationHistory, tcm_result: tcmResult, lang: lang ?? "en" })
+    }),
+  getAlerts: (userId: string, tcmResult?: Record<string, unknown>) =>
+    apiRequest<{ alerts: ProactiveAlert[] }>(`/users/${userId}/chat/alerts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tcm_result: tcmResult ?? null })
     }),
   postVoiceTranscript: (userId: string, transcript: string) =>
     apiRequest<VoiceResponse>(`/users/${userId}/voice/transcript`, {

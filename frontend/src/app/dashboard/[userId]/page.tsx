@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import {
@@ -19,6 +19,7 @@ import {
   type MedicationItem,
   type MedicationListResponse,
   type NextActionResponse,
+  type ProactiveAlert,
   type ReportSummaryResponse,
   type TCMResponse,
   type UserProfile,
@@ -31,6 +32,8 @@ type ChatMessage = {
   id: number;
   sender: "user" | "bot";
   text: string;
+  timestamp?: string;
+  lang?: string;
 };
 
 type ReminderResponseStatus = "taken" | "skipped" | "snoozed";
@@ -129,9 +132,11 @@ export default function DashboardPage() {
     {
       id: 1,
       sender: "bot",
-      text: "Hello, I am here to support your medication routine today."
+      text: "Hello! I'm ByteCare, your health assistant. I can help with your medications, appointments, and more. How can I help you today?",
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     }
   ]);
+  const [chatAlerts, setChatAlerts] = useState<ProactiveAlert[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
 
@@ -163,6 +168,18 @@ export default function DashboardPage() {
 
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+
+
+
+  // --- Chat language state ---
+  const [chatLang, setChatLang] = useState<"en" | "zh" | "ms" | "ta">("en");
+
+  // --- Voice recording state ---
+  const [isRecording, setIsRecording] = useState(false);
+
+  // --- Chat audio playback state ---
+  const [playingMsgId, setPlayingMsgId] = useState<number | null>(null);
+  const [loadingMsgAudio, setLoadingMsgAudio] = useState<number | null>(null);
 
   // --- Demo patient state ---
   const [demoPatients, setDemoPatients] = useState<DemoPatient[]>([]);
@@ -426,28 +443,167 @@ export default function DashboardPage() {
     }
   }
 
+
+
+
+
+  function handleQuickReply(text: string) {
+    setChatDraft(text);
+    const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    setChatMessages((prev) => [...prev, { id: Date.now(), sender: "user", text, timestamp: ts }]);
+    setChatLoading(true);
+    setChatError(null);
+
+    const history = chatMessages.slice(-10).map((m) => ({ sender: m.sender, text: m.text }));
+    api.postChat(userId, text, history, tcmResult ?? undefined, chatLang)
+      .then((response) => {
+        setChatResult(response);
+        const botTs = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        setChatMessages((prev) => [...prev, { id: Date.now() + 1, sender: "bot", text: response.reply, timestamp: botTs, lang: chatLang }]);
+        if (response.alerts?.length) setChatAlerts(response.alerts);
+      })
+      .catch((error) => {
+        const msg = safeMessage(error);
+        setChatError(msg);
+        setChatMessages((prev) => [...prev, { id: Date.now() + 2, sender: "bot", text: `Sorry, ${msg}`, timestamp: ts }]);
+      })
+      .finally(() => { setChatLoading(false); setChatDraft(""); });
+  }
+
   async function handleSendChat() {
     const message = chatDraft.trim();
     if (!message || !userId) {
       return;
     }
 
-    setChatMessages((prev) => [...prev, { id: Date.now(), sender: "user", text: message }]);
+    const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    setChatMessages((prev) => [...prev, { id: Date.now(), sender: "user", text: message, timestamp: ts }]);
     setChatDraft("");
     setChatLoading(true);
     setChatError(null);
 
     try {
-      const response = await api.postChat(userId, message);
+      const history = chatMessages.slice(-10).map((m) => ({ sender: m.sender, text: m.text }));
+      const response = await api.postChat(userId, message, history, tcmResult ?? undefined, chatLang);
       setChatResult(response);
-      setChatMessages((prev) => [...prev, { id: Date.now() + 1, sender: "bot", text: response.reply }]);
+      const botTs = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      setChatMessages((prev) => [...prev, { id: Date.now() + 1, sender: "bot", text: response.reply, timestamp: botTs, lang: chatLang }]);
+      if (response.alerts?.length) {
+        setChatAlerts(response.alerts);
+      }
     } catch (error) {
       const msg = safeMessage(error);
       setChatError(msg);
-      setChatMessages((prev) => [...prev, { id: Date.now() + 2, sender: "bot", text: `Sorry, ${msg}` }]);
+      setChatMessages((prev) => [...prev, { id: Date.now() + 2, sender: "bot", text: `Sorry, ${msg}`, timestamp: ts }]);
     } finally {
       setChatLoading(false);
     }
+  }
+
+  async function loadChatContext() {
+    if (!userId) return;
+    try {
+      const alertsRes = await api.getAlerts(userId, tcmResult ?? undefined);
+      setChatAlerts(alertsRes.alerts);
+    } catch { /* best-effort */ }
+  }
+
+  // --- Voice recording for chat ---
+  // Uses the Web Speech API directly — it listens to the live microphone,
+  // transcribes speech, then auto-sends the result as a chat message.
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
+
+  function startRecording() {
+    setChatError(null);
+    if (!("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
+      setChatError("Speech recognition is not supported in this browser.");
+      return;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new SpeechRecognitionCtor();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    const langMap: Record<string, string> = { en: "en-SG", zh: "zh-SG", ms: "ms-MY", ta: "ta-SG" };
+    recognition.lang = langMap[chatLang] || "en-SG";
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onresult = (event: any) => {
+      const transcript: string = event.results[0]?.[0]?.transcript ?? "";
+      if (!transcript) return;
+
+      // Detect language and auto-switch
+      const detectedLang = detectLanguageHint(transcript);
+      if (detectedLang) setChatLang(detectedLang);
+      const sendLang = detectedLang || chatLang;
+
+      // Show transcript in input then auto-send
+      setChatDraft(transcript);
+
+      const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      setChatMessages((prev) => [...prev, { id: Date.now(), sender: "user", text: transcript, timestamp: ts }]);
+      setChatLoading(true);
+      const history = chatMessages.slice(-10).map((m) => ({ sender: m.sender, text: m.text }));
+      api.postChat(userId, transcript, history, tcmResult ?? undefined, sendLang)
+        .then((response) => {
+          setChatResult(response);
+          const botTs = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+          setChatMessages((prev) => [...prev, { id: Date.now() + 1, sender: "bot", text: response.reply, timestamp: botTs, lang: sendLang }]);
+          if (response.alerts?.length) setChatAlerts(response.alerts);
+        })
+        .catch((error) => {
+          setChatMessages((prev) => [...prev, { id: Date.now() + 2, sender: "bot", text: `Sorry, ${safeMessage(error)}`, timestamp: ts }]);
+        })
+        .finally(() => { setChatLoading(false); setChatDraft(""); });
+    };
+
+    recognition.onerror = () => {
+      setChatError("Speech recognition failed. Please try again or type instead.");
+      setIsRecording(false);
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+
+    recognition.start();
+    recognitionRef.current = recognition;
+    setIsRecording(true);
+  }
+
+  function stopRecording() {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+    setIsRecording(false);
+  }
+
+  function detectLanguageHint(text: string): "en" | "zh" | "ms" | "ta" | null {
+    // Simple heuristic: check for CJK characters, Tamil script, Malay keywords
+    if (/[\u4e00-\u9fff]/.test(text)) return "zh";
+    if (/[\u0B80-\u0BFF]/.test(text)) return "ta";
+    if (/\b(saya|nak|sudah|belum|ubat|makan|tidak)\b/i.test(text)) return "ms";
+    return null; // default to current chatLang
+  }
+
+  // --- Play audio for a specific bot message ---
+  async function handlePlayMsgAudio(msgId: number, text: string, lang?: string) {
+    if (loadingMsgAudio === msgId || playingMsgId === msgId) return;
+    setLoadingMsgAudio(msgId);
+    try {
+      const blob = await api.postTTS(text, lang || "en");
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      setPlayingMsgId(msgId);
+      audio.onended = () => { setPlayingMsgId(null); URL.revokeObjectURL(url); };
+      audio.onerror = () => { setPlayingMsgId(null); URL.revokeObjectURL(url); };
+      audio.play().catch(() => setPlayingMsgId(null));
+    } catch { /* best-effort */ }
+    setLoadingMsgAudio(null);
   }
 
   async function handleAnalyzeVoice() {
@@ -753,6 +909,10 @@ export default function DashboardPage() {
       void loadAllMeds();
       void loadAllAppts();
     }
+    if (activeTab === "chat" && userId) {
+      void loadChatContext();
+    }
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, userId]);
 
@@ -820,50 +980,6 @@ export default function DashboardPage() {
         <section className="tab-body">
           {activeTab === "home" ? (
             <>
-              <section className="card">
-                <div className="card-title">Patient Overview</div>
-                <h2 className="patient-name">{userProfile?.name ?? "-"}</h2>
-                <p className="muted">Age {userProfile?.age ?? "-"} | {userProfile?.timezone ?? "-"}</p>
-                {userProfile?.conditions && userProfile.conditions.length > 0 ? (
-                  <p className="muted">Conditions: {userProfile.conditions.join(", ")}</p>
-                ) : null}
-                <p className="muted">Condition signal: {food?.condition ?? "Not available"}</p>
-                <p className="primary-text">{medicationCount} medications active</p>
-              </section>
-
-              <section className="card">
-                <div className="card-title">Load Demo Patients</div>
-                <p className="muted">Seed 3 demo patients with realistic medications for TCM Safety Check testing.</p>
-                <button type="button" onClick={() => void handleSeedDemo()} disabled={demoLoading} style={{ marginBottom: 8 }}>
-                  {demoLoading ? "Seeding..." : "Seed Demo Patients"}
-                </button>
-                {demoMsg ? <p className="muted">{demoMsg}</p> : null}
-                {demoPatients.length > 0 ? (
-                  <div className="demo-patient-list">
-                    {demoPatients.map((dp) => (
-                      <button
-                        key={dp.user_id}
-                        type="button"
-                        className="demo-patient-btn"
-                        onClick={() => router.push(`/dashboard/${dp.user_id}`)}
-                      >
-                        <strong>{dp.name}</strong>
-                        <span className="muted"> Age {dp.age} · {dp.medication_count} meds</span>
-                        {dp.email ? (
-                          <span className="muted" style={{ display: "block", fontSize: "0.78rem" }}>
-                            Login: {dp.email} / {dp.password}
-                            {dp.already_existed ? " (already seeded)" : ""}
-                          </span>
-                        ) : null}
-                        <span className="muted" style={{ display: "block", fontSize: "0.78rem" }}>
-                          {dp.conditions.join(", ")}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </section>
-
               <section className="card">
                 <div className="card-row">
                   <div className="card-title">Medication Adherence</div>
@@ -940,116 +1056,105 @@ export default function DashboardPage() {
 
           {/* ── CHAT TAB ── */}
           {activeTab === "chat" ? (
-            <>
-              <section className="card chat-card">
-                <div className="card-row">
-                  <div className="card-title">Chat with ByteCare</div>
-                  <span className="live-dot" />
-                </div>
-
-                <div className="chat-log">
-                  {chatMessages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={message.sender === "user" ? "chat-row user" : "chat-row bot"}
-                    >
-                      <div className={message.sender === "user" ? "bubble bubble-user" : "bubble bubble-bot"}>
-                        {message.text}
-                      </div>
+            <section className="chat-fullscreen">
+              {/* Chat header bar */}
+              <div className="chat-header-bar">
+                <div className="chat-header-info">
+                  <div className="chat-avatar">BC</div>
+                  <div>
+                    <div className="chat-header-name">ByteCare</div>
+                    <div className="chat-header-status">
+                      <span className="live-dot" /> Online
                     </div>
-                  ))}
+                  </div>
                 </div>
+                <select
+                  className="chat-lang-dropdown"
+                  value={chatLang}
+                  onChange={(e) => setChatLang(e.target.value as "en" | "zh" | "ms" | "ta")}
+                >
+                  <option value="en">🇸🇬 English</option>
+                  <option value="zh">🇨🇳 中文</option>
+                  <option value="ms">🇲🇾 Melayu</option>
+                  <option value="ta">🇮🇳 தமிழ்</option>
+                </select>
+              </div>
 
-                <div className="chat-input-row">
-                  <input
-                    value={chatDraft}
-                    onChange={(event) => setChatDraft(event.target.value)}
-                    placeholder="Type a message..."
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        void handleSendChat();
-                      }
-                    }}
-                  />
-                  <button type="button" onClick={() => void handleSendChat()} disabled={chatLoading}>
-                    {chatLoading ? "..." : "Send"}
-                  </button>
-                </div>
-
-                {chatError ? <p className="status-error">{chatError}</p> : null}
-                {chatResult ? (
-                  <p className="muted chat-context">
-                    Context: drift={String(chatResult.context.drift_detected)}, severity={chatResult.context.severity},
-                    action={chatResult.context.next_action}
-                  </p>
+              {/* Chat messages */}
+              <div className="chat-messages" id="chat-log">
+                {chatMessages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={message.sender === "user" ? "chat-row user" : "chat-row bot"}
+                  >
+                    <div className={message.sender === "user" ? "bubble bubble-user" : "bubble bubble-bot"}>
+                      <span className="bubble-text">{message.text}</span>
+                      <span className="bubble-footer">
+                        {message.timestamp ? (
+                          <span className="bubble-time">{message.timestamp}</span>
+                        ) : null}
+                        {message.sender === "bot" ? (
+                          <button
+                            type="button"
+                            className="bubble-play-btn"
+                            disabled={loadingMsgAudio === message.id}
+                            onClick={() => void handlePlayMsgAudio(message.id, message.text, message.lang || chatLang)}
+                            title="Play audio"
+                          >
+                            {loadingMsgAudio === message.id ? "⏳" : playingMsgId === message.id ? "🔊" : "🔈"}
+                          </button>
+                        ) : null}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                {chatLoading ? (
+                  <div className="chat-row bot">
+                    <div className="bubble bubble-bot bubble-typing">
+                      <span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" />
+                    </div>
+                  </div>
                 ) : null}
-              </section>
+              </div>
 
-              <section className="card">
-                <div className="card-title">Voice Agent</div>
-                <p className="muted">Talk to ByteCare in Singlish. Type your message and get a friendly reply!</p>
+              {chatError ? <p className="status-error" style={{ padding: "0 1rem", fontSize: "0.8rem" }}>{chatError}</p> : null}
 
-                <div className="form-group">
-                  <textarea
-                    value={vaMessage}
-                    onChange={(e) => setVaMessage(e.target.value)}
-                    placeholder='e.g. "I forgot take my medicine today lah"'
-                    rows={3}
-                  />
-                </div>
-
+              {/* Chat input area */}
+              <div className="chat-compose">
                 <button
                   type="button"
-                  onClick={() => void handleVoiceAgent()}
-                  disabled={vaLoading || !vaMessage.trim()}
+                  className={`mic-btn ${isRecording ? "mic-btn-recording" : ""}`}
+                  onClick={isRecording ? stopRecording : startRecording}
+                  disabled={chatLoading}
+                  title={isRecording ? "Stop recording" : "Record voice message"}
                 >
-                  {vaLoading ? "Thinking..." : "Send Message"}
+                  {isRecording ? "🔴" : "🎙️"}
                 </button>
-
-                {vaError ? <p className="status-error">{vaError}</p> : null}
-
-                {vaReply ? (
-                  <div className="va-reply-box">
-                    <div className="card-title small">ByteCare says:</div>
-                    <p className="va-reply-text">{vaReply}</p>
-                    <button
-                      type="button"
-                      className="play-audio-btn"
-                      onClick={() => void handlePlayAudio()}
-                      disabled={vaAudioLoading}
-                    >
-                      {vaAudioLoading ? "Loading audio..." : "Play Audio"}
-                    </button>
-                    {vaAudioUrl ? (
-                      <audio controls src={vaAudioUrl} className="va-audio-player" />
-                    ) : null}
-                  </div>
-                ) : null}
-              </section>
-
-              <section className="card">
-                <div className="card-title small">Voice Transcript Analysis</div>
-                <p className="muted">Paste a voice transcript to analyze language, emotion, and intent.</p>
-                <textarea
-                  value={voiceTranscript}
-                  onChange={(event) => setVoiceTranscript(event.target.value)}
-                  placeholder='Example: "I forgot my medicine today lah."'
-                  rows={2}
+                <input
+                  className="chat-compose-input"
+                  value={chatDraft}
+                  onChange={(event) => setChatDraft(event.target.value)}
+                  placeholder="Type a message..."
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !chatLoading) {
+                      void handleSendChat();
+                    }
+                  }}
                 />
-                <button type="button" onClick={() => void handleAnalyzeVoice()} disabled={voiceLoading}>
-                  {voiceLoading ? "Analyzing..." : "Analyze Transcript"}
+                <button
+                  type="button"
+                  className="chat-send-btn"
+                  onClick={() => void handleSendChat()}
+                  disabled={chatLoading || !chatDraft.trim()}
+                >
+                  {chatLoading ? (
+                    <span className="send-spinner" />
+                  ) : (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
+                  )}
                 </button>
-                {voiceError ? <p className="status-error">{voiceError}</p> : null}
-                {voiceResult ? (
-                  <div className="chip-wrap">
-                    <span className="chip">{voiceResult.language_hint}</span>
-                    <span className="chip">{voiceResult.emotion_tag}</span>
-                    <span className="chip">{voiceResult.intent}</span>
-                    <p className="muted">{voiceResult.cleaned_text}</p>
-                  </div>
-                ) : null}
-              </section>
-            </>
+              </div>
+            </section>
           ) : null}
 
           {/* ── HEALTH TAB ── */}
