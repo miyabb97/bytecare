@@ -18,6 +18,7 @@ import {
   type ReportSummaryResponse,
   type TCMResponse,
   type UserProfile,
+  type TCMIdentifyResponse,
   type VoiceAgentResponse,
   type VoiceResponse
 } from "../../../lib/api";
@@ -95,6 +96,8 @@ export default function DashboardPage() {
   const [tcmMode, setTcmMode] = useState<"manual" | "image">("manual");
   const [tcmAudioUrl, setTcmAudioUrl] = useState<string | null>(null);
   const [tcmAudioLoading, setTcmAudioLoading] = useState(false);
+  const [tcmIdentifyResult, setTcmIdentifyResult] = useState<TCMIdentifyResponse | null>(null);
+  const [tcmConfirmedHerb, setTcmConfirmedHerb] = useState("");
 
   // --- Voice Agent state ---
   const [vaMessage, setVaMessage] = useState("");
@@ -270,6 +273,26 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleTCMIdentify() {
+    if (!userId || !tcmImageFile) return;
+    setTCMLoading(true);
+    setTCMError(null);
+    setTCMResult(null);
+    setTcmIdentifyResult(null);
+    setTcmConfirmedHerb("");
+    setTcmAudioUrl(null);
+
+    try {
+      const result = await api.postTCMIdentify(userId, tcmImageFile);
+      setTcmIdentifyResult(result);
+      setTcmConfirmedHerb(result.identified_herb ?? "");
+    } catch (error) {
+      setTCMError(safeMessage(error));
+    } finally {
+      setTCMLoading(false);
+    }
+  }
+
   async function handleTCMCheck() {
     if (!userId) return;
     setTCMLoading(true);
@@ -278,14 +301,11 @@ export default function DashboardPage() {
     setTcmAudioUrl(null);
 
     try {
-      let response: TCMResponse;
-      if (tcmMode === "image" && tcmImageFile) {
-        response = await api.postTCMScan(userId, tcmImageFile);
-      } else {
-        const herbText = herb.trim();
-        if (!herbText) { setTCMError("Please enter a herb name."); setTCMLoading(false); return; }
-        response = await api.postTCMCheck(userId, herbText);
-      }
+      // Use confirmed herb from image identify, or manual text input
+      const herbText = (tcmMode === "image" ? tcmConfirmedHerb : herb).trim();
+      if (!herbText) { setTCMError("Please enter a herb name."); setTCMLoading(false); return; }
+
+      const response = await api.postTCMCheck(userId, herbText);
       setTCMResult(response);
 
       // Auto-play TTS for the Singlish result message
@@ -655,32 +675,97 @@ export default function DashboardPage() {
                     <input
                       type="file"
                       accept="image/*"
-                      onChange={(e) => setTcmImageFile(e.target.files?.[0] ?? null)}
+                      onChange={(e) => {
+                        setTcmImageFile(e.target.files?.[0] ?? null);
+                        setTcmIdentifyResult(null);
+                        setTcmConfirmedHerb("");
+                        setTCMResult(null);
+                      }}
                       className="file-input"
                     />
                     {tcmImageFile ? <p className="muted">Selected: {tcmImageFile.name}</p> : null}
+
+                    {!tcmIdentifyResult && tcmImageFile && (
+                      <button
+                        type="button"
+                        onClick={() => void handleTCMIdentify()}
+                        disabled={tcmLoading}
+                        style={{ marginTop: 8 }}
+                      >
+                        {tcmLoading ? "Identifying..." : "Identify Herb"}
+                      </button>
+                    )}
+
+                    {tcmIdentifyResult && (
+                      <div className="tcm-ocr-box" style={{ marginTop: 12 }}>
+                        <div className="card-title small">Detected Information</div>
+                        {tcmIdentifyResult.extracted_text && (
+                          <p className="muted" style={{ fontSize: "0.8rem" }}>{tcmIdentifyResult.extracted_text}</p>
+                        )}
+
+                        {tcmIdentifyResult.identified_herb ? (
+                          <>
+                            <div className="card-title small" style={{ marginTop: 8 }}>
+                              Detected Herb
+                              <span className={`risk-badge`} style={{ marginLeft: 8, fontSize: "0.7rem" }}>
+                                via {tcmIdentifyResult.source}
+                              </span>
+                              {tcmIdentifyResult.confidence && (
+                                <span className={`risk-badge`} style={{ marginLeft: 4, fontSize: "0.7rem" }}>
+                                  {tcmIdentifyResult.confidence} confidence
+                                </span>
+                              )}
+                            </div>
+                            <input
+                              value={tcmConfirmedHerb}
+                              onChange={(e) => setTcmConfirmedHerb(e.target.value)}
+                              placeholder="Edit herb name if needed"
+                            />
+                            {!tcmIdentifyResult.herb_key && (
+                              <p className="muted" style={{ marginTop: 4, fontSize: "0.8rem", color: "#e67e22" }}>
+                                This herb is not in our interaction database — we can still check, but results may be limited.
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <p className="status-error" style={{ marginTop: 8 }}>
+                              Could not identify a herb. Please type the herb name manually:
+                            </p>
+                            <input
+                              value={tcmConfirmedHerb}
+                              onChange={(e) => setTcmConfirmedHerb(e.target.value)}
+                              placeholder="e.g. ginseng, ginkgo, dong quai"
+                            />
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
-                <button
-                  type="button"
-                  onClick={() => void handleTCMCheck()}
-                  disabled={tcmLoading || (tcmMode === "image" && !tcmImageFile) || (tcmMode === "manual" && !herb.trim())}
-                >
-                  {tcmLoading ? "Scanning..." : "Check Herb"}
-                </button>
+                {tcmMode === "manual" ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleTCMCheck()}
+                    disabled={tcmLoading || !herb.trim()}
+                  >
+                    {tcmLoading ? "Scanning..." : "Check Herb"}
+                  </button>
+                ) : tcmIdentifyResult ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleTCMCheck()}
+                    disabled={tcmLoading || !tcmConfirmedHerb.trim()}
+                  >
+                    {tcmLoading ? "Checking..." : "Confirm & Check Interactions"}
+                  </button>
+                ) : null}
 
                 {tcmError ? <p className="status-error">{tcmError}</p> : null}
 
                 {tcmResult ? (
                   <div className="tcm-result">
-                    {tcmResult.extracted_text ? (
-                      <div className="tcm-ocr-box">
-                        <div className="card-title small">Extracted Text (OCR)</div>
-                        <p className="muted">{tcmResult.extracted_text}</p>
-                      </div>
-                    ) : null}
-
                     <div className={`alert-box ${tcmResult.interaction_warning ? "alert-danger" : "alert-safe"}`}>
                       <div className="tcm-result-header">
                         <strong>{tcmResult.herb_detected ?? "Unknown Herb"}</strong>

@@ -79,6 +79,14 @@ export type TCMResponse = {
   singlish_message: string;
 };
 
+export type TCMIdentifyResponse = {
+  extracted_text: string;
+  identified_herb: string | null;
+  herb_key: string | null;
+  confidence: string | null;
+  source: string;
+};
+
 export type VoiceAgentResponse = {
   reply: string;
   source: string;
@@ -196,6 +204,19 @@ export const api = {
       throw new Error(payload?.detail || `HTTP ${response.status}`);
     }
     return payload as TCMResponse;
+  },
+  postTCMIdentify: async (userId: string, imageFile: File): Promise<TCMIdentifyResponse> => {
+    const formData = new FormData();
+    formData.append("image", imageFile);
+    const response = await fetch(`${API_BASE}/users/${userId}/tcm-identify`, {
+      method: "POST",
+      body: formData,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.detail || `HTTP ${response.status}`);
+    }
+    return payload as TCMIdentifyResponse;
   },
   postVoiceAgent: (userId: string, message: string) =>
     apiRequest<VoiceAgentResponse>(`/users/${userId}/voice/agent`, {

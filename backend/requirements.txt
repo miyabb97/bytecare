@@ -7,3 +7,6 @@ python-multipart==0.0.6
 pillow==10.2.0
 pytesseract==0.3.10
 gtts==2.5.0
+transformers>=4.36.0
+torch>=2.1.0
+openai>=1.0.0
