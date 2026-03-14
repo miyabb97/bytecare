@@ -1,0 +1,69 @@
+{
+    "user": {
+        "display_name": "Mrs Wong",
+        "email": "mrs.wong@demo.com",
+        "password": "demo123",
+        "age": 58,
+        "timezone": "Asia/Singapore",
+        "conditions": [
+            "Hypertension",
+            "Pre-diabetes",
+            "Chronic Kidney Disease Stage 2",
+            "Anxiety"
+        ]
+    },
+    "medications": [
+        {
+            "name": "lisinopril 10 MG Oral Tablet",
+            "dose_text": "10mg once daily",
+            "schedule": { "frequency": "once_daily", "times": ["08:00"] },
+            "time_window_minutes": 120,
+            "criticality": "high"
+        },
+        {
+            "name": "hydrochlorothiazide 25 MG Oral Tablet",
+            "dose_text": "25mg once daily",
+            "schedule": { "frequency": "once_daily", "times": ["08:00"] },
+            "time_window_minutes": 120,
+            "criticality": "high"
+        },
+        {
+            "name": "metoprolol 50 MG Oral Tablet",
+            "dose_text": "50mg twice daily",
+            "schedule": { "frequency": "twice_daily", "times": ["08:00", "20:00"] },
+            "time_window_minutes": 120,
+            "criticality": "high"
+        },
+        {
+            "name": "metformin 500 MG Oral Tablet",
+            "dose_text": "500mg once daily",
+            "schedule": { "frequency": "once_daily", "times": ["08:00"] },
+            "time_window_minutes": 120,
+            "criticality": "medium"
+        },
+        {
+            "name": "lorazepam 0.5 MG Oral Tablet",
+            "dose_text": "0.5mg as needed",
+            "schedule": { "frequency": "as_needed", "times": [] },
+            "time_window_minutes": 240,
+            "criticality": "medium"
+        }
+    ],
+    "appointments": [
+        {
+            "datetime": "2026-03-28T11:00:00+08:00",
+            "location": "National University Hospital – Renal Clinic",
+            "notes": "Kidney function review, eGFR check"
+        }
+    ],
+    "test_herbs": {
+        "_comment": "Herbs that trigger meaningful warnings for this patient",
+        "ma huang": "HIGH – interacts with blood pressure meds + diabetes (BP spike)",
+        "licorice": "MODERATE – interacts with hydrochlorothiazide + blood pressure meds (potassium loss)",
+        "ginseng": "HIGH – interacts with metformin + diabetes meds",
+        "hawthorn": "MODERATE – interacts with metoprolol (beta blocker) + blood pressure meds",
+        "kava": "HIGH – interacts with lorazepam (benzodiazepine) + sedation risk",
+        "valerian": "MODERATE – interacts with lorazepam (enhanced sedation)",
+        "chrysanthemum": "LOW – mild BP-lowering, safe to flag for info"
+    }
+}

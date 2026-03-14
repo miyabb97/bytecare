@@ -4,6 +4,7 @@ export type UserProfile = {
   user_id: string;
   name: string;
   age: number;
+  conditions?: string[];
   timezone: string;
   language_preference: string;
   created_at: string;
@@ -77,6 +78,10 @@ export type TCMResponse = {
   flagged_medications: string[];
   message: string;
   singlish_message: string;
+  patient_name?: string;
+  patient_age?: number;
+  patient_conditions?: string[];
+  all_medications?: string[];
 };
 
 export type TCMIdentifyResponse = {
@@ -286,4 +291,21 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+
+  // --- Demo ---
+  seedDemoPatients: () =>
+    apiRequest<{ patients: DemoPatient[]; count: number }>("/demo/seed", {
+      method: "POST",
+    }),
+};
+
+export type DemoPatient = {
+  user_id: string;
+  name: string;
+  email: string;
+  password: string;
+  age: number;
+  conditions: string[];
+  medication_count: number;
+  already_existed?: boolean;
 };

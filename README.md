@@ -107,6 +107,30 @@ To view the tables:
 2. Open the file: `bytecare.db`
 3. The extension will display the database tables visually
 
+## Demo Accounts
+
+### Admin
+
+| Email | Password | Role |
+|-------|----------|------|
+| admin@bytecare.com | admin123 | admin |
+
+### Caregiver
+
+| Email | Password | Role |
+|-------|----------|------|
+| jon@email.com | 1234567 | caregiver |
+
+### Demo Patients
+
+Seed these via the **Load Demo Patients** button on the Home tab, or `POST /api/v1/demo/seed`.
+
+| Patient | Email | Password |
+|---------|-------|----------|
+| Mdm Lim (72, diabetes/hypertension) | mdm.lim@demo.com | demo123 |
+| Mr Ong (65, AFib/warfarin) | mr.ong@demo.com | demo123 |
+| Mrs Wong (58, hypertension/CKD) | mrs.wong@demo.com | demo123 |
+
 ## Tech Stack
 
 ### Backend
@@ -121,3 +145,4 @@ To view the tables:
 - Next.js
 - React
 - TypeScript
+

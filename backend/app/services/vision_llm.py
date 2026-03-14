@@ -26,7 +26,7 @@ def is_vision_available() -> bool:
     return bool(_get_api_key())
 
 
-def analyze_herb_image(image_bytes: bytes, timeout: float = 30.0) -> Optional[Dict[str, Any]]:
+def analyze_herb_image(image_bytes: bytes, timeout: float = 15.0) -> Optional[Dict[str, Any]]:
     """Send an image to GPT-4o-mini vision and ask it to identify the herb.
 
     Returns a dict with:

@@ -10,6 +10,7 @@ import {
   type AppointmentResponse,
   type ChatResponse,
   type CommunityResponse,
+  type DemoPatient,
   type DriftResponse,
   type FoodResponse,
   type MedicationItem,
@@ -109,6 +110,11 @@ export default function DashboardPage() {
 
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+
+  // --- Demo patient state ---
+  const [demoPatients, setDemoPatients] = useState<DemoPatient[]>([]);
+  const [demoLoading, setDemoLoading] = useState(false);
+  const [demoMsg, setDemoMsg] = useState<string | null>(null);
 
   // --- Profile edit state ---
   const [editingProfile, setEditingProfile] = useState(false);
@@ -229,6 +235,20 @@ export default function DashboardPage() {
 
   const primaryEvent = community?.events?.[0] ?? null;
   const medicationCount = medications?.items?.length ?? 0;
+
+  async function handleSeedDemo() {
+    setDemoLoading(true);
+    setDemoMsg(null);
+    try {
+      const res = await api.seedDemoPatients();
+      setDemoPatients(res.patients);
+      setDemoMsg(`Created ${res.count} demo patients. Select one below to switch.`);
+    } catch (error) {
+      setDemoMsg(safeMessage(error));
+    } finally {
+      setDemoLoading(false);
+    }
+  }
 
   async function handleSendChat() {
     const message = chatDraft.trim();
@@ -594,8 +614,44 @@ export default function DashboardPage() {
                 <div className="card-title">Patient Overview</div>
                 <h2 className="patient-name">{userProfile?.name ?? "-"}</h2>
                 <p className="muted">Age {userProfile?.age ?? "-"} | {userProfile?.timezone ?? "-"}</p>
+                {userProfile?.conditions && userProfile.conditions.length > 0 ? (
+                  <p className="muted">Conditions: {userProfile.conditions.join(", ")}</p>
+                ) : null}
                 <p className="muted">Condition signal: {food?.condition ?? "Not available"}</p>
                 <p className="primary-text">{medicationCount} medications active</p>
+              </section>
+
+              <section className="card">
+                <div className="card-title">Load Demo Patients</div>
+                <p className="muted">Seed 3 demo patients with realistic medications for TCM Safety Check testing.</p>
+                <button type="button" onClick={() => void handleSeedDemo()} disabled={demoLoading} style={{ marginBottom: 8 }}>
+                  {demoLoading ? "Seeding..." : "Seed Demo Patients"}
+                </button>
+                {demoMsg ? <p className="muted">{demoMsg}</p> : null}
+                {demoPatients.length > 0 ? (
+                  <div className="demo-patient-list">
+                    {demoPatients.map((dp) => (
+                      <button
+                        key={dp.user_id}
+                        type="button"
+                        className="demo-patient-btn"
+                        onClick={() => router.push(`/dashboard/${dp.user_id}`)}
+                      >
+                        <strong>{dp.name}</strong>
+                        <span className="muted"> Age {dp.age} · {dp.medication_count} meds</span>
+                        {dp.email ? (
+                          <span className="muted" style={{ display: "block", fontSize: "0.78rem" }}>
+                            Login: {dp.email} / {dp.password}
+                            {dp.already_existed ? " (already seeded)" : ""}
+                          </span>
+                        ) : null}
+                        <span className="muted" style={{ display: "block", fontSize: "0.78rem" }}>
+                          {dp.conditions.join(", ")}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </section>
 
               <section className="card">
@@ -895,6 +951,24 @@ export default function DashboardPage() {
 
                 {tcmResult ? (
                   <div className="tcm-result">
+                    {tcmResult.patient_name ? (
+                      <div className="patient-context-box">
+                        <p className="muted" style={{ marginBottom: 4 }}>
+                          <strong>Patient:</strong> {tcmResult.patient_name}, Age {tcmResult.patient_age}
+                        </p>
+                        {tcmResult.patient_conditions && tcmResult.patient_conditions.length > 0 ? (
+                          <p className="muted" style={{ marginBottom: 4 }}>
+                            <strong>Conditions:</strong> {tcmResult.patient_conditions.join(", ")}
+                          </p>
+                        ) : null}
+                        {tcmResult.all_medications && tcmResult.all_medications.length > 0 ? (
+                          <p className="muted" style={{ marginBottom: 0 }}>
+                            <strong>Current Medications:</strong> {tcmResult.all_medications.join(" · ")}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+
                     <div className={`alert-box ${tcmResult.interaction_warning ? "alert-danger" : "alert-safe"}`}>
                       <div className="tcm-result-header">
                         <strong>{tcmResult.herb_detected ?? "Unknown Herb"}</strong>

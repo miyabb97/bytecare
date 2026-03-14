@@ -26,15 +26,21 @@ class User(Base):
     account_id = Column(String, nullable=True, index=True)
     name = Column(String, nullable=False)
     age = Column(Integer, nullable=False)
+    conditions_json = Column(Text, default="[]")
     timezone = Column(String, default="Asia/Singapore")
     language_preference = Column(String, default="English")
     created_at = Column(String, nullable=False)
+
+    @property
+    def conditions(self):
+        return json.loads(self.conditions_json) if self.conditions_json else []
 
     def to_dict(self):
         return {
             "user_id": self.user_id,
             "name": self.name,
             "age": self.age,
+            "conditions": self.conditions,
             "timezone": self.timezone,
             "language_preference": self.language_preference,
             "created_at": self.created_at,

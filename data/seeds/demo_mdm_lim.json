@@ -1,0 +1,68 @@
+{
+    "user": {
+        "display_name": "Mdm Lim",
+        "email": "mdm.lim@demo.com",
+        "password": "demo123",
+        "age": 72,
+        "timezone": "Asia/Singapore",
+        "conditions": [
+            "Type 2 Diabetes",
+            "Hypertension",
+            "Hyperlipidemia"
+        ]
+    },
+    "medications": [
+        {
+            "name": "insulin glargine [Lantus] 100 units/mL",
+            "dose_text": "20 units at bedtime",
+            "schedule": { "frequency": "once_daily", "times": ["22:00"] },
+            "time_window_minutes": 120,
+            "criticality": "high"
+        },
+        {
+            "name": "metformin 500 MG Oral Tablet",
+            "dose_text": "500mg twice daily",
+            "schedule": { "frequency": "twice_daily", "times": ["08:00", "20:00"] },
+            "time_window_minutes": 120,
+            "criticality": "high"
+        },
+        {
+            "name": "aspirin 100 MG Oral Tablet",
+            "dose_text": "100mg once daily",
+            "schedule": { "frequency": "once_daily", "times": ["08:00"] },
+            "time_window_minutes": 180,
+            "criticality": "medium"
+        },
+        {
+            "name": "amLODIPine 5 MG Oral Tablet",
+            "dose_text": "5mg once daily",
+            "schedule": { "frequency": "once_daily", "times": ["08:00"] },
+            "time_window_minutes": 120,
+            "criticality": "high"
+        },
+        {
+            "name": "atorvastatin 20 MG Oral Tablet",
+            "dose_text": "20mg at night",
+            "schedule": { "frequency": "once_daily", "times": ["22:00"] },
+            "time_window_minutes": 120,
+            "criticality": "medium"
+        }
+    ],
+    "appointments": [
+        {
+            "datetime": "2026-04-10T09:30:00+08:00",
+            "location": "Tan Tock Seng Hospital – Diabetes Clinic",
+            "notes": "HbA1c follow-up, fasting blood test"
+        }
+    ],
+    "test_herbs": {
+        "_comment": "Herbs that trigger meaningful warnings for this patient",
+        "ginseng": "HIGH – interacts with insulin + aspirin (blood sugar + bleeding)",
+        "ginkgo": "HIGH – interacts with aspirin (bleeding risk)",
+        "bitter melon": "MODERATE – interacts with insulin + metformin (hypoglycemia)",
+        "turmeric": "MODERATE – interacts with aspirin + diabetes meds",
+        "cinnamon": "MODERATE – interacts with insulin + metformin + statin",
+        "fenugreek": "MODERATE – interacts with insulin (blood sugar)",
+        "milk thistle": "MODERATE – interacts with statin + metformin"
+    }
+}
