@@ -6,7 +6,7 @@ import hashlib
 from pathlib import Path
 from uuid import uuid4
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from typing import Any, Dict
 
@@ -60,6 +60,13 @@ def init_db():
     from app.models import Account  # noqa: avoid circular import
 
     Base.metadata.create_all(bind=engine)
+
+    # Lightweight schema migration: add conditions_json to users if missing
+    with engine.connect() as conn:
+        cols = [row[1] for row in conn.execute(text("PRAGMA table_info(users)"))]
+        if "conditions_json" not in cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN conditions_json TEXT DEFAULT '[]'"))
+            conn.commit()
 
     db = SessionLocal()
     try:

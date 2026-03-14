@@ -663,6 +663,34 @@ select {
 .tcm-result {
   margin-top: 1rem;
 }
+.patient-context-box {
+  background: #f0f4ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 0.6rem;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.demo-patient-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.demo-patient-btn {
+  text-align: left;
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  padding: 0.7rem 1rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.demo-patient-btn:hover {
+  background: #e0e7ff;
+  border-color: #818cf8;
+}
 .tcm-ocr-box {
   background: #f8fafc;
   border: 1px solid var(--line);
@@ -697,6 +725,10 @@ select {
 .alert-danger {
   background: #fef2f2;
   border: 1px solid #fca5a5;
+}
+.alert-warning {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
 }
 .alert-safe {
   background: #f0fdf4;

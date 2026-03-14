@@ -572,19 +572,103 @@ def _get_user_medications(user_id: str) -> List[str]:
         return [m.name.lower() for m in meds]
 
 
+def _get_patient_context(user_id: str) -> Dict[str, Any]:
+    """Get patient context (name, age, conditions, all medications) for TCM result."""
+    with SessionLocal() as db:
+        user = db.query(User).filter_by(user_id=user_id).first()
+        meds = db.query(Medication).filter_by(user_id=user_id).all()
+    if not user:
+        return {}
+    return {
+        "patient_name": user.name,
+        "patient_age": user.age,
+        "patient_conditions": user.conditions,
+        "all_medications": [m.name for m in meds],
+    }
+
+
+# Medication generic name → drug class tags for smarter overlap detection
+_MED_CLASS_TAGS: Dict[str, List[str]] = {
+    # Anticoagulants / Antiplatelets
+    "warfarin": ["warfarin", "anticoagulant", "blood thinner"],
+    "aspirin": ["aspirin", "antiplatelet", "nsaid", "blood thinner"],
+    "clopidogrel": ["antiplatelet", "blood thinner"],
+    "heparin": ["heparin", "anticoagulant"],
+    "rivaroxaban": ["anticoagulant", "blood thinner"],
+    "apixaban": ["anticoagulant", "blood thinner"],
+    # Diabetes
+    "metformin": ["metformin", "diabetes"],
+    "insulin": ["insulin", "diabetes"],
+    "glipizide": ["glipizide", "diabetes"],
+    "gliclazide": ["diabetes"],
+    "glibenclamide": ["diabetes"],
+    "sitagliptin": ["diabetes"],
+    # Blood pressure / Antihypertensives
+    "amlodipine": ["calcium channel blocker", "blood pressure", "antihypertensive"],
+    "lisinopril": ["blood pressure", "antihypertensive"],
+    "enalapril": ["blood pressure", "antihypertensive"],
+    "losartan": ["blood pressure", "antihypertensive"],
+    "valsartan": ["blood pressure", "antihypertensive"],
+    "hydrochlorothiazide": ["diuretic", "blood pressure", "antihypertensive"],
+    "metoprolol": ["beta blocker", "blood pressure", "antihypertensive"],
+    "atenolol": ["beta blocker", "blood pressure", "antihypertensive"],
+    "propranolol": ["beta blocker", "blood pressure", "antihypertensive"],
+    "nifedipine": ["calcium channel blocker", "blood pressure", "antihypertensive"],
+    # Statins
+    "simvastatin": ["statin"],
+    "atorvastatin": ["statin"],
+    "rosuvastatin": ["statin"],
+    "lovastatin": ["statin"],
+    # Antidepressants / SSRIs
+    "sertraline": ["ssri", "antidepressant"],
+    "fluoxetine": ["ssri", "antidepressant"],
+    "paroxetine": ["ssri", "antidepressant"],
+    "escitalopram": ["ssri", "antidepressant"],
+    "amitriptyline": ["antidepressant"],
+    # Sedatives / Benzodiazepines
+    "lorazepam": ["sedative", "benzodiazepine"],
+    "diazepam": ["sedative", "benzodiazepine"],
+    "alprazolam": ["sedative", "benzodiazepine"],
+    "midazolam": ["sedative", "benzodiazepine"],
+    # Heart
+    "digoxin": ["digoxin"],
+    # Immunosuppressants
+    "cyclosporine": ["immunosuppressant", "cyclosporine"],
+    "tacrolimus": ["immunosuppressant", "tacrolimus"],
+    # Other
+    "levodopa": ["levodopa"],
+    "theophylline": ["theophylline"],
+    "lithium": ["lithium"],
+}
+
+
+def _get_med_tags(med_name: str) -> List[str]:
+    """Get drug class tags for a medication name by checking known generic names."""
+    med_lower = med_name.lower()
+    tags = []
+    for generic, class_tags in _MED_CLASS_TAGS.items():
+        if generic in med_lower:
+            tags.extend(class_tags)
+    return tags
+
+
 def _check_medication_overlap(herb_key: str, med_names: List[str]) -> List[str]:
     """Check if any of the user's medications match the herb's risk drug classes."""
     info = HERB_INTERACTIONS.get(herb_key)
     if not info:
         return []
-    drug_classes = info["drug_classes"]
+    drug_classes = set(info["drug_classes"])
     flagged = []
     for med in med_names:
         med_lower = med.lower()
-        for drug_class in drug_classes:
-            if drug_class in med_lower:
-                flagged.append(med)
-                break
+        # Direct substring match (original logic)
+        matched = any(dc in med_lower for dc in drug_classes)
+        # Enhanced: check known medication class tags
+        if not matched:
+            tags = _get_med_tags(med_lower)
+            matched = bool(drug_classes & set(tags))
+        if matched:
+            flagged.append(med)
     return flagged
 
 
@@ -597,6 +681,7 @@ def check_tcm_interactions(user_id: str, herb: str) -> Dict[str, Any]:
 
     herb_key = detect_herb_from_text(herb)
     med_names = _get_user_medications(user_id)
+    patient_ctx = _get_patient_context(user_id)
 
     if not herb_key or herb_key not in HERB_INTERACTIONS:
         no_data_msg = f"No known interaction data for '{herb}' in our database."
@@ -607,6 +692,7 @@ def check_tcm_interactions(user_id: str, herb: str) -> Dict[str, Any]:
             "flagged_medications": [],
             "message": no_data_msg,
             "singlish_message": _singlish_tcm_message(herb.strip(), no_data_msg, "unknown", []),
+            **patient_ctx,
         }
 
     info = HERB_INTERACTIONS[herb_key]
@@ -622,29 +708,40 @@ def check_tcm_interactions(user_id: str, herb: str) -> Dict[str, Any]:
         "singlish_message": _singlish_tcm_message(
             info["display_name"], info["guidance"], info["risk_level"], flagged
         ),
+        **patient_ctx,
     }
 
 
 def check_tcm_from_image(user_id: str, image_bytes: bytes) -> Dict[str, Any]:
-    """Run OCR on image, detect herb, then check interactions."""
+    """Identify herb from image using the full pipeline, then check interactions."""
     with SessionLocal() as db:
         user = db.query(User).filter_by(user_id=user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    extracted_text = extract_text_from_image(image_bytes)
-    herb_key = detect_herb_from_text(extracted_text)
+    patient_ctx = _get_patient_context(user_id)
 
-    if not herb_key:
+    # Use the full identification pipeline (Vision LLM → CLIP → OCR → MERaLiON)
+    identification = identify_herb_from_image(image_bytes)
+    herb_key = identification.get("herb_key")
+    extracted_text = identification.get("extracted_text", "")
+    identified_herb = identification.get("identified_herb", "")
+    source = identification.get("source", "")
+    confidence = identification.get("confidence", "")
+
+    if not herb_key or herb_key not in HERB_INTERACTIONS:
         no_detect_msg = "Could not detect a known herb from the image. Try typing the herb name manually."
         return {
             "extracted_text": extracted_text,
             "interaction_warning": False,
-            "herb_detected": None,
+            "herb_detected": identified_herb or None,
             "risk_level": "unknown",
             "flagged_medications": [],
             "message": no_detect_msg,
             "singlish_message": _singlish_tcm_message("this herb", no_detect_msg, "unknown", []),
+            "identification_source": source,
+            "identification_confidence": confidence,
+            **patient_ctx,
         }
 
     info = HERB_INTERACTIONS[herb_key]
@@ -663,4 +760,7 @@ def check_tcm_from_image(user_id: str, image_bytes: bytes) -> Dict[str, Any]:
         "singlish_message": _singlish_tcm_message(
             info["display_name"], info["guidance"], info["risk_level"], flagged
         ),
+        "identification_source": source,
+        "identification_confidence": confidence,
+        **patient_ctx,
     }

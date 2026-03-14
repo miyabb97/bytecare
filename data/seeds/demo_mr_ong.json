@@ -1,0 +1,63 @@
+{
+    "user": {
+        "display_name": "Mr Ong",
+        "email": "mr.ong@demo.com",
+        "password": "demo123",
+        "age": 65,
+        "timezone": "Asia/Singapore",
+        "conditions": [
+            "Atrial Fibrillation",
+            "Deep Vein Thrombosis (history)",
+            "Hyperlipidemia",
+            "Mild Depression"
+        ]
+    },
+    "medications": [
+        {
+            "name": "warfarin 5 MG Oral Tablet",
+            "dose_text": "5mg once daily",
+            "schedule": { "frequency": "once_daily", "times": ["18:00"] },
+            "time_window_minutes": 60,
+            "criticality": "high"
+        },
+        {
+            "name": "atenolol 50 MG Oral Tablet",
+            "dose_text": "50mg once daily",
+            "schedule": { "frequency": "once_daily", "times": ["08:00"] },
+            "time_window_minutes": 120,
+            "criticality": "high"
+        },
+        {
+            "name": "simvastatin 20 MG Oral Tablet",
+            "dose_text": "20mg at night",
+            "schedule": { "frequency": "once_daily", "times": ["22:00"] },
+            "time_window_minutes": 120,
+            "criticality": "medium"
+        },
+        {
+            "name": "sertraline 50 MG Oral Tablet",
+            "dose_text": "50mg once daily",
+            "schedule": { "frequency": "once_daily", "times": ["08:00"] },
+            "time_window_minutes": 120,
+            "criticality": "medium"
+        }
+    ],
+    "appointments": [
+        {
+            "datetime": "2026-04-05T14:00:00+08:00",
+            "location": "Singapore General Hospital – Haematology",
+            "notes": "INR monitoring, warfarin dose adjustment"
+        }
+    ],
+    "test_herbs": {
+        "_comment": "Herbs that trigger meaningful warnings for this patient",
+        "dong quai": "HIGH – interacts with warfarin (dangerous bleeding)",
+        "danshen": "HIGH – interacts with warfarin (bleeding risk)",
+        "ginkgo": "HIGH – interacts with warfarin (bleeding risk)",
+        "st john's wort": "HIGH – interacts with warfarin + statin + sertraline (SSRI)",
+        "ginseng": "HIGH – interacts with warfarin (anticoagulant)",
+        "garlic": "MODERATE – interacts with warfarin (bleeding risk)",
+        "goji berry": "MODERATE – interacts with warfarin (enhanced blood thinning)",
+        "kava": "HIGH – interacts with sertraline (sedation + liver toxicity)"
+    }
+}

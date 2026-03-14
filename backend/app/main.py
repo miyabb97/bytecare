@@ -53,6 +53,18 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     init_db()
+    # Pre-load CLIP model in a background thread so the first /tcm-identify
+    # request doesn't block long enough to trigger a proxy timeout.
+    import threading
+
+    def _preload_clip():
+        try:
+            from app.services.herb_classifier import _load_model
+            _load_model()
+        except Exception:
+            pass  # non-fatal; will retry on first request
+
+    threading.Thread(target=_preload_clip, daemon=True).start()
 
 
 # -------------------------
@@ -152,6 +164,7 @@ def get_current_account(account_id: str, db: Session = Depends(get_db)):
 class UserCreate(BaseModel):
     name: str
     age: int = Field(ge=0, le=120)
+    conditions: List[str] = Field(default_factory=list)
     timezone: str = "Asia/Singapore"
     language_preference: str = "English"
 
@@ -159,6 +172,7 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     age: Optional[int] = Field(default=None, ge=0, le=120)
+    conditions: Optional[List[str]] = None
     timezone: Optional[str] = None
     language_preference: Optional[str] = None
 
@@ -167,6 +181,7 @@ class UserOut(BaseModel):
     user_id: str
     name: str
     age: int
+    conditions: List[str] = Field(default_factory=list)
     timezone: str
     language_preference: str
     created_at: str
@@ -378,6 +393,7 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db)):
         user_id=user_id,
         name=payload.name,
         age=payload.age,
+        conditions_json=json.dumps(payload.conditions),
         timezone=payload.timezone,
         language_preference=payload.language_preference,
         created_at=now_iso(),
@@ -404,7 +420,10 @@ def update_user(user_id: str, payload: UserUpdate, db: Session = Depends(get_db)
     user = get_user_or_404(db, user_id)
     updates = payload.model_dump(exclude_none=True)
     for key, value in updates.items():
-        setattr(user, key, value)
+        if key == "conditions":
+            user.conditions_json = json.dumps(value)
+        else:
+            setattr(user, key, value)
     db.commit()
     db.refresh(user)
     return user.to_dict()
@@ -640,3 +659,107 @@ app.include_router(tcm_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(voice_router, prefix="/api/v1")
 app.include_router(report_router, prefix="/api/v1")
+
+
+# -------------------------
+# Demo Seed Endpoint
+# -------------------------
+
+_DEMO_SEED_DIR = Path(__file__).resolve().parents[2] / "data" / "seeds"
+_DEMO_FILES = ["demo_mdm_lim.json", "demo_mr_ong.json", "demo_mrs_wong.json"]
+
+
+@app.post("/api/v1/demo/seed")
+def seed_demo_patients(db: Session = Depends(get_db)):
+    """Create 3 demo patients with accounts, medications, and appointments."""
+    created = []
+    for filename in _DEMO_FILES:
+        seed_path = _DEMO_SEED_DIR / filename
+        if not seed_path.exists():
+            continue
+        seed = json.loads(seed_path.read_text(encoding="utf-8"))
+        user_data = seed["user"]
+
+        email = user_data.get("email", "").strip().lower()
+        password = user_data.get("password", "demo123")
+
+        # Skip if account with this email already exists
+        if email and db.query(Account).filter_by(email=email).first():
+            existing_account = db.query(Account).filter_by(email=email).first()
+            linked_user = db.query(User).filter_by(account_id=existing_account.account_id).first()
+            if linked_user:
+                created.append({
+                    "user_id": linked_user.user_id,
+                    "name": existing_account.name,
+                    "email": email,
+                    "password": password,
+                    "age": linked_user.age,
+                    "conditions": linked_user.conditions,
+                    "medication_count": db.query(Medication).filter_by(user_id=linked_user.user_id).count(),
+                    "already_existed": True,
+                })
+            continue
+
+        account_id = str(uuid4())
+        user_id = str(uuid4())
+
+        # Create Account for login
+        if email:
+            account = Account(
+                account_id=account_id,
+                name=user_data["display_name"],
+                email=email,
+                password_hash=_hash_password(password),
+                role="patient",
+            )
+            db.add(account)
+
+        user = User(
+            user_id=user_id,
+            account_id=account_id if email else None,
+            name=user_data["display_name"],
+            age=user_data["age"],
+            conditions_json=json.dumps(user_data.get("conditions", [])),
+            timezone=user_data.get("timezone", "Asia/Singapore"),
+            language_preference="English",
+            created_at=now_iso(),
+        )
+        db.add(user)
+        db.flush()
+
+        for med in seed.get("medications", []):
+            med_id = str(uuid4())
+            db.add(Medication(
+                medication_id=med_id,
+                user_id=user_id,
+                name=med["name"],
+                dose_text=med.get("dose_text", ""),
+                schedule_json=json.dumps(med["schedule"]),
+                time_window_minutes=med.get("time_window_minutes", 120),
+                criticality=med.get("criticality", "medium"),
+                created_at=now_iso(),
+            ))
+
+        for appt in seed.get("appointments", []):
+            appt_id = str(uuid4())
+            db.add(Appointment(
+                appointment_id=appt_id,
+                user_id=user_id,
+                datetime_str=appt["datetime"],
+                location=appt.get("location", ""),
+                notes=appt.get("notes", ""),
+                created_at=now_iso(),
+            ))
+
+        created.append({
+            "user_id": user_id,
+            "name": user_data["display_name"],
+            "email": email,
+            "password": password,
+            "age": user_data["age"],
+            "conditions": user_data.get("conditions", []),
+            "medication_count": len(seed.get("medications", [])),
+        })
+
+    db.commit()
+    return {"patients": created, "count": len(created)}
