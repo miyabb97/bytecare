@@ -685,6 +685,10 @@ select {
   background: #fef2f2;
   border: 1px solid #fca5a5;
 }
+.alert-warning {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+}
 .alert-safe {
   background: #f0fdf4;
   border: 1px solid #86efac;

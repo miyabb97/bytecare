@@ -19,7 +19,6 @@ import {
   type ReportSummaryResponse,
   type TCMResponse,
   type UserProfile,
-  type TCMIdentifyResponse,
   type VoiceAgentResponse,
   type VoiceResponse
 } from "../../../lib/api";
@@ -97,8 +96,10 @@ export default function DashboardPage() {
   const [tcmMode, setTcmMode] = useState<"manual" | "image">("manual");
   const [tcmAudioUrl, setTcmAudioUrl] = useState<string | null>(null);
   const [tcmAudioLoading, setTcmAudioLoading] = useState(false);
-  const [tcmIdentifyResult, setTcmIdentifyResult] = useState<TCMIdentifyResponse | null>(null);
-  const [tcmConfirmedHerb, setTcmConfirmedHerb] = useState("");
+  const [tcmAudioPlaying, setTcmAudioPlaying] = useState(false);
+  const [tcmLang, setTcmLang] = useState<"en" | "zh" | "ms" | "ta">("en");
+  const [tcmTranslatedText, setTcmTranslatedText] = useState<{ message: string; singlish: string } | null>(null);
+  const [tcmTranslating, setTcmTranslating] = useState(false);
 
   // --- Voice Agent state ---
   const [vaMessage, setVaMessage] = useState("");
@@ -293,54 +294,28 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleTCMIdentify() {
-    if (!userId || !tcmImageFile) return;
-    setTCMLoading(true);
-    setTCMError(null);
-    setTCMResult(null);
-    setTcmIdentifyResult(null);
-    setTcmConfirmedHerb("");
-    setTcmAudioUrl(null);
-
-    try {
-      const result = await api.postTCMIdentify(userId, tcmImageFile);
-      setTcmIdentifyResult(result);
-      setTcmConfirmedHerb(result.identified_herb ?? "");
-    } catch (error) {
-      setTCMError(safeMessage(error));
-    } finally {
-      setTCMLoading(false);
-    }
-  }
-
   async function handleTCMCheck() {
     if (!userId) return;
     setTCMLoading(true);
     setTCMError(null);
     setTCMResult(null);
     setTcmAudioUrl(null);
+    setTcmAudioPlaying(false);
+    setTcmLang("en");
+    setTcmTranslatedText(null);
+    setTcmTranslating(false);
 
     try {
-      // Use confirmed herb from image identify, or manual text input
-      const herbText = (tcmMode === "image" ? tcmConfirmedHerb : herb).trim();
-      if (!herbText) { setTCMError("Please enter a herb name."); setTCMLoading(false); return; }
-
-      const response = await api.postTCMCheck(userId, herbText);
-      setTCMResult(response);
-
-      // Auto-play TTS for the Singlish result message
-      const ttsText = response.singlish_message || response.message;
-      if (ttsText) {
-        setTcmAudioLoading(true);
-        try {
-          const blob = await api.postTTS(ttsText);
-          const url = URL.createObjectURL(blob);
-          setTcmAudioUrl(url);
-          const audio = new Audio(url);
-          audio.play().catch(() => {});
-        } catch { /* TTS is best-effort */ }
-        setTcmAudioLoading(false);
+      let response: TCMResponse;
+      if (tcmMode === "image" && tcmImageFile) {
+        // Single-step: upload image and get interaction results directly
+        response = await api.postTCMScan(userId, tcmImageFile);
+      } else {
+        const herbText = herb.trim();
+        if (!herbText) { setTCMError("Please enter a herb name."); setTCMLoading(false); return; }
+        response = await api.postTCMCheck(userId, herbText);
       }
+      setTCMResult(response);
     } catch (error) {
       setTCMError(safeMessage(error));
     } finally {
@@ -852,8 +827,6 @@ export default function DashboardPage() {
                       accept="image/*"
                       onChange={(e) => {
                         setTcmImageFile(e.target.files?.[0] ?? null);
-                        setTcmIdentifyResult(null);
-                        setTcmConfirmedHerb("");
                         setTCMResult(null);
                       }}
                       className="file-input"
@@ -869,114 +842,35 @@ export default function DashboardPage() {
                         />
                       </div>
                     ) : null}
-
-                    {!tcmIdentifyResult && tcmImageFile && (
-                      <button
-                        type="button"
-                        onClick={() => void handleTCMIdentify()}
-                        disabled={tcmLoading}
-                        style={{ marginTop: 8 }}
-                      >
-                        {tcmLoading ? "Identifying..." : "Identify Herb"}
-                      </button>
-                    )}
-
-                    {tcmIdentifyResult && (
-                      <div className="tcm-ocr-box" style={{ marginTop: 12 }}>
-                        <div className="card-title small">Detected Information</div>
-                        {tcmIdentifyResult.extracted_text && (
-                          <p className="muted" style={{ fontSize: "0.8rem" }}>{tcmIdentifyResult.extracted_text}</p>
-                        )}
-
-                        {tcmIdentifyResult.identified_herb ? (
-                          <>
-                            <div className="card-title small" style={{ marginTop: 8 }}>
-                              Detected Herb
-                              <span className={`risk-badge`} style={{ marginLeft: 8, fontSize: "0.7rem" }}>
-                                via {tcmIdentifyResult.source}
-                              </span>
-                              {tcmIdentifyResult.confidence && (
-                                <span className={`risk-badge`} style={{ marginLeft: 4, fontSize: "0.7rem" }}>
-                                  {tcmIdentifyResult.confidence} confidence
-                                </span>
-                              )}
-                            </div>
-                            <input
-                              value={tcmConfirmedHerb}
-                              onChange={(e) => setTcmConfirmedHerb(e.target.value)}
-                              placeholder="Edit herb name if needed"
-                            />
-                            {!tcmIdentifyResult.herb_key && (
-                              <p className="muted" style={{ marginTop: 4, fontSize: "0.8rem", color: "#e67e22" }}>
-                                This herb is not in our interaction database — we can still check, but results may be limited.
-                              </p>
-                            )}
-                          </>
-                        ) : (
-                          <>
-                            <p className="status-error" style={{ marginTop: 8 }}>
-                              Could not identify a herb. Please type the herb name manually:
-                            </p>
-                            <input
-                              value={tcmConfirmedHerb}
-                              onChange={(e) => setTcmConfirmedHerb(e.target.value)}
-                              placeholder="e.g. ginseng, ginkgo, dong quai"
-                            />
-                          </>
-                        )}
-                      </div>
-                    )}
                   </div>
                 )}
 
-                {tcmMode === "manual" ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleTCMCheck()}
-                    disabled={tcmLoading || !herb.trim()}
-                  >
-                    {tcmLoading ? "Scanning..." : "Check Herb"}
-                  </button>
-                ) : tcmIdentifyResult ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleTCMCheck()}
-                    disabled={tcmLoading || !tcmConfirmedHerb.trim()}
-                  >
-                    {tcmLoading ? "Checking..." : "Confirm & Check Interactions"}
-                  </button>
-                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void handleTCMCheck()}
+                  disabled={tcmLoading || (tcmMode === "manual" ? !herb.trim() : !tcmImageFile)}
+                >
+                  {tcmLoading ? "Scanning..." : "Check Herb"}
+                </button>
 
                 {tcmError ? <p className="status-error">{tcmError}</p> : null}
 
                 {tcmResult ? (
                   <div className="tcm-result">
-                    {tcmResult.patient_name ? (
-                      <div className="patient-context-box">
-                        <p className="muted" style={{ marginBottom: 4 }}>
-                          <strong>Patient:</strong> {tcmResult.patient_name}, Age {tcmResult.patient_age}
-                        </p>
-                        {tcmResult.patient_conditions && tcmResult.patient_conditions.length > 0 ? (
-                          <p className="muted" style={{ marginBottom: 4 }}>
-                            <strong>Conditions:</strong> {tcmResult.patient_conditions.join(", ")}
-                          </p>
-                        ) : null}
-                        {tcmResult.all_medications && tcmResult.all_medications.length > 0 ? (
-                          <p className="muted" style={{ marginBottom: 0 }}>
-                            <strong>Current Medications:</strong> {tcmResult.all_medications.join(" · ")}
-                          </p>
-                        ) : null}
-                      </div>
-                    ) : null}
-
-                    <div className={`alert-box ${tcmResult.interaction_warning ? "alert-danger" : "alert-safe"}`}>
+                    <div className={`alert-box ${tcmResult.risk_level === "high" ? "alert-danger" : tcmResult.risk_level === "moderate" ? "alert-warning" : "alert-safe"}`}>
                       <div className="tcm-result-header">
                         <strong>{tcmResult.herb_detected ?? "Unknown Herb"}</strong>
                         <span className={`risk-badge risk-${tcmResult.risk_level}`}>
                           {tcmResult.risk_level.toUpperCase()} RISK
                         </span>
+                        {tcmResult.identification_source ? (
+                          <span className="risk-badge" style={{ marginLeft: 4, fontSize: "0.7rem" }}>
+                            via {tcmResult.identification_source}
+                            {tcmResult.identification_confidence ? ` · ${tcmResult.identification_confidence}` : ""}
+                          </span>
+                        ) : null}
                       </div>
-                      <p>{tcmResult.message}</p>
+                      <p>{tcmTranslatedText?.message ?? tcmResult.message}</p>
                       {tcmResult.flagged_medications.length > 0 ? (
                         <div className="flagged-meds">
                           <p className="muted"><strong>Flagged medications:</strong></p>
@@ -988,15 +882,68 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="va-reply-box">
-                      <div className="card-title small">ByteCare says (Singlish):</div>
-                      <p className="va-reply-text">{tcmResult.singlish_message}</p>
-                    </div>
+                      <div className="card-title small">ByteCare says{tcmLang === "en" ? " (Singlish)" : ""}:</div>
+                      <p className="va-reply-text">{tcmTranslatedText?.singlish ?? tcmResult.singlish_message}</p>
 
-                    {tcmAudioLoading ? (
-                      <p className="muted">Loading audio...</p>
-                    ) : tcmAudioUrl ? (
-                      <audio controls src={tcmAudioUrl} className="va-audio-player" />
-                    ) : null}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                        <label className="muted" style={{ fontSize: "0.8rem" }}>Translate to:</label>
+                        <select
+                          value={tcmLang}
+                          onChange={async (e) => {
+                            const lang = e.target.value as "en" | "zh" | "ms" | "ta";
+                            setTcmLang(lang);
+                            setTcmAudioUrl(null);
+                            setTcmTranslatedText(null);
+                            if (lang === "en") return;
+                            setTcmTranslating(true);
+                            try {
+                              const [msgRes, singRes] = await Promise.all([
+                                api.postTranslate(tcmResult.message, lang),
+                                api.postTranslate(tcmResult.singlish_message || tcmResult.message, lang),
+                              ]);
+                              setTcmTranslatedText({ message: msgRes.translated_text, singlish: singRes.translated_text });
+                            } catch { /* best-effort */ }
+                            setTcmTranslating(false);
+                          }}
+                          style={{ fontSize: "0.85rem", padding: "4px 8px", borderRadius: 6 }}
+                        >
+                          <option value="en">English (Singlish)</option>
+                          <option value="zh">中文 (Chinese)</option>
+                          <option value="ms">Bahasa Melayu (Malay)</option>
+                          <option value="ta">தமிழ் (Tamil)</option>
+                        </select>
+                      </div>
+
+                      {tcmTranslating ? (
+                        <p className="muted" style={{ marginTop: 6, fontSize: "0.85rem" }}>Translating...</p>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const ttsText = tcmLang === "en"
+                            ? (tcmResult.singlish_message || tcmResult.message)
+                            : (tcmTranslatedText?.singlish || tcmResult.singlish_message || tcmResult.message);
+                          if (!ttsText) return;
+                          setTcmAudioLoading(true);
+                          try {
+                            const blob = await api.postTTS(ttsText, tcmLang);
+                            const url = URL.createObjectURL(blob);
+                            setTcmAudioUrl(url);
+                            const audio = new Audio(url);
+                            setTcmAudioPlaying(true);
+                            audio.onended = () => setTcmAudioPlaying(false);
+                            audio.onerror = () => setTcmAudioPlaying(false);
+                            audio.play().catch(() => setTcmAudioPlaying(false));
+                          } catch { setTcmAudioPlaying(false); }
+                          setTcmAudioLoading(false);
+                        }}
+                        disabled={tcmAudioLoading || tcmAudioPlaying || (tcmLang !== "en" && tcmTranslating)}
+                        style={{ marginTop: 8 }}
+                      >
+                        {tcmAudioLoading ? "Loading audio..." : tcmAudioPlaying ? "\uD83D\uDD0A Playing..." : tcmAudioUrl ? "\uD83D\uDD0A Press to Replay" : "\uD83D\uDD0A Listen"}
+                      </button>
+                    </div>
                   </div>
                 ) : null}
               </section>

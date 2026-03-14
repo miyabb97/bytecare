@@ -82,6 +82,8 @@ export type TCMResponse = {
   patient_age?: number;
   patient_conditions?: string[];
   all_medications?: string[];
+  identification_source?: string;
+  identification_confidence?: string;
 };
 
 export type TCMIdentifyResponse = {
@@ -228,14 +230,23 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ message })
     }),
-  postTTS: async (text: string): Promise<Blob> => {
+  postTTS: async (text: string, lang: string = "en"): Promise<Blob> => {
     const response = await fetch(`${API_BASE}/voice/tts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, lang }),
     });
     if (!response.ok) throw new Error(`TTS failed: HTTP ${response.status}`);
     return response.blob();
+  },
+  postTranslate: async (text: string, targetLang: string): Promise<{ translated_text: string; target_lang: string }> => {
+    const response = await fetch(`${API_BASE}/voice/translate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, target_lang: targetLang }),
+    });
+    if (!response.ok) throw new Error(`Translate failed: HTTP ${response.status}`);
+    return response.json();
   },
 
   // --- User CRUD ---

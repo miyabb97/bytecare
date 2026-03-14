@@ -713,26 +713,34 @@ def check_tcm_interactions(user_id: str, herb: str) -> Dict[str, Any]:
 
 
 def check_tcm_from_image(user_id: str, image_bytes: bytes) -> Dict[str, Any]:
-    """Run OCR on image, detect herb, then check interactions."""
+    """Identify herb from image using the full pipeline, then check interactions."""
     with SessionLocal() as db:
         user = db.query(User).filter_by(user_id=user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    extracted_text = extract_text_from_image(image_bytes)
-    herb_key = detect_herb_from_text(extracted_text)
     patient_ctx = _get_patient_context(user_id)
 
-    if not herb_key:
+    # Use the full identification pipeline (Vision LLM → CLIP → OCR → MERaLiON)
+    identification = identify_herb_from_image(image_bytes)
+    herb_key = identification.get("herb_key")
+    extracted_text = identification.get("extracted_text", "")
+    identified_herb = identification.get("identified_herb", "")
+    source = identification.get("source", "")
+    confidence = identification.get("confidence", "")
+
+    if not herb_key or herb_key not in HERB_INTERACTIONS:
         no_detect_msg = "Could not detect a known herb from the image. Try typing the herb name manually."
         return {
             "extracted_text": extracted_text,
             "interaction_warning": False,
-            "herb_detected": None,
+            "herb_detected": identified_herb or None,
             "risk_level": "unknown",
             "flagged_medications": [],
             "message": no_detect_msg,
             "singlish_message": _singlish_tcm_message("this herb", no_detect_msg, "unknown", []),
+            "identification_source": source,
+            "identification_confidence": confidence,
             **patient_ctx,
         }
 
@@ -752,5 +760,7 @@ def check_tcm_from_image(user_id: str, image_bytes: bytes) -> Dict[str, Any]:
         "singlish_message": _singlish_tcm_message(
             info["display_name"], info["guidance"], info["risk_level"], flagged
         ),
+        "identification_source": source,
+        "identification_confidence": confidence,
         **patient_ctx,
     }
