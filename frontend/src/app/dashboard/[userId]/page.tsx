@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import {
@@ -31,6 +31,9 @@ type ChatMessage = {
   id: number;
   sender: "user" | "bot";
   text: string;
+  originalText?: string;
+  timestamp: Date;
+  lang?: string;
 };
 
 type ReminderResponseStatus = "taken" | "skipped" | "snoozed";
@@ -129,11 +132,56 @@ export default function DashboardPage() {
     {
       id: 1,
       sender: "bot",
-      text: "Hello, I am here to support your medication routine today."
+      text: "Hello, I am here to support your medication routine today.",
+      originalText: "Hello, I am here to support your medication routine today.",
+      timestamp: new Date(),
     }
   ]);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [chatLang, setChatLang] = useState<"en" | "zh" | "ms" | "ta">("en");
+  const [isRecording, setIsRecording] = useState(false);
+  const [chatAudioLoading, setChatAudioLoading] = useState<number | null>(null);
+  const [chatAudioPlaying, setChatAudioPlaying] = useState<number | null>(null);
+  const [chatTranslating, setChatTranslating] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const prevChatLang = useRef(chatLang);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages, chatLoading]);
+
+  useEffect(() => {
+    if (prevChatLang.current === chatLang) return;
+    prevChatLang.current = chatLang;
+
+    const translateAll = async () => {
+      setChatTranslating(true);
+      try {
+        const updated = await Promise.all(
+          chatMessages.map(async (msg) => {
+            if (msg.sender !== "bot") return msg;
+            const source = msg.originalText || msg.text;
+            if (chatLang === "en") {
+              return { ...msg, text: source, lang: "en" };
+            }
+            try {
+              const res = await api.postTranslate(source, chatLang);
+              return { ...msg, text: res.translated_text, lang: chatLang };
+            } catch {
+              return msg;
+            }
+          })
+        );
+        setChatMessages(updated);
+      } finally {
+        setChatTranslating(false);
+      }
+    };
+
+    void translateAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatLang]);
 
   const [voiceTranscript, setVoiceTranscript] = useState("");
   const [voiceResult, setVoiceResult] = useState<VoiceResponse | null>(null);
@@ -426,27 +474,105 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleSendChat() {
-    const message = chatDraft.trim();
+  async function handleSendChat(overrideMessage?: string, overrideLang?: string) {
+    const message = (overrideMessage ?? chatDraft).trim();
     if (!message || !userId) {
       return;
     }
 
-    setChatMessages((prev) => [...prev, { id: Date.now(), sender: "user", text: message }]);
+    const lang = overrideLang ?? chatLang;
+    setChatMessages((prev) => [...prev, { id: Date.now(), sender: "user", text: message, timestamp: new Date() }]);
     setChatDraft("");
     setChatLoading(true);
     setChatError(null);
 
     try {
-      const response = await api.postChat(userId, message);
+      const response = await api.postChat(userId, message, lang);
       setChatResult(response);
-      setChatMessages((prev) => [...prev, { id: Date.now() + 1, sender: "bot", text: response.reply }]);
+      setChatMessages((prev) => [...prev, { id: Date.now() + 1, sender: "bot", text: response.reply, originalText: response.reply_en || response.reply, timestamp: new Date(), lang: response.language || lang }]);
     } catch (error) {
       const msg = safeMessage(error);
       setChatError(msg);
-      setChatMessages((prev) => [...prev, { id: Date.now() + 2, sender: "bot", text: `Sorry, ${msg}` }]);
+      setChatMessages((prev) => [...prev, { id: Date.now() + 2, sender: "bot", text: `Sorry, ${msg}`, timestamp: new Date() }]);
     } finally {
       setChatLoading(false);
+    }
+  }
+
+  const LANG_SPEECH_MAP: Record<string, string> = {
+    en: "en-SG",
+    zh: "zh-CN",
+    ms: "ms-MY",
+    ta: "ta-SG",
+  };
+
+  function detectLangFromText(text: string): "en" | "zh" | "ms" | "ta" {
+    if (/[\u4e00-\u9fff]/.test(text)) return "zh";
+    if (/[\u0B80-\u0BFF]/.test(text)) return "ta";
+    const lower = text.toLowerCase();
+    if (/\b(saya|makan|terima|kasih|apa|boleh|tidak)\b/.test(lower)) return "ms";
+    return "en";
+  }
+
+  function handleVoiceInput() {
+    const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionAPI) {
+      setChatError("Voice input is not supported in this browser. Please use Chrome or Edge.");
+      return;
+    }
+
+    if (isRecording) return;
+
+    const recognition = new SpeechRecognitionAPI();
+    recognition.lang = LANG_SPEECH_MAP[chatLang] || "en-SG";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.continuous = false;
+
+    setIsRecording(true);
+    setChatError(null);
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0]?.[0]?.transcript ?? "";
+      if (transcript.trim()) {
+        const detected = detectLangFromText(transcript);
+        if (detected !== chatLang) {
+          setChatLang(detected);
+        }
+        void handleSendChat(transcript, detected);
+      }
+      setIsRecording(false);
+    };
+
+    recognition.onerror = (event: any) => {
+      if (event.error !== "no-speech") {
+        setChatError(`Voice error: ${event.error}`);
+      }
+      setIsRecording(false);
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+
+    recognition.start();
+  }
+
+  async function handlePlayChatAudio(msgId: number, text: string, lang?: string) {
+    if (chatAudioPlaying === msgId) return;
+    setChatAudioLoading(msgId);
+    try {
+      const blob = await api.postTTS(text, lang || "en");
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      setChatAudioPlaying(msgId);
+      setChatAudioLoading(null);
+      audio.onended = () => { setChatAudioPlaying(null); URL.revokeObjectURL(url); };
+      audio.onerror = () => { setChatAudioPlaying(null); URL.revokeObjectURL(url); };
+      audio.play().catch(() => setChatAudioPlaying(null));
+    } catch (error) {
+      setChatError(`Audio: ${safeMessage(error)}`);
+      setChatAudioLoading(null);
     }
   }
 
@@ -940,116 +1066,120 @@ export default function DashboardPage() {
 
           {/* ── CHAT TAB ── */}
           {activeTab === "chat" ? (
-            <>
-              <section className="card chat-card">
-                <div className="card-row">
-                  <div className="card-title">Chat with ByteCare</div>
-                  <span className="live-dot" />
+            <section className="chat-fullpage">
+              <div className="chat-topbar">
+                <div className="chat-topbar-left">
+                  <div className="chat-avatar">BC</div>
+                  <div>
+                    <div className="chat-topbar-name">ByteCare</div>
+                    <div className="chat-topbar-status"><span className="live-dot" /> Online</div>
+                  </div>
                 </div>
+                <select
+                  className="chat-lang-select"
+                  value={chatLang}
+                  onChange={(e) => setChatLang(e.target.value as "en" | "zh" | "ms" | "ta")}
+                >
+                  <option value="en">SG English</option>
+                  <option value="zh">中文 Chinese</option>
+                  <option value="ms">Bahasa Melayu</option>
+                  <option value="ta">தமிழ் Tamil</option>
+                </select>
+              </div>
 
-                <div className="chat-log">
-                  {chatMessages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={message.sender === "user" ? "chat-row user" : "chat-row bot"}
-                    >
-                      <div className={message.sender === "user" ? "bubble bubble-user" : "bubble bubble-bot"}>
-                        {message.text}
+              <div className="chat-session-notice">
+                Chat history is not saved. Messages will be cleared when you leave this page.
+              </div>
+
+              {chatTranslating ? (
+                <div className="chat-translating-notice">Translating messages…</div>
+              ) : null}
+
+              <div className="chat-messages">
+                {chatMessages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={message.sender === "user" ? "chat-row user" : "chat-row bot"}
+                  >
+                    {message.sender === "bot" ? (
+                      <div className="chat-bubble-group">
+                        <div className="bubble bubble-bot">
+                          <div className="bubble-text">{message.text}</div>
+                          <span className="bubble-time">
+                            {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="bubble-audio-btn"
+                          onClick={() => void handlePlayChatAudio(message.id, message.text, message.lang || chatLang)}
+                          disabled={chatAudioLoading === message.id || chatAudioPlaying === message.id}
+                          title={chatAudioPlaying === message.id ? "Playing..." : "Listen"}
+                        >
+                          {chatAudioLoading === message.id ? (
+                            <span className="audio-spinner" />
+                          ) : chatAudioPlaying === message.id ? (
+                            "🔊"
+                          ) : (
+                            "▶"
+                          )}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="bubble bubble-user">
+                        <div className="bubble-text">{message.text}</div>
+                        <span className="bubble-time">
+                          {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {chatLoading ? (
+                  <div className="chat-row bot">
+                    <div className="chat-bubble-group">
+                      <div className="bubble bubble-bot">
+                        <div className="typing-dots"><span /><span /><span /></div>
                       </div>
                     </div>
-                  ))}
-                </div>
-
-                <div className="chat-input-row">
-                  <input
-                    value={chatDraft}
-                    onChange={(event) => setChatDraft(event.target.value)}
-                    placeholder="Type a message..."
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        void handleSendChat();
-                      }
-                    }}
-                  />
-                  <button type="button" onClick={() => void handleSendChat()} disabled={chatLoading}>
-                    {chatLoading ? "..." : "Send"}
-                  </button>
-                </div>
-
-                {chatError ? <p className="status-error">{chatError}</p> : null}
-                {chatResult ? (
-                  <p className="muted chat-context">
-                    Context: drift={String(chatResult.context.drift_detected)}, severity={chatResult.context.severity},
-                    action={chatResult.context.next_action}
-                  </p>
+                  </div>
                 ) : null}
-              </section>
+                <div ref={chatEndRef} />
+              </div>
 
-              <section className="card">
-                <div className="card-title">Voice Agent</div>
-                <p className="muted">Talk to ByteCare in Singlish. Type your message and get a friendly reply!</p>
-
-                <div className="form-group">
-                  <textarea
-                    value={vaMessage}
-                    onChange={(e) => setVaMessage(e.target.value)}
-                    placeholder='e.g. "I forgot take my medicine today lah"'
-                    rows={3}
-                  />
-                </div>
-
+              <div className="chat-input-bar">
+                <input
+                  value={chatDraft}
+                  onChange={(event) => setChatDraft(event.target.value)}
+                  placeholder="Type a message..."
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      void handleSendChat();
+                    }
+                  }}
+                  disabled={chatLoading}
+                />
                 <button
                   type="button"
-                  onClick={() => void handleVoiceAgent()}
-                  disabled={vaLoading || !vaMessage.trim()}
+                  className={`mic-btn ${isRecording ? "mic-recording" : ""}`}
+                  onClick={handleVoiceInput}
+                  disabled={chatLoading || isRecording}
+                  title={isRecording ? "Listening..." : "Voice input"}
                 >
-                  {vaLoading ? "Thinking..." : "Send Message"}
+                  {isRecording ? "⏺" : "🎤"}
                 </button>
-
-                {vaError ? <p className="status-error">{vaError}</p> : null}
-
-                {vaReply ? (
-                  <div className="va-reply-box">
-                    <div className="card-title small">ByteCare says:</div>
-                    <p className="va-reply-text">{vaReply}</p>
-                    <button
-                      type="button"
-                      className="play-audio-btn"
-                      onClick={() => void handlePlayAudio()}
-                      disabled={vaAudioLoading}
-                    >
-                      {vaAudioLoading ? "Loading audio..." : "Play Audio"}
-                    </button>
-                    {vaAudioUrl ? (
-                      <audio controls src={vaAudioUrl} className="va-audio-player" />
-                    ) : null}
-                  </div>
-                ) : null}
-              </section>
-
-              <section className="card">
-                <div className="card-title small">Voice Transcript Analysis</div>
-                <p className="muted">Paste a voice transcript to analyze language, emotion, and intent.</p>
-                <textarea
-                  value={voiceTranscript}
-                  onChange={(event) => setVoiceTranscript(event.target.value)}
-                  placeholder='Example: "I forgot my medicine today lah."'
-                  rows={2}
-                />
-                <button type="button" onClick={() => void handleAnalyzeVoice()} disabled={voiceLoading}>
-                  {voiceLoading ? "Analyzing..." : "Analyze Transcript"}
+                <button
+                  type="button"
+                  className="send-btn"
+                  onClick={() => void handleSendChat()}
+                  disabled={chatLoading || !chatDraft.trim()}
+                >
+                  {chatLoading ? "…" : "➤"}
                 </button>
-                {voiceError ? <p className="status-error">{voiceError}</p> : null}
-                {voiceResult ? (
-                  <div className="chip-wrap">
-                    <span className="chip">{voiceResult.language_hint}</span>
-                    <span className="chip">{voiceResult.emotion_tag}</span>
-                    <span className="chip">{voiceResult.intent}</span>
-                    <p className="muted">{voiceResult.cleaned_text}</p>
-                  </div>
-                ) : null}
-              </section>
-            </>
+              </div>
+              {chatError ? <p className="chat-error">{chatError}</p> : null}
+            </section>
           ) : null}
 
           {/* ── HEALTH TAB ── */}

@@ -67,11 +67,13 @@ export type CommunityMyEventsResponse = {
 
 export type ChatResponse = {
   reply: string;
+  reply_en?: string;
   context: {
     drift_detected: boolean;
     severity: string;
     next_action: string;
   };
+  language: string;
 };
 
 export type VoiceResponse = {
@@ -225,10 +227,10 @@ export const api = {
     }),
   getReportSummary: (userId: string) =>
     apiRequest<ReportSummaryResponse>(`/users/${userId}/report-summary`),
-  postChat: (userId: string, message: string) =>
+  postChat: (userId: string, message: string, language: string = "en") =>
     apiRequest<ChatResponse>(`/users/${userId}/chat`, {
       method: "POST",
-      body: JSON.stringify({ message })
+      body: JSON.stringify({ message, language })
     }),
   postVoiceTranscript: (userId: string, transcript: string) =>
     apiRequest<VoiceResponse>(`/users/${userId}/voice/transcript`, {

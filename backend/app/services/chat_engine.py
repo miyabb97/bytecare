@@ -7,7 +7,7 @@ from typing import Any, Dict
 from fastapi import HTTPException
 
 from app.db import SessionLocal
-from app.models import User
+from app.models import Appointment, Medication, User
 from app.services.agent_engine import determine_next_action
 from app.services.drift_engine import detect_adherence_drift
 from app.services.meralion_client import MeralionClient, MeralionClientError
@@ -24,36 +24,54 @@ def _rule_based_reply(name: str, message: str, next_action: str) -> str:
     return f"Thanks for sharing, {name}. You are doing well, and I am here to support you."
 
 
-def _build_prompt(user: Dict[str, Any], message: str, drift: Dict[str, Any], action: Dict[str, Any]) -> str:
+def _build_prompt(user: Dict[str, Any], message: str, drift: Dict[str, Any], action: Dict[str, Any],
+                  medications: list, appointments: list, dose_text: list) -> str:
     """Build structured prompt for MERaLiON chat generation."""
+    med_text = "; ".join(f"{m['name']} ({m['dose']})" for m in medications) if medications else "none recorded"
+    appt_text = "; ".join(appointments) if appointments else "none upcoming"
+
     return (
-        "You are ByteCare, a medication adherence support assistant for older adults in Singapore. "
+        "You are ByteCare, a caring medication adherence support assistant for older adults in Singapore. "
+        "You know everything about this patient — their profile, medications, conditions, and appointments. "
+        "Answer the patient's question directly using the context below.\n\n"
         "Safety rules (must follow): "
         "1) Do NOT provide medical diagnosis. "
         "2) Do NOT recommend medication changes (do not start, stop, skip, or change dose/timing). "
         "3) If user asks for diagnosis or medication change, advise them to check with their doctor or pharmacist. "
-        "4) Keep response supportive, calm, and concise (1-2 short sentences, max 35 words). "
+        "4) Keep response supportive, calm, and concise (2-3 short sentences, max 50 words). "
         "5) Use simple words suitable for elderly users in Singapore. "
-        "6) Singlish-friendly phrasing is allowed (light, respectful, optional lah/leh/lor).\n\n"
+        "6) Singlish-friendly phrasing is allowed (light, respectful, optional lah/leh/lor). "
+        "7) If the patient asks about their medications, conditions, or appointments, answer using the context below. "
+        "8) If the patient greets you, reply warmly and briefly.\n\n"
         "Output rules: "
         "Return only the patient-facing reply text. "
         "Do not output JSON. "
         "Do not include internal reasoning.\n\n"
         f"User profile: name={user.get('name','Patient')}, age={user.get('age')}, timezone={user.get('timezone')}\n"
+        f"Conditions: {', '.join(user.get('conditions', [])) or 'none'}\n"
+        f"Current medications: {med_text}\n"
+        f"Upcoming appointments: {appt_text}\n"
+        f"Adherence: drift_detected={drift.get('drift_detected')}, severity={drift.get('severity')}, trigger={drift.get('trigger')}\n"
+        f"Recommended next action: {action.get('next_action')}\n\n"
         f"Patient message: {message}\n"
-        f"Drift context: drift_detected={drift.get('drift_detected')}, severity={drift.get('severity')}, trigger={drift.get('trigger')}\n"
-        f"Recommended next action: {action.get('next_action')}\n"
         "Tone: warm, respectful, encouraging, not patronizing."
     )
 
 
-def generate_patient_reply(user_id: str, message: str) -> Dict[str, Any]:
+def generate_patient_reply(user_id: str, message: str, language: str = "en") -> Dict[str, Any]:
     """Generate a short patient-facing chat reply using context from deterministic engines."""
     with SessionLocal() as db:
         user_obj = db.query(User).filter_by(user_id=user_id).first()
         if not user_obj:
             raise HTTPException(status_code=404, detail="User not found")
         user = user_obj.to_dict()
+
+        med_names = [{"name": m.name, "dose": m.dose_text or "dose not specified"}
+                     for m in db.query(Medication).filter_by(user_id=user_id).all()]
+        appt_list = [
+            f"{a.datetime_str} at {a.location}" if a.location else a.datetime_str
+            for a in db.query(Appointment).filter_by(user_id=user_id).order_by(Appointment.datetime_str).limit(3).all()
+        ]
 
     drift = detect_adherence_drift(user_id)
     action = determine_next_action(user_id)
@@ -66,19 +84,30 @@ def generate_patient_reply(user_id: str, message: str) -> Dict[str, Any]:
 
     client = MeralionClient()
     if not client.enabled:
-        return {
-            "reply": _rule_based_reply(user.get("name", "Patient"), message, action["next_action"]),
-            "context": context,
-        }
-
-    prompt = _build_prompt(user, message, drift, action)
-
-    try:
-        reply = client.chat(prompt, hyperparameters={"temperature": 0.3, "topP": 0.9})
-    except MeralionClientError:
         reply = _rule_based_reply(user.get("name", "Patient"), message, action["next_action"])
+    else:
+        prompt = _build_prompt(user, message, drift, action, med_names, appt_list, [])
+        try:
+            reply = client.chat(prompt, hyperparameters={"temperature": 0.3, "topP": 0.9})
+        except MeralionClientError:
+            reply = _rule_based_reply(user.get("name", "Patient"), message, action["next_action"])
+
+    # Translate if a non-English language is requested
+    if language and language != "en":
+        try:
+            from app.services.voice_engine import translate_text
+            translated = translate_text(reply, language)
+            return {
+                "reply": translated,
+                "reply_en": reply,
+                "context": context,
+                "language": language,
+            }
+        except Exception:
+            pass
 
     return {
         "reply": reply,
         "context": context,
+        "language": "en",
     }
