@@ -136,16 +136,36 @@ def run_orchestrator(user_id: str, custom_message: Optional[str] = None) -> Dict
             timestamp=now_str,
         ))
 
-        # Inject system message into chat (unread)
-        db.add(ChatMessage(
-            message_id=str(uuid4()),
-            user_id=user_id,
-            role="system",
-            content=message,
-            language="en",
-            is_read=0,
-            created_at=now_str,
-        ))
+        # Chat message logic: only ONE unread alert at a time.
+        # LOW risk = adherence recovered → mark any existing unread alert as read (clears badge).
+        # MEDIUM/HIGH risk → replace the existing unread alert (update in place) or create a new one.
+        existing_unread = (
+            db.query(ChatMessage)
+            .filter_by(user_id=user_id, role="system", is_read=0)
+            .order_by(ChatMessage.created_at.desc())
+            .first()
+        )
+
+        if risk_level == "LOW":
+            # Adherence is good — clear any pending alert, don't create a new one
+            if existing_unread:
+                db.query(ChatMessage).filter_by(user_id=user_id, role="system", is_read=0).update({"is_read": 1})
+        else:
+            if existing_unread:
+                # Update the existing unread message in place (no badge count increase)
+                existing_unread.content = message
+                existing_unread.created_at = now_str
+            else:
+                # No existing alert — create one
+                db.add(ChatMessage(
+                    message_id=str(uuid4()),
+                    user_id=user_id,
+                    role="system",
+                    content=message,
+                    language="en",
+                    is_read=0,
+                    created_at=now_str,
+                ))
 
         db.commit()
 

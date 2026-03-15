@@ -253,6 +253,12 @@ export default function DashboardPage() {
 
   // Load system messages from backend when chat tab opens
   const chatLoadedRef = useRef(false);
+  // Reset chatLoadedRef when leaving chat so we reload on return
+  useEffect(() => {
+    if (activeTab !== "chat") {
+      chatLoadedRef.current = false;
+    }
+  }, [activeTab]);
   useEffect(() => {
     if (activeTab !== "chat" || !userId || chatLoadedRef.current) return;
     chatLoadedRef.current = true;
@@ -264,20 +270,23 @@ export default function DashboardPage() {
         // Find system messages that aren't already in our local state
         const systemMsgs = backendMsgs.filter((m) => m.role === "system");
         if (systemMsgs.length > 0) {
+          // Only show the single most recent system alert
+          const latestSystem = [...systemMsgs].sort(
+            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          )[0];
           setChatMessages((prev) => {
-            const existingTexts = new Set(prev.map((m) => m.text));
-            const newMsgs = systemMsgs
-              .filter((m) => !existingTexts.has(m.content))
-              .map((m, i) => ({
-                id: Date.now() - 10000 + i,
-                sender: "system" as const,
-                text: m.content,
-                originalText: m.content,
-                timestamp: new Date(m.created_at),
-              }));
-            if (newMsgs.length === 0) return prev;
-            // Insert system messages before the welcome message
-            return [...newMsgs, ...prev];
+            // Remove any existing system messages so there is always at most one
+            const withoutSystem = prev.filter((m) => m.sender !== "system");
+            const existingTexts = new Set(withoutSystem.map((m) => m.text));
+            if (existingTexts.has(latestSystem.content)) return prev;
+            const alertMsg = {
+              id: Date.now(),
+              sender: "system" as const,
+              text: latestSystem.content,
+              originalText: latestSystem.content,
+              timestamp: new Date(latestSystem.created_at),
+            };
+            return [alertMsg, ...withoutSystem];
           });
         }
         // Mark all as read
@@ -522,6 +531,18 @@ export default function DashboardPage() {
     }
   }, [loadDashboard, loadDoseEvents, userId]);
 
+  // Poll unread count every 30s so the badge updates after orchestration
+  useEffect(() => {
+    if (!userId) return;
+    const id = window.setInterval(() => {
+      if (activeTab === "chat") return; // skip while viewing chat
+      api.getUnreadCount(userId)
+        .then((res) => setUnreadCount(res.unread_count))
+        .catch(() => {});
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, [userId, activeTab]);
+
   const appointmentText = useMemo(
     () => formatAppointment(appointments?.next_appointment ?? null, appointments?.days_remaining ?? null),
     [appointments]
@@ -581,6 +602,7 @@ export default function DashboardPage() {
   }, [medications, latestDoseEventBySlot, userProfile?.timezone]);
 
   const [quickMarkLoading, setQuickMarkLoading] = useState<string | null>(null);
+  const [openDropdownKey, setOpenDropdownKey] = useState<string | null>(null);
   // Track last recorded event per slot for Undo
   const [undoEvents, setUndoEvents] = useState<Map<string, { eventId: string; status: string }>>(new Map());
   async function handleQuickMark(slot: TodayDoseSlot, status: ReminderResponseStatus) {
@@ -604,6 +626,12 @@ export default function DashboardPage() {
         });
       }
       api.getMEEScore(userId).then(setMeeScore).catch(() => {});
+      // Trigger orchestration pipeline so the flow
+      // patient action → MEE/risk → intervention → chat message works end-to-end
+      api.postOrchestrate(userId)
+        .then(() => api.getUnreadCount(userId))
+        .then((res) => setUnreadCount(res.unread_count))
+        .catch(() => {});
     } catch { /* ignore */ } finally {
       setQuickMarkLoading(null);
     }
@@ -629,6 +657,19 @@ export default function DashboardPage() {
       setQuickMarkLoading(null);
     }
   }
+
+  // Close the dose status dropdown when clicking outside
+  useEffect(() => {
+    if (!openDropdownKey) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-dose-dropdown]')) {
+        setOpenDropdownKey(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [openDropdownKey]);
 
   const findDueReminderGroup = useCallback((): ReminderGroup | null => {
     const timezone = userProfile?.timezone || "Asia/Singapore";
@@ -1333,15 +1374,46 @@ export default function DashboardPage() {
                           </div>
                           {slot.status ? (
                             <div className="flex items-center gap-1.5">
-                              <span className={`rounded-full px-3 py-1 text-xs font-bold ${
-                                slot.status === "taken" ? "bg-emerald-100 text-emerald-600"
-                                : slot.status === "skipped" ? "bg-slate-200 text-slate-500"
-                                : slot.status === "snoozed" ? "bg-blue-100 text-blue-600"
-                                : slot.status === "late" ? "bg-amber-100 text-amber-600"
-                                : "bg-red-100 text-red-600"
-                              }`}>
-                                {slot.status.charAt(0).toUpperCase() + slot.status.slice(1)}
-                              </span>
+                              <div className="relative" data-dose-dropdown>
+                                <button
+                                  type="button"
+                                  disabled={isLoading}
+                                  onClick={() => setOpenDropdownKey(openDropdownKey === key ? null : key)}
+                                  className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold transition active:scale-95 ${
+                                    slot.status === "taken" ? "bg-emerald-100 text-emerald-600"
+                                    : slot.status === "skipped" ? "bg-slate-200 text-slate-500"
+                                    : slot.status === "snoozed" ? "bg-blue-100 text-blue-600"
+                                    : slot.status === "late" ? "bg-amber-100 text-amber-600"
+                                    : "bg-red-100 text-red-600"
+                                  }`}
+                                >
+                                  {slot.status.charAt(0).toUpperCase() + slot.status.slice(1)}
+                                  <span className="ml-0.5 opacity-60 text-[9px]">▾</span>
+                                </button>
+                                {openDropdownKey === key && (
+                                  <div className="absolute right-0 top-full z-50 mt-1 min-w-[110px] overflow-hidden rounded-xl border border-slate-200 bg-gray-50 shadow-md">
+                                    {(["taken", "missed", "late", "skipped"] as ReminderResponseStatus[])
+                                      .filter((s) => s !== slot.status)
+                                      .map((s) => (
+                                        <button
+                                          key={s}
+                                          type="button"
+                                          disabled={isLoading}
+                                          onClick={() => { setOpenDropdownKey(null); void handleQuickMark(slot, s); }}
+                                          style={{ background: "none", marginTop: 0, borderRadius: 0, padding: "0.5rem 1rem" }}
+                                          className={`block w-full text-left text-xs font-medium outline-none transition hover:bg-slate-200 ${
+                                            s === "taken" ? "text-emerald-700"
+                                            : s === "skipped" ? "text-slate-500"
+                                            : s === "late" ? "text-amber-700"
+                                            : "text-red-700"
+                                          }`}
+                                        >
+                                          Mark as {s.charAt(0).toUpperCase() + s.slice(1)}
+                                        </button>
+                                      ))}
+                                  </div>
+                                )}
+                              </div>
                               {undoInfo && (
                                 <button
                                   type="button"
@@ -1410,39 +1482,6 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="absolute -bottom-4 -right-4 h-24 w-24 rounded-full bg-white/10 blur-2xl" />
-              </section>
-
-              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="mb-3 flex items-center gap-2">
-                  <Mic className="text-blue-600" size={18} />
-                  <h3 className="text-[1.3rem] font-bold leading-none text-slate-900">Voice Input Analysis</h3>
-                </div>
-                <p className="mb-4 rounded-2xl border-l-4 border-blue-200 bg-slate-100 p-3 text-sm italic text-slate-700">
-                  "{voicePreviewText}"
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <span className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs text-slate-600">{voicePreviewLanguage}</span>
-                  <span className="rounded-full border border-orange-200 bg-orange-100 px-3 py-1 text-xs text-orange-600">{voicePreviewEmotion}</span>
-                  <span className="rounded-full border border-blue-200 bg-blue-100 px-3 py-1 text-xs text-blue-600">{voicePreviewIntent}</span>
-                </div>
-              </section>
-
-              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="mb-3 flex items-center gap-2">
-                  <Search className="text-slate-700" size={18} />
-                  <h3 className="text-[1.3rem] font-bold leading-none text-slate-900">TCM Safety Check</h3>
-                </div>
-                <div className="rounded-2xl border border-red-200 bg-red-50 p-3">
-                  <div className="flex gap-2">
-                    <TriangleAlert size={18} className="mt-0.5 text-amber-500" />
-                    <div>
-                      <p className="text-sm font-bold text-red-700">Interaction Warning</p>
-                      <p className="text-xs text-red-600">
-                        {tcmResult?.message ?? "May interact with blood thinners. Consult your doctor."}
-                      </p>
-                    </div>
-                  </div>
-                </div>
               </section>
 
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -2288,7 +2327,7 @@ export default function DashboardPage() {
               <BottomNavIcon tab="chat" active={activeTab === "chat"} />
               {unreadCount > 0 ? (
                 <span className="absolute -right-2 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                  {unreadCount}
+                  !
                 </span>
               ) : null}
             </span>
