@@ -117,9 +117,10 @@ To view the tables:
 
 ### Caregiver
 
-| Email | Password | Role |
-|-------|----------|------|
-| jon@email.com | 1234567 | caregiver |
+| Email | Password | Role | Linked Patient |
+|-------|----------|------|----------------|
+| jon@email.com | 1234567 | caregiver | — |
+| grace.lim@demo.com | demo123 | caregiver | Mdm Lim |
 
 
 

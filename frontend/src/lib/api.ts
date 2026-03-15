@@ -164,7 +164,7 @@ export type DoseEventItem = {
   event_type: string;
   source: string;
   scheduled_for: string;
-  response_status: "taken" | "skipped" | "snoozed" | "";
+  response_status: "taken" | "skipped" | "snoozed" | "missed" | "late" | "";
   timestamp: string;
   created_at: string;
 };
@@ -327,13 +327,17 @@ export const api = {
     data: {
       medication_ids: string[];
       scheduled_for: string;
-      response_status: "taken" | "skipped" | "snoozed";
+      response_status: "taken" | "skipped" | "snoozed" | "missed" | "late";
       source?: string;
     }
   ) =>
     apiRequest<DoseEventListResponse>(`/users/${userId}/dose-events/intake`, {
       method: "POST",
       body: JSON.stringify(data)
+    }),
+  deleteDoseEvent: (userId: string, eventId: string) =>
+    apiRequest<{ status: string; event_id: string }>(`/users/${userId}/dose-events/${eventId}`, {
+      method: "DELETE",
     }),
   deleteMedication: (userId: string, medId: string) =>
     fetch(`${API_BASE}/users/${userId}/medications/${medId}`, { method: "DELETE" }),
@@ -436,6 +440,41 @@ export const api = {
     apiRequest<void>(`/clinician/patients/${patientUserId}/appointments/${apptId}?account_id=${encodeURIComponent(accountId)}`, {
       method: "DELETE",
     }),
+
+  // --- Phase 11: MEE / Orchestrator / Chat messages / Caregiver ---
+  getMEEScore: (userId: string) =>
+    apiRequest<MEEScoreResponse>(`/users/${userId}/mee`),
+
+  getMEEPerMedication: (userId: string) =>
+    apiRequest<MEEPerMedResponse>(`/users/${userId}/mee/medications`),
+
+  getInterventions: (userId: string) =>
+    apiRequest<InterventionListResponse>(`/users/${userId}/interventions`),
+
+  postOrchestrate: (userId: string) =>
+    apiRequest<OrchestrateResponse>(`/users/${userId}/orchestrate`, { method: "POST" }),
+
+  getChatMessages: (userId: string) =>
+    apiRequest<ChatMessageListResponse>(`/users/${userId}/chat/messages`),
+
+  getUnreadCount: (userId: string) =>
+    apiRequest<UnreadCountResponse>(`/users/${userId}/chat/unread-count`),
+
+  postMarkRead: (userId: string) =>
+    apiRequest<{ status: string }>(`/users/${userId}/chat/mark-read`, { method: "POST" }),
+
+  caregiverGetPatients: (accountId: string) =>
+    apiRequest<CaregiverPatientListResponse>(`/caregiver/${accountId}/patients`),
+
+  caregiverGetPatientDetail: (accountId: string, patientUserId: string) =>
+    apiRequest<CaregiverPatientDetail>(`/caregiver/${accountId}/patients/${patientUserId}`),
+
+  // --- Admin endpoints ---
+  adminGetAccounts: () =>
+    apiRequest<AdminAccountListResponse>("/admin/accounts"),
+
+  adminGetAllInterventions: () =>
+    apiRequest<AdminInterventionListResponse>("/admin/interventions"),
 };
 
 export type DemoPatient = {
@@ -483,4 +522,120 @@ export type ClinicianPatientDetail = {
   patient: UserProfile & { conditions?: string[] };
   medications: MedicationItem[];
   appointments: AppointmentItem[];
+};
+
+// --- Phase 11: Adherence / MEE / Orchestrator / Caregiver types ---
+
+export type MEEScoreResponse = {
+  user_id: string;
+  score: number;
+  explanation: string;
+  period_days: number;
+  counts: { taken: number; missed: number; late: number; skipped: number; snoozed: number };
+  total_events: number;
+  computed_at: string;
+};
+
+export type MEEPerMedItem = {
+  medication_id: string;
+  medication_name: string;
+  average_mes: number;
+  dose_count: number;
+};
+
+export type MEEPerMedResponse = {
+  items: MEEPerMedItem[];
+};
+
+export type DriftResponseV2 = DriftResponse & {
+  risk_level: string;
+  drift_type: string;
+};
+
+export type OrchestrateResponse = {
+  intervention_id: string;
+  user_id: string;
+  action_type: string;
+  risk_level: string;
+  reason: string;
+  message: string;
+  mee_score: number;
+  drift_severity: string;
+  timestamp: string;
+};
+
+export type InterventionItem = {
+  intervention_id: string;
+  user_id: string;
+  action_type: string;
+  risk_level: string;
+  reason: string;
+  message: string;
+  timestamp: string;
+};
+
+export type InterventionListResponse = {
+  items: InterventionItem[];
+};
+
+export type ChatMessageItem = {
+  message_id: string;
+  user_id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  language: string;
+  is_read: boolean;
+  created_at: string;
+};
+
+export type ChatMessageListResponse = {
+  items: ChatMessageItem[];
+};
+
+export type UnreadCountResponse = {
+  unread_count: number;
+};
+
+export type CaregiverPatientSummary = {
+  user_id: string;
+  name: string;
+  age: number;
+  conditions: string[];
+  medication_count: number;
+  appointment_count: number;
+};
+
+export type CaregiverPatientListResponse = {
+  items: CaregiverPatientSummary[];
+};
+
+export type CaregiverPatientDetail = {
+  patient: UserProfile & { conditions?: string[] };
+  medications: MedicationItem[];
+  appointments: AppointmentItem[];
+  dose_events: DoseEventItem[];
+  interventions: InterventionItem[];
+};
+
+// --- Admin types ---
+
+export type AdminAccountItem = {
+  account_id: string;
+  name: string;
+  email: string;
+  role: string;
+  user_id: string | null;
+  created_at: string;
+};
+
+export type AdminAccountListResponse = {
+  items: AdminAccountItem[];
+};
+
+export type AdminInterventionItem = InterventionItem & {
+  patient_name: string;
+};
+
+export type AdminInterventionListResponse = {
+  items: AdminInterventionItem[];
 };

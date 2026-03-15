@@ -25,6 +25,7 @@ class User(Base):
     user_id = Column(String, primary_key=True)
     account_id = Column(String, nullable=True, index=True)
     assigned_clinician_id = Column(String, nullable=True, index=True)
+    caregiver_id = Column(String, nullable=True, index=True)
     name = Column(String, nullable=False)
     age = Column(Integer, nullable=False)
     conditions_json = Column(Text, default="[]")
@@ -171,3 +172,49 @@ class VoiceLog(Base):
     result_json = Column(Text, default="{}")
     source = Column(String, default="")
     created_at = Column(String, nullable=False)
+
+
+class InterventionLog(Base):
+    __tablename__ = "intervention_logs"
+
+    intervention_id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False, index=True)
+    action_type = Column(String, nullable=False)  # gentle_reminder | chatbot_support | caregiver_alert | clinician_alert
+    risk_level = Column(String, nullable=False)     # LOW | MEDIUM | HIGH
+    reason = Column(Text, default="")
+    message = Column(Text, default="")
+    timestamp = Column(String, nullable=False)
+
+    def to_dict(self):
+        return {
+            "intervention_id": self.intervention_id,
+            "user_id": self.user_id,
+            "action_type": self.action_type,
+            "risk_level": self.risk_level,
+            "reason": self.reason,
+            "message": self.message,
+            "timestamp": self.timestamp,
+        }
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    message_id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False, index=True)
+    role = Column(String, nullable=False)           # user | assistant | system
+    content = Column(Text, nullable=False)
+    language = Column(String, default="en")
+    is_read = Column(Integer, default=1)            # 0=unread, 1=read (SQLite has no bool)
+    created_at = Column(String, nullable=False)
+
+    def to_dict(self):
+        return {
+            "message_id": self.message_id,
+            "user_id": self.user_id,
+            "role": self.role,
+            "content": self.content,
+            "language": self.language,
+            "is_read": bool(self.is_read),
+            "created_at": self.created_at,
+        }

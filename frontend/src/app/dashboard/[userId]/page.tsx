@@ -34,6 +34,7 @@ import {
   type FoodResponse,
   type MedicationItem,
   type MedicationListResponse,
+  type MEEScoreResponse,
   type NextActionResponse,
   type ReportSummaryResponse,
   type TCMResponse,
@@ -45,14 +46,14 @@ import {
 type Tab = "home" | "chat" | "events" | "health" | "profile";
 type ChatMessage = {
   id: number;
-  sender: "user" | "bot";
+  sender: "user" | "bot" | "system";
   text: string;
   originalText?: string;
   timestamp: Date;
   lang?: string;
 };
 
-type ReminderResponseStatus = "taken" | "skipped" | "snoozed";
+type ReminderResponseStatus = "taken" | "skipped" | "snoozed" | "missed" | "late";
 type ReminderMedication = Pick<MedicationItem, "medication_id" | "name" | "dose_text">;
 type ReminderGroup = {
   scheduled_for: string;
@@ -249,6 +250,42 @@ export default function DashboardPage() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages, chatLoading]);
 
+  // Load system messages from backend when chat tab opens
+  const chatLoadedRef = useRef(false);
+  useEffect(() => {
+    if (activeTab !== "chat" || !userId || chatLoadedRef.current) return;
+    chatLoadedRef.current = true;
+
+    (async () => {
+      try {
+        const res = await api.getChatMessages(userId);
+        const backendMsgs = res.items ?? [];
+        // Find system messages that aren't already in our local state
+        const systemMsgs = backendMsgs.filter((m) => m.role === "system");
+        if (systemMsgs.length > 0) {
+          setChatMessages((prev) => {
+            const existingTexts = new Set(prev.map((m) => m.text));
+            const newMsgs = systemMsgs
+              .filter((m) => !existingTexts.has(m.content))
+              .map((m, i) => ({
+                id: Date.now() - 10000 + i,
+                sender: "system" as const,
+                text: m.content,
+                originalText: m.content,
+                timestamp: new Date(m.created_at),
+              }));
+            if (newMsgs.length === 0) return prev;
+            // Insert system messages before the welcome message
+            return [...newMsgs, ...prev];
+          });
+        }
+        // Mark all as read
+        await api.postMarkRead(userId);
+        setUnreadCount(0);
+      } catch { /* ignore */ }
+    })();
+  }, [activeTab, userId]);
+
   useEffect(() => {
     if (prevChatLang.current === chatLang) return;
     prevChatLang.current = chatLang;
@@ -354,6 +391,11 @@ export default function DashboardPage() {
   // --- Care plan lock state (clinician-managed) ---
   const [carePlanLocked, setCarePlanLocked] = useState(false);
   const [clinicianName, setClinicianName] = useState<string | null>(null);
+
+  // --- Phase 11: MEE / Adherence / Unread count ---
+  const [meeScore, setMeeScore] = useState<MEEScoreResponse | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [adherenceTracking, setAdherenceTracking] = useState<Record<string, string>>({});
 
   // True when the user should not edit the care plan (caregiver or clinician-locked patient)
   const carePlanReadOnly = carePlanLocked || accountRole === "caregiver";
@@ -473,8 +515,11 @@ export default function DashboardPage() {
         setCarePlanLocked(res.managed_by_clinician);
         setClinicianName(res.clinician_name);
       }).catch(() => {});
+      // Load MEE score + unread count
+      api.getMEEScore(userId).then(setMeeScore).catch(() => {});
+      api.getUnreadCount(userId).then((res) => setUnreadCount(res.unread_count)).catch(() => {});
     }
-  }, [loadDashboard, loadDoseEvents]);
+  }, [loadDashboard, loadDoseEvents, userId]);
 
   const appointmentText = useMemo(
     () => formatAppointment(appointments?.next_appointment ?? null, appointments?.days_remaining ?? null),
@@ -512,6 +557,77 @@ export default function DashboardPage() {
     () => doseEvents.filter((event) => event.response_status).slice(0, 4),
     [doseEvents]
   );
+
+  // Build today's dose slots for the home tab overview
+  type TodayDoseSlot = { med: MedicationItem; scheduledFor: string; timeLabel: string; status: string | null };
+  const todayDoseSlots = useMemo(() => {
+    const timezone = userProfile?.timezone || "Asia/Singapore";
+    const { date, time } = getClockParts(timezone);
+    const slots: TodayDoseSlot[] = [];
+    for (const med of medications?.items ?? []) {
+      for (const t of med.schedule?.times ?? []) {
+        if (!t) continue;
+        const scheduledFor = buildScheduledFor(date, t);
+        const ev = latestDoseEventBySlot.get(`${med.medication_id}:${scheduledFor}`);
+        // Only show past or current time slots
+        if (t <= time) {
+          slots.push({ med, scheduledFor, timeLabel: t, status: ev?.response_status ?? null });
+        }
+      }
+    }
+    slots.sort((a, b) => a.scheduledFor.localeCompare(b.scheduledFor));
+    return slots;
+  }, [medications, latestDoseEventBySlot, userProfile?.timezone]);
+
+  const [quickMarkLoading, setQuickMarkLoading] = useState<string | null>(null);
+  // Track last recorded event per slot for Undo
+  const [undoEvents, setUndoEvents] = useState<Map<string, { eventId: string; status: string }>>(new Map());
+  async function handleQuickMark(slot: TodayDoseSlot, status: ReminderResponseStatus) {
+    if (!userId) return;
+    const key = `${slot.med.medication_id}:${slot.scheduledFor}`;
+    setQuickMarkLoading(key);
+    try {
+      const response = await api.postMedicationIntake(userId, {
+        medication_ids: [slot.med.medication_id],
+        scheduled_for: slot.scheduledFor,
+        response_status: status,
+        source: "dashboard_quick_mark"
+      });
+      setDoseEvents((current) => [...response.items, ...current]);
+      // Track the event for undo
+      if (response.items.length > 0) {
+        setUndoEvents((prev) => {
+          const next = new Map(prev);
+          next.set(key, { eventId: response.items[0].event_id, status });
+          return next;
+        });
+      }
+      api.getMEEScore(userId).then(setMeeScore).catch(() => {});
+    } catch { /* ignore */ } finally {
+      setQuickMarkLoading(null);
+    }
+  }
+
+  async function handleUndoDose(slot: TodayDoseSlot) {
+    if (!userId) return;
+    const key = `${slot.med.medication_id}:${slot.scheduledFor}`;
+    const undo = undoEvents.get(key);
+    if (!undo) return;
+    setQuickMarkLoading(key);
+    try {
+      await api.deleteDoseEvent(userId, undo.eventId);
+      // Remove the event from local doseEvents
+      setDoseEvents((current) => current.filter((ev) => ev.event_id !== undo.eventId));
+      setUndoEvents((prev) => {
+        const next = new Map(prev);
+        next.delete(key);
+        return next;
+      });
+      api.getMEEScore(userId).then(setMeeScore).catch(() => {});
+    } catch { /* ignore */ } finally {
+      setQuickMarkLoading(null);
+    }
+  }
 
   const findDueReminderGroup = useCallback((): ReminderGroup | null => {
     const timezone = userProfile?.timezone || "Asia/Singapore";
@@ -1029,6 +1145,8 @@ export default function DashboardPage() {
       setDoseEvents((current) => [...response.items, ...current]);
       setReminderGroup(null);
       void loadDashboard();
+      // Refresh adherence score after recording a dose event
+      api.getMEEScore(userId).then(setMeeScore).catch(() => {});
     } catch (error) {
       setReminderError(safeMessage(error));
     } finally {
@@ -1125,18 +1243,150 @@ export default function DashboardPage() {
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="mb-3 flex items-start justify-between gap-2">
                   <h3 className="text-[1.38rem] font-bold leading-none text-slate-900">Medication Adherence</h3>
-                  <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-600">
-                    Severity: {(drift?.severity ?? "red").replace(/^./, (s) => s.toUpperCase())}
-                  </span>
+                  {meeScore ? (() => {
+                    const riskLevel = meeScore.score < 50 ? "HIGH" : meeScore.score < 75 ? "MEDIUM" : "LOW";
+                    return (
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-bold ${
+                          riskLevel === "HIGH"
+                            ? "bg-red-100 text-red-600"
+                            : riskLevel === "MEDIUM"
+                              ? "bg-amber-100 text-amber-600"
+                              : "bg-emerald-100 text-emerald-600"
+                        }`}
+                      >
+                        Risk: {riskLevel}
+                      </span>
+                    );
+                  })() : (
+                    <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-600">
+                      Severity: {(drift?.severity ?? "red").replace(/^./, (s) => s.toUpperCase())}
+                    </span>
+                  )}
                 </div>
-                <div className="flex items-center gap-2 text-slate-600">
-                  <TriangleAlert size={18} className="text-amber-500" />
-                  <p className="text-sm italic">Drift detected: {drift?.drift_detected ? "Yes" : "No"}</p>
-                </div>
+
+                {meeScore ? (() => {
+                  const riskLevel = meeScore.score < 50 ? "HIGH" : meeScore.score < 75 ? "MEDIUM" : "LOW";
+                  return (
+                    <>
+                      <div className="mb-3 flex items-center gap-4">
+                        <div className="flex flex-col items-center">
+                          <span className="text-4xl font-bold text-blue-600">{Math.round(meeScore.score)}%</span>
+                          <span className="text-xs text-slate-500">Adherence</span>
+                        </div>
+                        <div className="flex-1 space-y-1 text-sm text-slate-600">
+                          <p>Taken: <span className="font-semibold text-emerald-600">{meeScore.counts.taken}</span></p>
+                          <p>Missed: <span className="font-semibold text-red-600">{meeScore.counts.missed}</span></p>
+                          <p>Window: last {meeScore.period_days} days</p>
+                        </div>
+                      </div>
+                      {(riskLevel === "HIGH" || riskLevel === "MEDIUM") && (
+                        <div className={`mb-3 flex items-center gap-2 rounded-2xl p-3 ${
+                          riskLevel === "HIGH"
+                            ? "border border-red-200 bg-red-50"
+                            : "border border-amber-200 bg-amber-50"
+                        }`}>
+                          <TriangleAlert size={18} className={riskLevel === "HIGH" ? "text-red-500" : "text-amber-500"} />
+                          <p className={`text-sm font-medium ${riskLevel === "HIGH" ? "text-red-700" : "text-amber-700"}`}>
+                            {riskLevel === "HIGH"
+                              ? "High risk — multiple doses missed recently. Please check in."
+                              : "Moderate risk — some doses missed. A gentle reminder may help."}
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  );
+                })() : (
+                  <div className="flex items-center gap-2 text-slate-600">
+                    <TriangleAlert size={18} className="text-amber-500" />
+                    <p className="text-sm italic">Drift detected: {drift?.drift_detected ? "Yes" : "No"}</p>
+                  </div>
+                )}
+
                 <div className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 p-3">
                   <p className="text-sm font-medium text-blue-600">Next action: {nextAction?.next_action ?? "Reminder needed"}</p>
                 </div>
               </section>
+
+              {/* Today's Doses */}
+              {todayDoseSlots.length > 0 && (
+                <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <h3 className="mb-3 text-[1.25rem] font-bold leading-none text-slate-900">Today&apos;s Doses</h3>
+                  <div className="space-y-3">
+                    {todayDoseSlots.map((slot) => {
+                      const key = `${slot.med.medication_id}:${slot.scheduledFor}`;
+                      const isLoading = quickMarkLoading === key;
+                      const undoInfo = undoEvents.get(key);
+                      return (
+                        <div key={key} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-slate-800">{slot.med.name}</p>
+                            <p className="text-xs text-slate-500">{slot.timeLabel} &middot; {slot.med.dose_text}</p>
+                          </div>
+                          {slot.status ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className={`rounded-full px-3 py-1 text-xs font-bold ${
+                                slot.status === "taken" ? "bg-emerald-100 text-emerald-600"
+                                : slot.status === "skipped" ? "bg-slate-200 text-slate-500"
+                                : slot.status === "snoozed" ? "bg-blue-100 text-blue-600"
+                                : slot.status === "late" ? "bg-amber-100 text-amber-600"
+                                : "bg-red-100 text-red-600"
+                              }`}>
+                                {slot.status.charAt(0).toUpperCase() + slot.status.slice(1)}
+                              </span>
+                              {undoInfo && (
+                                <button
+                                  type="button"
+                                  disabled={isLoading}
+                                  onClick={() => void handleUndoDose(slot)}
+                                  className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-50"
+                                >
+                                  Undo
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5">
+                              <button
+                                type="button"
+                                disabled={isLoading}
+                                onClick={() => void handleQuickMark(slot, "taken")}
+                                className="rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-600 disabled:opacity-50"
+                              >
+                                Taken
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isLoading}
+                                onClick={() => void handleQuickMark(slot, "missed")}
+                                className="rounded-xl bg-red-100 px-3 py-1.5 text-xs font-bold text-red-600 transition hover:bg-red-200 disabled:opacity-50"
+                              >
+                                Missed
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isLoading}
+                                onClick={() => void handleQuickMark(slot, "late")}
+                                className="rounded-xl bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-600 transition hover:bg-amber-200 disabled:opacity-50"
+                              >
+                                Late
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isLoading}
+                                onClick={() => void handleQuickMark(slot, "snoozed")}
+                                className="rounded-xl bg-blue-100 px-3 py-1.5 text-xs font-bold text-blue-600 transition hover:bg-blue-200 disabled:opacity-50"
+                              >
+                                Snooze
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
 
               <section className="relative overflow-hidden rounded-3xl bg-blue-600 p-5 text-white shadow-lg">
                 <div className="relative z-10">
@@ -1399,9 +1649,23 @@ export default function DashboardPage() {
                 {chatMessages.map((message) => (
                   <div
                     key={message.id}
-                    className={message.sender === "user" ? "chat-row user" : "chat-row bot"}
+                    className={
+                      message.sender === "system"
+                        ? "chat-row system"
+                        : message.sender === "user"
+                          ? "chat-row user"
+                          : "chat-row bot"
+                    }
                   >
-                    {message.sender === "bot" ? (
+                    {message.sender === "system" ? (
+                      <div className="mx-auto max-w-[90%] rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-800">
+                        <TriangleAlert className="mb-0.5 mr-1 inline h-4 w-4" />
+                        {message.text}
+                        <div className="mt-0.5 text-xs text-amber-500">
+                          {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </div>
+                      </div>
+                    ) : message.sender === "bot" ? (
                       <div className="chat-bubble-group">
                         <div className="bubble bubble-bot">
                           <div className="bubble-text">{message.text}</div>
@@ -1903,7 +2167,14 @@ export default function DashboardPage() {
             className={`flex flex-col items-center gap-1 ${activeTab === "chat" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
             onClick={() => setActiveTab("chat")}
           >
-            <BottomNavIcon tab="chat" active={activeTab === "chat"} />
+            <span className="relative">
+              <BottomNavIcon tab="chat" active={activeTab === "chat"} />
+              {unreadCount > 0 ? (
+                <span className="absolute -right-2 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                  {unreadCount}
+                </span>
+              ) : null}
+            </span>
             <span className={`text-[11px] ${activeTab === "chat" ? "font-medium" : "font-normal"}`}>Chat</span>
           </button>
           <button

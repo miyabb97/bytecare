@@ -53,6 +53,10 @@ export default function SignInPage() {
       // Go directly to dashboard if user profile is linked, otherwise to profile select
       if (account.role === "clinician") {
         router.push(`/clinician/${account.account_id}`);
+      } else if (account.role === "caregiver") {
+        router.push(`/caregiver/${account.account_id}`);
+      } else if (account.role === "admin") {
+        router.push(`/admin/${account.account_id}`);
       } else if (account.user_id) {
         router.push(`/dashboard/${account.user_id}`);
       } else {
