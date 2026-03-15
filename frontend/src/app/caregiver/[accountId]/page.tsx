@@ -123,7 +123,7 @@ export default function CaregiverDashboard() {
 
   return (
     <main className="flex min-h-screen justify-center bg-slate-100">
-      <div className="relative flex min-h-screen w-full max-w-md flex-col bg-slate-100">
+      <div className="relative flex min-h-screen w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl flex-col bg-slate-100">
         {/* Header */}
         <header className="sticky top-0 z-30 border-b border-slate-200 bg-white px-4 py-4">
           <div className="flex items-center justify-between">
@@ -238,7 +238,7 @@ export default function CaregiverDashboard() {
                 {detail.medications.length === 0 ? (
                   <p className="text-sm text-slate-500">No medications recorded.</p>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-2 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">
                     {detail.medications.map((med) => (
                       <div key={med.medication_id} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
                         <p className="font-semibold text-slate-800">{med.name}</p>
@@ -381,7 +381,7 @@ export default function CaregiverDashboard() {
         </div>
 
         {/* Bottom Navigation */}
-        <nav className="fixed bottom-0 left-1/2 z-40 flex w-full max-w-md -translate-x-1/2 border-t border-slate-200 bg-white">
+        <nav className="fixed bottom-0 left-1/2 z-40 flex w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl -translate-x-1/2 border-t border-slate-200 bg-white">
           {tabs.map((t) => (
             <button
               key={t.key}

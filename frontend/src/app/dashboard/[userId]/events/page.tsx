@@ -193,7 +193,7 @@ export default function EventsPage() {
 
   return (
     <main className="flex min-h-screen justify-center bg-slate-100">
-      <div className="min-h-screen w-full max-w-md bg-slate-100 pb-24">
+      <div className="min-h-screen w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl bg-slate-100 pb-24">
         <header className="sticky top-0 z-30 border-b border-slate-200 bg-white px-4 py-5">
           <div className="mb-4 flex items-center gap-3">
             <button
@@ -249,7 +249,7 @@ export default function EventsPage() {
           {error ? <p className="text-xs text-red-700">{error}</p> : null}
           {actionError ? <p className="text-xs text-red-700">{actionError}</p> : null}
 
-          <section className="space-y-4">
+          <section className="space-y-4 md:grid md:grid-cols-2 md:gap-4 md:space-y-0 lg:grid-cols-3">
             {filteredEvents.map((event, index) => {
               const isJoined = joinedEventIds.has(event.event_id);
               const isLoading = actionLoading === event.event_id;
@@ -375,7 +375,7 @@ export default function EventsPage() {
           </div>
         ) : null}
 
-        <nav className="tc-bottom-nav fixed bottom-0 left-1/2 z-40 flex w-full max-w-md -translate-x-1/2 items-center justify-between border-t border-slate-200 bg-white px-5 py-2">
+        <nav className="tc-bottom-nav fixed bottom-0 left-1/2 z-40 flex w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl -translate-x-1/2 items-center justify-between border-t border-slate-200 bg-white px-5 py-2">
           <button
             type="button"
             className="flex flex-col items-center gap-1 text-slate-400 hover:text-blue-500"

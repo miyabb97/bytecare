@@ -174,7 +174,7 @@ export default function EventDetailsPage() {
 
   return (
     <main className="flex min-h-screen justify-center bg-slate-100">
-      <div className="min-h-screen w-full max-w-md bg-slate-100 pb-24">
+      <div className="min-h-screen w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl bg-slate-100 pb-24">
         <header className="sticky top-0 z-30 border-b border-slate-200 bg-white px-4 py-5">
           <div className="mb-4 flex items-center gap-3">
             <button
@@ -307,7 +307,7 @@ export default function EventDetailsPage() {
           </div>
         ) : null}
 
-        <nav className="tc-bottom-nav fixed bottom-0 left-1/2 z-40 flex w-full max-w-md -translate-x-1/2 items-center justify-between border-t border-slate-200 bg-white px-5 py-2">
+        <nav className="tc-bottom-nav fixed bottom-0 left-1/2 z-40 flex w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl -translate-x-1/2 items-center justify-between border-t border-slate-200 bg-white px-5 py-2">
           <button
             type="button"
             className="flex flex-col items-center gap-1 text-slate-400 hover:text-blue-500"

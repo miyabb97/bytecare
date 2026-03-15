@@ -368,7 +368,7 @@ export default function ClinicianDashboard() {
 
   return (
     <main className="flex min-h-screen justify-center bg-slate-100">
-      <div className="relative flex min-h-screen w-full max-w-md flex-col bg-slate-100">
+      <div className="relative flex min-h-screen w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl flex-col bg-slate-100">
         {/* Header */}
         <header className="sticky top-0 z-30 border-b border-slate-200 bg-white px-4 py-4">
           <div className="flex items-center justify-between">
@@ -410,7 +410,7 @@ export default function ClinicianDashboard() {
               {myPatients.length > 0 && (
                 <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                   <h3 className="mb-3 text-lg font-bold text-slate-900">Quick Access</h3>
-                  <div className="space-y-2">
+                  <div className="space-y-2 md:grid md:grid-cols-2 md:gap-3 md:space-y-0 lg:grid-cols-3">
                     {myPatients.slice(0, 5).map((p) => (
                       <button key={p.user_id} type="button" onClick={() => { setTab("patients"); void openPatientDetail(p.user_id); }}
                         className="flex w-full items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-left transition hover:border-blue-200">
@@ -445,7 +445,7 @@ export default function ClinicianDashboard() {
                     <p className="text-xs text-slate-400">Use &ldquo;+ Assign&rdquo; to add patients.</p>
                   </div>
                 ) : (
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-3 space-y-2 md:grid md:grid-cols-2 md:gap-3 md:space-y-0 lg:grid-cols-3">
                     {myPatients.map((p) => (
                       <div key={p.user_id}
                         className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 cursor-pointer transition hover:border-blue-200"
@@ -1039,7 +1039,7 @@ export default function ClinicianDashboard() {
         </div>
 
         {/* Bottom Navigation */}
-        <nav className="fixed bottom-0 left-1/2 z-40 flex w-full max-w-md -translate-x-1/2 border-t border-slate-200 bg-white">
+        <nav className="fixed bottom-0 left-1/2 z-40 flex w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl -translate-x-1/2 border-t border-slate-200 bg-white">
           {navTabs.map((t) => (
             <button
               key={t.key}
