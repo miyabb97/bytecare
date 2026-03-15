@@ -217,11 +217,13 @@ def voice_agent_reply(user_id: str, message: str) -> Dict[str, Any]:
 _LANG_VOICES = {
     "en": "en-SG-LunaNeural",
     "zh": "zh-CN-XiaoxiaoNeural",
+    "yue": "zh-HK-HiuGaaiNeural",
     "ms": "ms-MY-YasminNeural",
     "ta": "ta-SG-VenbaNeural",
+    "hi": "hi-IN-SwaraNeural",
 }
 
-_LANG_GTTS = {"en": "en", "zh": "zh-CN", "ms": "ms", "ta": "ta"}
+_LANG_GTTS = {"en": "en", "zh": "zh-CN", "yue": "zh-TW", "ms": "ms", "ta": "ta", "hi": "hi"}
 
 # ─── Text-to-Speech ────────────────────────────────────────
 
@@ -271,12 +273,15 @@ def text_to_speech(text: str, lang: str = "en") -> bytes:
 
 # ─── Translation via MERaLiON ──────────────────────────────
 
-_LANG_NAMES = {"en": "English", "zh": "Chinese", "ms": "Malay", "ta": "Tamil"}
+_LANG_NAMES = {"en": "English", "zh": "Mandarin Chinese", "yue": "Cantonese Chinese", "ms": "Malay", "ta": "Tamil", "hi": "Hindi"}
 
 def translate_text(text: str, target_lang: str) -> str:
     """Translate text to the target language using MERaLiON."""
     if target_lang == "en":
         return text  # already English / Singlish
+    # Cantonese: MERaLiON prompt targets Traditional Chinese used in HK
+    if target_lang == "yue":
+        target_lang = "yue"  # handled by _LANG_NAMES lookup below
 
     lang_name = _LANG_NAMES.get(target_lang, "English")
     from app.services.meralion_client import MeralionClient, MeralionClientError
