@@ -441,6 +441,9 @@ export const api = {
       method: "DELETE",
     }),
 
+  clinicianGetWeeklySummary: (accountId: string, patientUserId: string) =>
+    apiRequest<WeeklySummaryResponse>(`/clinician/patients/${patientUserId}/weekly-summary?account_id=${encodeURIComponent(accountId)}`),
+
   // --- Phase 11: MEE / Orchestrator / Chat messages / Caregiver ---
   getMEEScore: (userId: string) =>
     apiRequest<MEEScoreResponse>(`/users/${userId}/mee`),
@@ -522,6 +525,46 @@ export type ClinicianPatientDetail = {
   patient: UserProfile & { conditions?: string[] };
   medications: MedicationItem[];
   appointments: AppointmentItem[];
+  dose_events: DoseEventItem[];
+  interventions: InterventionItem[];
+  drift: DriftResponse;
+  mee: MEEScoreResponse | null;
+  food_recommendations: { condition?: string; recommendations?: string[] } | null;
+  community_events: { joined: CommunityEventItem[]; saved: CommunityEventItem[] };
+  tcm_warnings: TCMWarningItem[];
+};
+
+export type TCMWarningItem = {
+  herb: string;
+  risk_level: string;
+  flagged_medications: string[];
+  guidance: string;
+};
+
+export type WeeklySummaryResponse = {
+  patient_name: string;
+  patient_age: number;
+  conditions: string[];
+  period: string;
+  overall_status: string;
+  summary_bullets: string[];
+  adherence: {
+    current_score: number;
+    prior_score: number;
+    delta: number;
+    taken: number;
+    missed: number;
+    late: number;
+  };
+  drift: DriftResponse;
+  interventions: InterventionItem[];
+  intervention_count: number;
+  tcm_status: string;
+  tcm_warnings: TCMWarningItem[];
+  community_joined_count: number;
+  community_events_joined: CommunityEventItem[];
+  food_summary: string;
+  food_recommendations: string[];
 };
 
 // --- Phase 11: Adherence / MEE / Orchestrator / Caregiver types ---

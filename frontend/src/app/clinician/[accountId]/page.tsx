@@ -14,6 +14,10 @@ import {
   type DriftResponse,
   type InterventionItem,
   type ReportSummaryResponse,
+  type WeeklySummaryResponse,
+  type TCMWarningItem,
+  type CommunityEventItem,
+  type DoseEventItem,
 } from "../../../lib/api";
 
 function safeMessage(error: unknown): string {
@@ -69,6 +73,16 @@ export default function ClinicianDashboard() {
   const [drift, setDrift] = useState<DriftResponse | null>(null);
   const [interventions, setInterventions] = useState<InterventionItem[]>([]);
   const [reportSummary, setReportSummary] = useState<ReportSummaryResponse | null>(null);
+
+  // New enriched data from expanded patient detail
+  const [doseEvents, setDoseEvents] = useState<DoseEventItem[]>([]);
+  const [foodRecommendations, setFoodRecommendations] = useState<string[]>([]);
+  const [communityJoined, setCommunityJoined] = useState<CommunityEventItem[]>([]);
+  const [tcmWarnings, setTcmWarnings] = useState<TCMWarningItem[]>([]);
+
+  // Weekly summary
+  const [weeklySummary, setWeeklySummary] = useState<WeeklySummaryResponse | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
 
   // Conditions edit
   const [editingConditions, setEditingConditions] = useState(false);
@@ -156,12 +170,14 @@ export default function ClinicianDashboard() {
     setDrift(null);
     setInterventions([]);
     setReportSummary(null);
+    setDoseEvents([]);
+    setFoodRecommendations([]);
+    setCommunityJoined([]);
+    setTcmWarnings([]);
+    setWeeklySummary(null);
     try {
-      const [res, mee, driftRes, ivRes, rptRes] = await Promise.all([
+      const [res, rptRes] = await Promise.all([
         api.clinicianGetPatientDetail(accountId, patientUserId),
-        api.getMEEScore(patientUserId).catch(() => null),
-        api.getDrift(patientUserId).catch(() => null),
-        api.getInterventions(patientUserId).catch(() => ({ items: [] })),
         api.getReportSummary(patientUserId).catch(() => null),
       ]);
       setSelectedPatientId(patientUserId);
@@ -170,9 +186,17 @@ export default function ClinicianDashboard() {
       setPatientConditions(res.patient.conditions ?? []);
       setPatientMeds(res.medications ?? []);
       setPatientAppts(res.appointments ?? []);
-      setMeeScore(mee);
-      setDrift(driftRes);
-      setInterventions(ivRes.items ?? []);
+
+      // Set enriched data from expanded detail endpoint
+      setDoseEvents(res.dose_events ?? []);
+      setInterventions(res.interventions ?? []);
+      if (res.drift) setDrift(res.drift);
+      if (res.mee) setMeeScore(res.mee);
+      if (res.food_recommendations?.recommendations) {
+        setFoodRecommendations(res.food_recommendations.recommendations);
+      }
+      setCommunityJoined(res.community_events?.joined ?? []);
+      setTcmWarnings(res.tcm_warnings ?? []);
       setReportSummary(rptRes);
       setDetailView(true);
     } catch (e) {
@@ -189,6 +213,15 @@ export default function ClinicianDashboard() {
       setPatientConditions(res.patient.conditions ?? []);
       setPatientMeds(res.medications ?? []);
       setPatientAppts(res.appointments ?? []);
+      setDoseEvents(res.dose_events ?? []);
+      setInterventions(res.interventions ?? []);
+      if (res.drift) setDrift(res.drift);
+      if (res.mee) setMeeScore(res.mee);
+      if (res.food_recommendations?.recommendations) {
+        setFoodRecommendations(res.food_recommendations.recommendations);
+      }
+      setCommunityJoined(res.community_events?.joined ?? []);
+      setTcmWarnings(res.tcm_warnings ?? []);
     } catch {}
   }
 
@@ -303,12 +336,26 @@ export default function ClinicianDashboard() {
     router.replace("/auth/signin");
   }
 
+  // Load weekly summary for the selected patient
+  async function loadWeeklySummary(patientUserId: string) {
+    setSummaryLoading(true);
+    setWeeklySummary(null);
+    try {
+      const res = await api.clinicianGetWeeklySummary(accountId, patientUserId);
+      setWeeklySummary(res);
+    } catch (e) {
+      setError(safeMessage(e));
+    } finally {
+      setSummaryLoading(false);
+    }
+  }
+
   if (!account) return null;
 
   const navTabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={20} /> },
     { key: "patients",  label: "Patients",  icon: <Users size={20} /> },
-    { key: "summary",   label: "Summary",   icon: <FileText size={20} /> },
+    { key: "summary",   label: "Outcomes",   icon: <FileText size={20} /> },
     { key: "profile",   label: "Profile",   icon: <LogOut size={20} /> },
   ];
 
@@ -327,7 +374,7 @@ export default function ClinicianDashboard() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold text-slate-900">
-                {detailView ? patientName : tab === "summary" ? "Weekly Summary" : tab === "profile" ? "Profile" : "Clinician Dashboard"}
+                {detailView ? patientName : tab === "summary" ? "Weekly Outcomes" : tab === "profile" ? "Profile" : "Clinician Dashboard"}
               </h1>
               <p className="text-sm text-slate-500">{account.name} (Clinician)</p>
             </div>
@@ -461,8 +508,16 @@ export default function ClinicianDashboard() {
             <>
               {/* Patient Info + Adherence Score */}
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <h3 className="text-xl font-bold text-slate-900">{patientName}</h3>
-                <p className="text-sm text-slate-500">Age: {patientAge}</p>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-900">{patientName}</h3>
+                    <p className="text-sm text-slate-500">Age: {patientAge}</p>
+                  </div>
+                  <button type="button" className="rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-700"
+                    onClick={() => { setTab("summary"); setDetailView(false); void loadWeeklySummary(selectedPatientId); }}>
+                    📊 Review Outcomes
+                  </button>
+                </div>
 
                 {/* Adherence Score */}
                 {meeScore && (
@@ -489,15 +544,25 @@ export default function ClinicianDashboard() {
                 {/* Drift Alert */}
                 {drift && drift.drift_detected && (
                   <div className={`mt-3 flex items-center gap-2 rounded-2xl p-3 ${
-                    drift.severity === "HIGH" ? "border border-red-200 bg-red-50" : "border border-amber-200 bg-amber-50"
+                    drift.severity === "red" ? "border border-red-200 bg-red-50"
+                    : drift.severity === "orange" ? "border border-orange-200 bg-orange-50"
+                    : "border border-amber-200 bg-amber-50"
                   }`}>
                     <span className="text-lg">⚠</span>
                     <div>
-                      <p className={`text-sm font-bold ${drift.severity === "HIGH" ? "text-red-700" : "text-amber-700"}`}>
-                        Drift Detected — {drift.severity}
+                      <p className={`text-sm font-bold ${
+                        drift.severity === "red" ? "text-red-700"
+                        : drift.severity === "orange" ? "text-orange-700"
+                        : "text-amber-700"
+                      }`}>
+                        Drift Detected — {drift.severity.toUpperCase()}
                       </p>
-                      <p className={`text-xs ${drift.severity === "HIGH" ? "text-red-600" : "text-amber-600"}`}>
-                        {drift.trigger} &middot; {drift.details.missed_doses} missed &middot; {drift.details.late_doses} late
+                      <p className={`text-xs ${
+                        drift.severity === "red" ? "text-red-600"
+                        : drift.severity === "orange" ? "text-orange-600"
+                        : "text-amber-600"
+                      }`}>
+                        {drift.trigger} &middot; {drift.details.missed_doses} missed &middot; {drift.details.late_doses} late &middot; Avg MES {drift.details.avg_mes}
                       </p>
                     </div>
                   </div>
@@ -525,6 +590,27 @@ export default function ClinicianDashboard() {
                   </div>
                 )}
               </section>
+
+              {/* TCM Safety Warnings */}
+              {tcmWarnings.length > 0 && (
+                <section className="rounded-3xl border border-red-200 bg-red-50/50 p-5 shadow-sm">
+                  <h3 className="mb-3 text-lg font-bold text-red-800">🌿 TCM Safety Alerts</h3>
+                  <div className="space-y-2">
+                    {tcmWarnings.map((w, idx) => (
+                      <div key={idx} className="rounded-2xl border border-red-100 bg-white px-4 py-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold text-slate-800">{w.herb}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                            w.risk_level === "high" ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-600"
+                          }`}>{w.risk_level.toUpperCase()}</span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-600">Affects: {w.flagged_medications.join(", ")}</p>
+                        {w.guidance && <p className="mt-1 text-xs text-slate-500">{w.guidance}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
 
               {/* Medications */}
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -635,6 +721,41 @@ export default function ClinicianDashboard() {
                 {apptMsg && !showApptForm && <p className="mt-2 text-xs text-red-600">{apptMsg}</p>}
               </section>
 
+              {/* Food / Lifestyle Recommendations */}
+              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h3 className="mb-3 text-lg font-bold text-slate-900">🍽️ Nutrition & Lifestyle</h3>
+                {foodRecommendations.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {foodRecommendations.map((rec, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-sm text-slate-700">
+                        <span className="mt-0.5 text-emerald-500">•</span>
+                        <span>{rec}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-slate-500">No food recommendations available.</p>
+                )}
+              </section>
+
+              {/* Community Activity */}
+              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h3 className="mb-3 text-lg font-bold text-slate-900">🏘️ Community Activities</h3>
+                {communityJoined.length > 0 ? (
+                  <div className="space-y-2">
+                    {communityJoined.map((ev) => (
+                      <div key={ev.event_id} className="rounded-2xl border border-emerald-100 bg-emerald-50/50 px-4 py-3">
+                        <p className="text-sm font-semibold text-slate-800">{ev.title}</p>
+                        <p className="text-xs text-slate-500">{ev.location} &middot; {new Date(ev.datetime).toLocaleString()}</p>
+                        <p className="text-xs text-slate-400">{ev.type} &middot; {ev.organiser}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">No community activities joined yet.</p>
+                )}
+              </section>
+
               {/* Intervention History */}
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <h3 className="mb-3 text-lg font-bold text-slate-900">Intervention History</h3>
@@ -664,35 +785,241 @@ export default function ClinicianDashboard() {
             </>
           )}
 
-          {/* ============ SUMMARY TAB ============ */}
+          {/* ============ SUMMARY TAB — Weekly Outcomes Review ============ */}
           {tab === "summary" && !detailView && !loading && (
             <>
-              {reportSummary ? (
+              {/* Patient selector if no summary loaded */}
+              {!weeklySummary && !summaryLoading && (
                 <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <h3 className="text-lg font-bold text-slate-900">Report — {reportSummary.patient_name}</h3>
-                  <p className="mt-2 text-sm text-slate-700 whitespace-pre-line">{reportSummary.summary}</p>
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                    <div className="rounded-2xl bg-blue-50 p-3 text-center">
-                      <span className="text-2xl font-bold text-blue-600">{reportSummary.avg_mes_7d.toFixed(0)}%</span>
-                      <p className="text-xs text-slate-500">7-day MES</p>
-                    </div>
-                    <div className="rounded-2xl bg-red-50 p-3 text-center">
-                      <span className="text-2xl font-bold text-red-600">{reportSummary.missed_doses_7d}</span>
-                      <p className="text-xs text-slate-500">Missed (7d)</p>
-                    </div>
-                  </div>
-                  <p className="mt-3 text-xs text-slate-500">
-                    <span className="font-semibold">Next action:</span> {reportSummary.next_action}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    <span className="font-semibold">Follow-up:</span> {reportSummary.recommended_follow_up}
-                  </p>
+                  <h3 className="text-lg font-bold text-slate-900">Weekly Outcomes</h3>
+                  {myPatients.length === 0 ? (
+                    <p className="mt-3 text-sm text-slate-500">No patients assigned. Assign a patient first.</p>
+                  ) : (
+                    <>
+                      <p className="mt-1 text-sm text-slate-500">Select a patient to review their weekly outcomes.</p>
+                      <div className="mt-3 space-y-2">
+                        {myPatients.map((p) => (
+                          <button key={p.user_id} type="button"
+                            onClick={() => void loadWeeklySummary(p.user_id)}
+                            className="flex w-full items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-left transition hover:border-indigo-200 hover:bg-indigo-50/30">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-800">{p.name}</p>
+                              <p className="text-xs text-slate-500">Age {p.age} &middot; {p.conditions.join(", ") || "No conditions"}</p>
+                            </div>
+                            <span className="text-xs text-indigo-600 font-medium">Review →</span>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </section>
-              ) : (
-                <div className="rounded-3xl border border-slate-200 bg-white p-6 text-center">
-                  <p className="text-lg text-slate-500">No summary available</p>
-                  <p className="mt-1 text-sm text-slate-400">Open a patient first, then view their summary here.</p>
-                </div>
+              )}
+
+              {summaryLoading && <div className="py-8 text-center text-slate-500">Loading weekly outcomes…</div>}
+
+              {/* Weekly Outcomes Report */}
+              {weeklySummary && !summaryLoading && (
+                <>
+                  {/* Header + Overall Status */}
+                  <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-900">{weeklySummary.patient_name}</h3>
+                        <p className="text-xs text-slate-500">Age {weeklySummary.patient_age} &middot; {weeklySummary.conditions.join(", ") || "—"}</p>
+                      </div>
+                      <span className={`rounded-full px-3 py-1 text-xs font-bold ${
+                        weeklySummary.overall_status === "On track" ? "bg-emerald-100 text-emerald-700"
+                        : weeklySummary.overall_status === "Needs attention" ? "bg-amber-100 text-amber-700"
+                        : "bg-red-100 text-red-700"
+                      }`}>
+                        {weeklySummary.overall_status}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-400">{weeklySummary.period}</p>
+                    <button type="button" className="mt-2 text-xs font-medium text-indigo-600 hover:text-indigo-800"
+                      onClick={() => setWeeklySummary(null)}>
+                      ← Choose Another Patient
+                    </button>
+                  </section>
+
+                  {/* Summary Bullets */}
+                  <section className="rounded-3xl border border-indigo-100 bg-indigo-50/30 p-5 shadow-sm">
+                    <h3 className="mb-3 text-base font-bold text-indigo-900">📋 Weekly Summary</h3>
+                    <ul className="space-y-2">
+                      {weeklySummary.summary_bullets.map((bullet, idx) => (
+                        <li key={idx} className="flex items-start gap-2 text-sm text-slate-700">
+                          <span className="mt-0.5 text-indigo-500">•</span>
+                          <span>{bullet}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+
+                  {/* Adherence Trend */}
+                  <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <h3 className="mb-3 text-base font-bold text-slate-900">📈 Adherence Trends</h3>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="rounded-2xl bg-blue-50 p-3 text-center">
+                        <span className="text-2xl font-bold text-blue-600">{weeklySummary.adherence.current_score}%</span>
+                        <p className="text-xs text-slate-500">This Week</p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 p-3 text-center">
+                        <span className="text-2xl font-bold text-slate-600">{weeklySummary.adherence.prior_score}%</span>
+                        <p className="text-xs text-slate-500">Prior</p>
+                      </div>
+                      <div className={`rounded-2xl p-3 text-center ${
+                        weeklySummary.adherence.delta > 0 ? "bg-emerald-50" : weeklySummary.adherence.delta < 0 ? "bg-red-50" : "bg-slate-50"
+                      }`}>
+                        <span className={`text-2xl font-bold ${
+                          weeklySummary.adherence.delta > 0 ? "text-emerald-600" : weeklySummary.adherence.delta < 0 ? "text-red-600" : "text-slate-600"
+                        }`}>
+                          {weeklySummary.adherence.delta > 0 ? "+" : ""}{weeklySummary.adherence.delta}%
+                        </span>
+                        <p className="text-xs text-slate-500">Change</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-3 text-center text-sm">
+                      <div>
+                        <span className="text-lg font-bold text-emerald-600">{weeklySummary.adherence.taken}</span>
+                        <p className="text-xs text-slate-500">Taken</p>
+                      </div>
+                      <div>
+                        <span className="text-lg font-bold text-red-600">{weeklySummary.adherence.missed}</span>
+                        <p className="text-xs text-slate-500">Missed</p>
+                      </div>
+                      <div>
+                        <span className="text-lg font-bold text-amber-600">{weeklySummary.adherence.late}</span>
+                        <p className="text-xs text-slate-500">Late</p>
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* Drift */}
+                  <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <h3 className="mb-3 text-base font-bold text-slate-900">🔍 Drift Detection</h3>
+                    {weeklySummary.drift.drift_detected ? (
+                      <div className={`rounded-2xl p-4 ${
+                        weeklySummary.drift.severity === "red" ? "border border-red-200 bg-red-50"
+                        : weeklySummary.drift.severity === "orange" ? "border border-orange-200 bg-orange-50"
+                        : "border border-amber-200 bg-amber-50"
+                      }`}>
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">⚠</span>
+                          <span className={`text-sm font-bold ${
+                            weeklySummary.drift.severity === "red" ? "text-red-700"
+                            : weeklySummary.drift.severity === "orange" ? "text-orange-700"
+                            : "text-amber-700"
+                          }`}>
+                            {weeklySummary.drift.severity.toUpperCase()} — {weeklySummary.drift.trigger}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-600">
+                          {weeklySummary.drift.details.missed_doses} missed doses &middot; {weeklySummary.drift.details.late_doses} late doses &middot; Avg MES: {weeklySummary.drift.details.avg_mes}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                        <p className="text-sm font-semibold text-emerald-700">✓ No adherence drift detected</p>
+                        <p className="text-xs text-emerald-600">Patient is maintaining a stable routine.</p>
+                      </div>
+                    )}
+                  </section>
+
+                  {/* Intervention History */}
+                  <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <h3 className="mb-3 text-base font-bold text-slate-900">🔔 Interventions ({weeklySummary.intervention_count})</h3>
+                    {weeklySummary.interventions.length === 0 ? (
+                      <p className="text-sm text-slate-500">No system interventions triggered this week.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {weeklySummary.interventions.slice(0, 10).map((iv, idx) => (
+                          <div key={idx} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-semibold text-slate-800">{iv.action_type.replace(/_/g, " ")}</span>
+                              <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                                iv.risk_level === "HIGH" ? "bg-red-100 text-red-600"
+                                : iv.risk_level === "MEDIUM" ? "bg-amber-100 text-amber-600"
+                                : "bg-slate-200 text-slate-500"
+                              }`}>{iv.risk_level}</span>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-600">{iv.message}</p>
+                            <p className="mt-0.5 text-xs text-slate-400">{new Date(iv.timestamp).toLocaleString()}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+
+                  {/* TCM Safety */}
+                  <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <h3 className="mb-3 text-base font-bold text-slate-900">🌿 TCM Safety</h3>
+                    {weeklySummary.tcm_warnings.length > 0 ? (
+                      <div className="space-y-2">
+                        {weeklySummary.tcm_warnings.map((w, idx) => (
+                          <div key={idx} className="rounded-2xl border border-red-100 bg-red-50/50 px-4 py-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-semibold text-slate-800">{w.herb}</span>
+                              <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                                w.risk_level === "high" ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-600"
+                              }`}>{w.risk_level.toUpperCase()}</span>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-600">Affects: {w.flagged_medications.join(", ")}</p>
+                            {w.guidance && <p className="mt-1 text-xs text-slate-500">{w.guidance}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
+                        <p className="text-sm text-emerald-700">✓ {weeklySummary.tcm_status}</p>
+                      </div>
+                    )}
+                  </section>
+
+                  {/* Community Activities */}
+                  <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <h3 className="mb-3 text-base font-bold text-slate-900">🏘️ Community Activities ({weeklySummary.community_joined_count})</h3>
+                    {weeklySummary.community_events_joined.length > 0 ? (
+                      <div className="space-y-2">
+                        {weeklySummary.community_events_joined.map((ev) => (
+                          <div key={ev.event_id} className="rounded-2xl border border-emerald-100 bg-emerald-50/50 px-4 py-3">
+                            <p className="text-sm font-semibold text-slate-800">{ev.title}</p>
+                            <p className="text-xs text-slate-500">{ev.location} &middot; {new Date(ev.datetime).toLocaleString()}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-500">No community activities joined this period.</p>
+                    )}
+                  </section>
+
+                  {/* Nutrition / Food */}
+                  <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <h3 className="mb-3 text-base font-bold text-slate-900">🍽️ Nutrition & Meal Guidance</h3>
+                    {weeklySummary.food_recommendations.length > 0 ? (
+                      <ul className="space-y-1.5">
+                        {weeklySummary.food_recommendations.map((rec, idx) => (
+                          <li key={idx} className="flex items-start gap-2 text-sm text-slate-700">
+                            <span className="mt-0.5 text-emerald-500">•</span>
+                            <span>{rec}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-slate-500">{weeklySummary.food_summary}</p>
+                    )}
+                  </section>
+
+                  {/* Report summary if available */}
+                  {reportSummary && (
+                    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                      <h3 className="mb-2 text-base font-bold text-slate-900">📄 Clinician Report</h3>
+                      <p className="text-sm text-slate-700 whitespace-pre-line">{reportSummary.summary}</p>
+                      <p className="mt-3 text-xs text-slate-500">
+                        <span className="font-semibold">Follow-up:</span> {reportSummary.recommended_follow_up}
+                      </p>
+                    </section>
+                  )}
+                </>
               )}
             </>
           )}
