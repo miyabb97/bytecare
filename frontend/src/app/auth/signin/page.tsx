@@ -51,7 +51,9 @@ export default function SignInPage() {
         localStorage.removeItem("bytecare_account");
       }
       // Go directly to dashboard if user profile is linked, otherwise to profile select
-      if (account.user_id) {
+      if (account.role === "clinician") {
+        router.push(`/clinician/${account.account_id}`);
+      } else if (account.user_id) {
         router.push(`/dashboard/${account.user_id}`);
       } else {
         router.push("/");

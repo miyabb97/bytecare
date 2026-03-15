@@ -15,7 +15,7 @@ export default function SignUpPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"patient" | "caregiver">("patient");
+  const [role, setRole] = useState<"patient" | "caregiver" | "clinician">("patient");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,7 +57,7 @@ export default function SignUpPage() {
         <section className="tab-body">
           <section className="card">
             <h2 className="auth-title">Sign Up</h2>
-            <p className="muted">Register as a patient or caregiver.</p>
+            <p className="muted">Register as a patient, caregiver, or clinician.</p>
 
             <div className="form-group">
               <label className="form-label">Name</label>
@@ -98,6 +98,13 @@ export default function SignUpPage() {
                   onClick={() => setRole("caregiver")}
                 >
                   Caregiver
+                </button>
+                <button
+                  type="button"
+                  className={role === "clinician" ? "role-btn role-btn-active" : "role-btn"}
+                  onClick={() => setRole("clinician")}
+                >
+                  Clinician
                 </button>
               </div>
 

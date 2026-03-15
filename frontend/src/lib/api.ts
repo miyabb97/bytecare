@@ -177,7 +177,7 @@ export type Account = {
   account_id: string;
   name: string;
   email: string;
-  role: "patient" | "caregiver" | "admin";
+  role: "patient" | "caregiver" | "clinician" | "admin";
   user_id?: string;
 };
 
@@ -355,7 +355,7 @@ export const api = {
     fetch(`${API_BASE}/users/${userId}/appointments/${apptId}`, { method: "DELETE" }),
 
   // --- Auth ---
-  signUp: (data: { name: string; email: string; password: string; role: "patient" | "caregiver" }) =>
+  signUp: (data: { name: string; email: string; password: string; role: "patient" | "caregiver" | "clinician" }) =>
     apiRequest<Account>("/auth/signup", {
       method: "POST",
       body: JSON.stringify(data),
@@ -371,6 +371,71 @@ export const api = {
     apiRequest<{ patients: DemoPatient[]; count: number }>("/demo/seed", {
       method: "POST",
     }),
+
+  // --- Care plan status ---
+  getCarePlanStatus: (userId: string) =>
+    apiRequest<CarePlanStatus>(`/users/${userId}/care-plan-status`),
+
+  // --- Clinician endpoints ---
+  clinicianGetPatients: (accountId: string) =>
+    apiRequest<ClinicianPatientList>(`/clinician/patients?account_id=${encodeURIComponent(accountId)}`),
+
+  clinicianGetAllPatients: (accountId: string) =>
+    apiRequest<ClinicianAllPatientList>(`/clinician/all-patients?account_id=${encodeURIComponent(accountId)}`),
+
+  clinicianAssignPatient: (accountId: string, patientUserId: string) =>
+    apiRequest<{ status: string }>(`/clinician/patients/assign?account_id=${encodeURIComponent(accountId)}`, {
+      method: "POST",
+      body: JSON.stringify({ patient_user_id: patientUserId }),
+    }),
+
+  clinicianUnassignPatient: (accountId: string, patientUserId: string) =>
+    apiRequest<{ status: string }>(`/clinician/patients/${patientUserId}/unassign?account_id=${encodeURIComponent(accountId)}`, {
+      method: "DELETE",
+    }),
+
+  clinicianGetPatientDetail: (accountId: string, patientUserId: string) =>
+    apiRequest<ClinicianPatientDetail>(`/clinician/patients/${patientUserId}?account_id=${encodeURIComponent(accountId)}`),
+
+  clinicianUpdateConditions: (accountId: string, patientUserId: string, conditions: string[]) =>
+    apiRequest<UserProfile>(`/clinician/patients/${patientUserId}/conditions?account_id=${encodeURIComponent(accountId)}`, {
+      method: "PUT",
+      body: JSON.stringify({ conditions }),
+    }),
+
+  clinicianAddMedication: (accountId: string, patientUserId: string, data: { name: string; dose_text: string; schedule: { frequency: string; times: string[] }; time_window_minutes: number; criticality: string }) =>
+    apiRequest<MedicationItem>(`/clinician/patients/${patientUserId}/medications?account_id=${encodeURIComponent(accountId)}`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  clinicianUpdateMedication: (accountId: string, patientUserId: string, medId: string, data: { name: string; dose_text: string; schedule: { frequency: string; times: string[] }; time_window_minutes: number; criticality: string }) =>
+    apiRequest<MedicationItem>(`/clinician/patients/${patientUserId}/medications/${medId}?account_id=${encodeURIComponent(accountId)}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  clinicianDeleteMedication: (accountId: string, patientUserId: string, medId: string) =>
+    apiRequest<void>(`/clinician/patients/${patientUserId}/medications/${medId}?account_id=${encodeURIComponent(accountId)}`, {
+      method: "DELETE",
+    }),
+
+  clinicianAddAppointment: (accountId: string, patientUserId: string, data: { datetime: string; location: string; notes: string }) =>
+    apiRequest<AppointmentItem>(`/clinician/patients/${patientUserId}/appointments?account_id=${encodeURIComponent(accountId)}`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  clinicianUpdateAppointment: (accountId: string, patientUserId: string, apptId: string, data: { datetime: string; location: string; notes: string }) =>
+    apiRequest<AppointmentItem>(`/clinician/patients/${patientUserId}/appointments/${apptId}?account_id=${encodeURIComponent(accountId)}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  clinicianDeleteAppointment: (accountId: string, patientUserId: string, apptId: string) =>
+    apiRequest<void>(`/clinician/patients/${patientUserId}/appointments/${apptId}?account_id=${encodeURIComponent(accountId)}`, {
+      method: "DELETE",
+    }),
 };
 
 export type DemoPatient = {
@@ -382,4 +447,40 @@ export type DemoPatient = {
   conditions: string[];
   medication_count: number;
   already_existed?: boolean;
+};
+
+export type CarePlanStatus = {
+  managed_by_clinician: boolean;
+  clinician_name: string | null;
+};
+
+export type ClinicianPatientSummary = {
+  user_id: string;
+  name: string;
+  age: number;
+  conditions: string[];
+  medication_count: number;
+  appointment_count: number;
+};
+
+export type ClinicianPatientList = {
+  items: ClinicianPatientSummary[];
+};
+
+export type ClinicianAllPatientItem = {
+  user_id: string;
+  name: string;
+  age: number;
+  conditions: string[];
+  assigned_clinician_id: string | null;
+};
+
+export type ClinicianAllPatientList = {
+  items: ClinicianAllPatientItem[];
+};
+
+export type ClinicianPatientDetail = {
+  patient: UserProfile & { conditions?: string[] };
+  medications: MedicationItem[];
+  appointments: AppointmentItem[];
 };

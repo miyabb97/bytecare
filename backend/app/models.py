@@ -24,6 +24,7 @@ class User(Base):
 
     user_id = Column(String, primary_key=True)
     account_id = Column(String, nullable=True, index=True)
+    assigned_clinician_id = Column(String, nullable=True, index=True)
     name = Column(String, nullable=False)
     age = Column(Integer, nullable=False)
     conditions_json = Column(Text, default="[]")

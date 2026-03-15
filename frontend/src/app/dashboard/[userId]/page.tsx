@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import {
   api,
+  type Account,
   type AppointmentItem,
   type AppointmentListResponse,
   type AppointmentResponse,
@@ -197,6 +198,15 @@ export default function DashboardPage() {
   const userIdParam = Array.isArray(params.userId) ? params.userId[0] : params.userId;
   const userId = decodeURIComponent(userIdParam ?? "");
 
+  // Read account from session for role checks
+  const [accountRole, setAccountRole] = useState<string>("patient");
+  useEffect(() => {
+    const raw = sessionStorage.getItem("bytecare_account") || localStorage.getItem("bytecare_account");
+    if (raw) {
+      try { setAccountRole((JSON.parse(raw) as Account).role); } catch {}
+    }
+  }, []);
+
   const [activeTab, setActiveTab] = useState<Tab>("home");
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -341,6 +351,13 @@ export default function DashboardPage() {
   const [reminderBusy, setReminderBusy] = useState(false);
   const [reminderError, setReminderError] = useState<string | null>(null);
 
+  // --- Care plan lock state (clinician-managed) ---
+  const [carePlanLocked, setCarePlanLocked] = useState(false);
+  const [clinicianName, setClinicianName] = useState<string | null>(null);
+
+  // True when the user should not edit the care plan (caregiver or clinician-locked patient)
+  const carePlanReadOnly = carePlanLocked || accountRole === "caregiver";
+
   useEffect(() => {
     const tabFromQuery = searchParams.get("tab");
     if (tabFromQuery === "home" || tabFromQuery === "chat" || tabFromQuery === "events" || tabFromQuery === "health" || tabFromQuery === "profile") {
@@ -450,6 +467,13 @@ export default function DashboardPage() {
   useEffect(() => {
     void loadDashboard();
     void loadDoseEvents();
+    // Load care plan lock status
+    if (userId) {
+      api.getCarePlanStatus(userId).then((res) => {
+        setCarePlanLocked(res.managed_by_clinician);
+        setClinicianName(res.clinician_name);
+      }).catch(() => {});
+    }
   }, [loadDashboard, loadDoseEvents]);
 
   const appointmentText = useMemo(
@@ -1740,10 +1764,20 @@ export default function DashboardPage() {
               <section className="card">
                 <div className="card-row">
                   <div className="card-title">Medications</div>
-                  <button type="button" className="icon-button" onClick={() => { resetMedForm(); setShowMedForm(true); }}>+ Add</button>
+                  {!carePlanReadOnly ? (
+                    <button type="button" className="icon-button" onClick={() => { resetMedForm(); setShowMedForm(true); }}>+ Add</button>
+                  ) : null}
                 </div>
 
-                {showMedForm ? (
+                {carePlanReadOnly ? (
+                  <p className="muted" style={{ fontSize: "0.8rem", fontStyle: "italic" }}>
+                    {accountRole === "caregiver"
+                      ? "View only — caregivers cannot modify the care plan."
+                      : `Managed by ${clinicianName ?? "your clinician"}. Contact them for changes.`}
+                  </p>
+                ) : null}
+
+                {showMedForm && !carePlanReadOnly ? (
                   <div className="form-group">
                     <label className="form-label">Medication Name</label>
                     <input value={medName} onChange={(e) => setMedName(e.target.value)} placeholder="e.g. Amlodipine 5mg" />
@@ -1784,10 +1818,12 @@ export default function DashboardPage() {
                           <div className="item-name">{med.name}</div>
                           <div className="muted">{med.dose_text} &middot; {med.schedule.frequency} &middot; {med.schedule.times.join(", ")} &middot; {med.criticality}</div>
                         </div>
-                        <div className="item-actions">
-                          <button type="button" className="icon-button" onClick={() => startEditMed(med)}>Edit</button>
-                          <button type="button" className="icon-button danger-btn" onClick={() => void handleDeleteMed(med.medication_id)}>Del</button>
-                        </div>
+                        {!carePlanReadOnly ? (
+                          <div className="item-actions">
+                            <button type="button" className="icon-button" onClick={() => startEditMed(med)}>Edit</button>
+                            <button type="button" className="icon-button danger-btn" onClick={() => void handleDeleteMed(med.medication_id)}>Del</button>
+                          </div>
+                        ) : null}
                       </div>
                     ))}
                   </div>
@@ -1798,10 +1834,20 @@ export default function DashboardPage() {
               <section className="card">
                 <div className="card-row">
                   <div className="card-title">Appointments</div>
-                  <button type="button" className="icon-button" onClick={() => { resetApptForm(); setShowApptForm(true); }}>+ Add</button>
+                  {!carePlanReadOnly ? (
+                    <button type="button" className="icon-button" onClick={() => { resetApptForm(); setShowApptForm(true); }}>+ Add</button>
+                  ) : null}
                 </div>
 
-                {showApptForm ? (
+                {carePlanReadOnly ? (
+                  <p className="muted" style={{ fontSize: "0.8rem", fontStyle: "italic" }}>
+                    {accountRole === "caregiver"
+                      ? "View only — caregivers cannot modify the care plan."
+                      : `Managed by ${clinicianName ?? "your clinician"}. Contact them for changes.`}
+                  </p>
+                ) : null}
+
+                {showApptForm && !carePlanReadOnly ? (
                   <div className="form-group">
                     <label className="form-label">Date &amp; Time</label>
                     <input type="datetime-local" value={apptDatetime} onChange={(e) => setApptDatetime(e.target.value)} />
@@ -1827,10 +1873,12 @@ export default function DashboardPage() {
                           <div className="item-name">{new Date(appt.datetime).toLocaleString()}</div>
                           <div className="muted">{appt.location}{appt.notes ? ` — ${appt.notes}` : ""}</div>
                         </div>
-                        <div className="item-actions">
-                          <button type="button" className="icon-button" onClick={() => startEditAppt(appt)}>Edit</button>
-                          <button type="button" className="icon-button danger-btn" onClick={() => void handleDeleteAppt(appt.appointment_id)}>Del</button>
-                        </div>
+                        {!carePlanReadOnly ? (
+                          <div className="item-actions">
+                            <button type="button" className="icon-button" onClick={() => startEditAppt(appt)}>Edit</button>
+                            <button type="button" className="icon-button danger-btn" onClick={() => void handleDeleteAppt(appt.appointment_id)}>Del</button>
+                          </div>
+                        ) : null}
                       </div>
                     ))}
                   </div>

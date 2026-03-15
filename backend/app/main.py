@@ -32,6 +32,7 @@ from app.models import (
 from app.routers.agent import router as agent_router
 from app.routers.appointments import router as appointments_router
 from app.routers.chat import router as chat_router
+from app.routers.clinician import router as clinician_router
 from app.routers.community import router as community_router
 from app.routers.drift import router as drift_router
 from app.routers.nutrition import router as nutrition_router
@@ -75,7 +76,7 @@ class SignUpRequest(BaseModel):
     name: str
     email: str
     password: str = Field(min_length=6)
-    role: Literal["patient", "caregiver"]
+    role: Literal["patient", "caregiver", "clinician"]
 
 
 class SignInRequest(BaseModel):
@@ -415,6 +416,20 @@ def get_user_or_404(db: Session, user_id: str) -> User:
     return u
 
 
+def _require_clinician_for_care_plan(db: Session, user: User, account_id: Optional[str]):
+    """If a patient has an assigned clinician, only that clinician may modify their care plan."""
+    if not user.assigned_clinician_id:
+        return  # no clinician assigned — legacy behaviour, anyone can edit
+    if not account_id:
+        raise HTTPException(status_code=403, detail="This patient's care plan is managed by a clinician")
+    account = db.query(Account).filter_by(account_id=account_id).first()
+    if not account or account.role != "clinician":
+        raise HTTPException(status_code=403, detail="This patient's care plan is managed by a clinician")
+    clinician_user = db.query(User).filter_by(account_id=account.account_id).first()
+    if not clinician_user or clinician_user.user_id != user.assigned_clinician_id:
+        raise HTTPException(status_code=403, detail="Patient not assigned to you")
+
+
 # -------------------------
 # Routes
 # -------------------------
@@ -453,6 +468,19 @@ def get_user(user_id: str, db: Session = Depends(get_db)):
     return get_user_or_404(db, user_id).to_dict()
 
 
+@app.get("/api/v1/users/{user_id}/care-plan-status")
+def get_care_plan_status(user_id: str, db: Session = Depends(get_db)):
+    """Check if this patient's care plan is managed by a clinician."""
+    user = get_user_or_404(db, user_id)
+    managed = bool(user.assigned_clinician_id)
+    clinician_name = None
+    if managed:
+        clinician_user = db.query(User).filter_by(user_id=user.assigned_clinician_id).first()
+        if clinician_user:
+            clinician_name = clinician_user.name
+    return {"managed_by_clinician": managed, "clinician_name": clinician_name}
+
+
 @app.put("/api/v1/users/{user_id}", response_model=UserOut)
 def update_user(user_id: str, payload: UserUpdate, db: Session = Depends(get_db)):
     user = get_user_or_404(db, user_id)
@@ -468,8 +496,9 @@ def update_user(user_id: str, payload: UserUpdate, db: Session = Depends(get_db)
 
 
 @app.post("/api/v1/users/{user_id}/medications", response_model=MedicationOut, status_code=201)
-def add_medication(user_id: str, payload: MedicationCreate, db: Session = Depends(get_db)):
-    get_user_or_404(db, user_id)
+def add_medication(user_id: str, payload: MedicationCreate, account_id: Optional[str] = None, db: Session = Depends(get_db)):
+    user = get_user_or_404(db, user_id)
+    _require_clinician_for_care_plan(db, user, account_id)
     med_id = str(uuid4())
     med = Medication(
         medication_id=med_id,
@@ -504,8 +533,9 @@ def get_medication(user_id: str, medication_id: str, db: Session = Depends(get_d
 
 
 @app.put("/api/v1/users/{user_id}/medications/{medication_id}", response_model=MedicationOut)
-def update_medication(user_id: str, medication_id: str, payload: MedicationCreate, db: Session = Depends(get_db)):
-    get_user_or_404(db, user_id)
+def update_medication(user_id: str, medication_id: str, payload: MedicationCreate, account_id: Optional[str] = None, db: Session = Depends(get_db)):
+    user = get_user_or_404(db, user_id)
+    _require_clinician_for_care_plan(db, user, account_id)
     med = db.query(Medication).filter_by(medication_id=medication_id, user_id=user_id).first()
     if not med:
         raise HTTPException(status_code=404, detail="Medication not found")
@@ -520,8 +550,9 @@ def update_medication(user_id: str, medication_id: str, payload: MedicationCreat
 
 
 @app.delete("/api/v1/users/{user_id}/medications/{medication_id}", status_code=204)
-def delete_medication(user_id: str, medication_id: str, db: Session = Depends(get_db)):
-    get_user_or_404(db, user_id)
+def delete_medication(user_id: str, medication_id: str, account_id: Optional[str] = None, db: Session = Depends(get_db)):
+    user = get_user_or_404(db, user_id)
+    _require_clinician_for_care_plan(db, user, account_id)
     med = db.query(Medication).filter_by(medication_id=medication_id, user_id=user_id).first()
     if not med:
         raise HTTPException(status_code=404, detail="Medication not found")
@@ -531,8 +562,9 @@ def delete_medication(user_id: str, medication_id: str, db: Session = Depends(ge
 
 
 @app.post("/api/v1/users/{user_id}/appointments", response_model=AppointmentOut, status_code=201)
-def add_appointment(user_id: str, payload: AppointmentCreate, db: Session = Depends(get_db)):
-    get_user_or_404(db, user_id)
+def add_appointment(user_id: str, payload: AppointmentCreate, account_id: Optional[str] = None, db: Session = Depends(get_db)):
+    user = get_user_or_404(db, user_id)
+    _require_clinician_for_care_plan(db, user, account_id)
     appt_id = str(uuid4())
     appt = Appointment(
         appointment_id=appt_id,
@@ -565,8 +597,9 @@ def get_appointment(user_id: str, appointment_id: str, db: Session = Depends(get
 
 
 @app.put("/api/v1/users/{user_id}/appointments/{appointment_id}", response_model=AppointmentOut)
-def update_appointment(user_id: str, appointment_id: str, payload: AppointmentCreate, db: Session = Depends(get_db)):
-    get_user_or_404(db, user_id)
+def update_appointment(user_id: str, appointment_id: str, payload: AppointmentCreate, account_id: Optional[str] = None, db: Session = Depends(get_db)):
+    user = get_user_or_404(db, user_id)
+    _require_clinician_for_care_plan(db, user, account_id)
     appt = db.query(Appointment).filter_by(appointment_id=appointment_id, user_id=user_id).first()
     if not appt:
         raise HTTPException(status_code=404, detail="Appointment not found")
@@ -579,8 +612,9 @@ def update_appointment(user_id: str, appointment_id: str, payload: AppointmentCr
 
 
 @app.delete("/api/v1/users/{user_id}/appointments/{appointment_id}", status_code=204)
-def delete_appointment(user_id: str, appointment_id: str, db: Session = Depends(get_db)):
-    get_user_or_404(db, user_id)
+def delete_appointment(user_id: str, appointment_id: str, account_id: Optional[str] = None, db: Session = Depends(get_db)):
+    user = get_user_or_404(db, user_id)
+    _require_clinician_for_care_plan(db, user, account_id)
     appt = db.query(Appointment).filter_by(appointment_id=appointment_id, user_id=user_id).first()
     if not appt:
         raise HTTPException(status_code=404, detail="Appointment not found")
@@ -755,6 +789,7 @@ app.include_router(tcm_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(voice_router, prefix="/api/v1")
 app.include_router(report_router, prefix="/api/v1")
+app.include_router(clinician_router, prefix="/api/v1")
 
 
 # -------------------------

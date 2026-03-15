@@ -121,6 +121,14 @@ To view the tables:
 |-------|----------|------|
 | jon@email.com | 1234567 | caregiver |
 
+
+
+### Clinician
+
+| Email | Password | Role |
+|-------|----------|------|
+| drchan@bytecare.com| clinician123 | clinician |
+
 ### Demo Patients
 
 Seed these via the **Load Demo Patients** button on the Home tab, or `POST /api/v1/demo/seed`.
