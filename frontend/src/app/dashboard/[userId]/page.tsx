@@ -1,8 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-
+import Image from "next/image";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import {
+  ArrowLeft,
+  CalendarDays,
+  Clock3,
+  Heart,
+  Home,
+  MapPin,
+  MessageSquare,
+  Mic,
+  Search,
+  Settings,
+  TriangleAlert,
+  User,
+  Utensils
+} from "lucide-react";
 import {
   api,
   type AppointmentItem,
@@ -26,7 +41,7 @@ import {
   type VoiceResponse
 } from "../../../lib/api";
 
-type Tab = "home" | "chat" | "health" | "profile";
+type Tab = "home" | "chat" | "events" | "health" | "profile";
 type ChatMessage = {
   id: number;
   sender: "user" | "bot";
@@ -67,6 +82,61 @@ function formatDateTime(value: string): string {
   return new Date(value).toLocaleString();
 }
 
+const PROFILE_IMAGE_URL = "https://lh3.googleusercontent.com/aida-public/AB6AXuDrpjijg5RYen-KEp80Ku17lHJt6RK6oQ8jsW9yOGV8G22INjaHluVxszAVSYh7377YZduJY0z1JadmjpP-_slJeGgQKFmm53tOjbijQFoPrqrf32G8qlRqKcx5fRUjfVjGlREMUBlc9xtjTdcHypDPv6OA4gWbCQ2VxJVehPCypeFLrmiGy3QwVzlKW5gKU4PVT0_SQBD3riOiporPY9unbl6_T7IjdEnwDL7j1yxZItw3L9Fgj9T6Q8f8esWe3APv7JdvBOUrA0M";
+const IMAGE_WALK = "https://lh3.googleusercontent.com/aida-public/AB6AXuAVNP892HZuLcbaTsZyc-eOMPlYKDMlqVdP8ybsdVb0P1LZ6ug1VbuJgmaUGiqhMRe5x6J1iiLvm3WoSUQdUZQcnFbsq7ITJTq6mRYdfqHtLPGx-_sxdDCm5L3btLTI7HStACdyt49FXrTIAaaZzYAUxW2brjZZMGXVbX_FzFWxte_JaGXr5wQepX-cc_Lrot54PUiK5B-uSnldnT6OnrQTs_il1EbTxYpYop22BsDCibjOX49JtovQHcfTqTkd7XeeLSJGxgpP_dM";
+const IMAGE_TAI_CHI = "https://lh3.googleusercontent.com/aida-public/AB6AXuA3YolzPqhmPsepHcKCNeiXvywh-4SmaMp4_WdWbln4_lyFbklKzB9EOtjAPGYN_rbWybaVuXmZDQmNkonLqc593lRpRfrTbMRluqYuW3tvwHkzyVPO5jp2nUf6TCFC48TX9xDrJu6bw0fob2ND-eXkQhlDQG84otSIfX1lBKh1aPxuh9jnH1yoc7GKSRrCg0QjpvKlLonHjpChtDQOe1M0aIRCB73rjG3uuF3hZMnzP1XxOV7zBlPH4A-ve-5nzyHW1n2Kb27_PKk";
+const IMAGE_COOKING = "https://lh3.googleusercontent.com/aida-public/AB6AXuBpTeUp98FkA_ijR4sKh9qL3wEqou6Af_Wd1AG7ALOUOnS6LXcC3KMY9CI0WqHvqbty9JM28p60IhnEq4D_m62M71bVaabYuZeg99AKdjn9Y9guhYmaCVhSoptJDwyUU1B_XFSApLn_Y_j5BV8hu4QzqcKomqmc5Me5zXNXRSo4_RIBkK-RBcjf7Vw1xOA4vbU4WOYMZEvMPiG9OU4FpUWKXh22gbqkCbGRQbH7Nj0MszNOcVbVJlyE83xNHgFE_az2edlt3DCN0kM";
+
+function eventImageFor(event: CommunityEventItem): string {
+  const title = event.title.toLowerCase();
+  if (title.includes("walk")) return IMAGE_WALK;
+  if (title.includes("tai chi")) return IMAGE_TAI_CHI;
+  if (title.includes("cook")) return IMAGE_COOKING;
+  const type = event.type.toLowerCase();
+  if (type.includes("education")) return IMAGE_COOKING;
+  if (type.includes("exercise")) return IMAGE_TAI_CHI;
+  return IMAGE_WALK;
+}
+
+function eventTagFor(event: CommunityEventItem): string {
+  const title = event.title.toLowerCase();
+  if (title.includes("walk")) return "HEALTH FOCUSED";
+  if (title.includes("tai chi")) return "MOBILITY";
+  if (title.includes("cook")) return "NUTRITION";
+  if (event.type.toLowerCase().includes("social")) return "SOCIAL";
+  return event.type.toUpperCase();
+}
+
+function formatEventTimeShort(value: string): string {
+  return new Date(value)
+    .toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit", hour12: true })
+    .replace(",", "");
+}
+
+function isDietChangeSuggestion(item: string): boolean {
+  const text = item.toLowerCase();
+  return [
+    "reduce",
+    "avoid",
+    "limit",
+    "cut",
+    "less",
+    "sugary",
+    "salt",
+    "fried",
+    "processed"
+  ].some((keyword) => text.includes(keyword));
+}
+
+function BottomNavIcon({ tab, active }: { tab: Tab; active: boolean }) {
+  const common = { size: 19, strokeWidth: active ? 2.15 : 1.95 };
+  if (tab === "home") return <Home {...common} />;
+  if (tab === "chat") return <MessageSquare {...common} />;
+  if (tab === "events") return <CalendarDays {...common} />;
+  if (tab === "health") return <Heart {...common} />;
+  return <User {...common} />;
+}
+
 function normalizeHour(hour: string): string {
   return hour === "24" ? "00" : hour;
 }
@@ -99,9 +169,27 @@ function formatScheduledLabel(scheduledFor: string): string {
   return scheduledFor.slice(11, 16);
 }
 
+async function getMyCommunityEventsSafe(userId: string): Promise<CommunityMyEventsResponse> {
+  const maybeFn = (api as { getMyCommunityEvents?: (id: string) => Promise<CommunityMyEventsResponse> })
+    .getMyCommunityEvents;
+  if (typeof maybeFn === "function") {
+    return maybeFn(userId);
+  }
+  return { joined: [], saved: [] };
+}
+
+async function postCancelCommunityEventSafe(userId: string, eventId: string): Promise<void> {
+  const maybeFn = (api as { postCancelCommunityEvent?: (id: string, event: string) => Promise<unknown> })
+    .postCancelCommunityEvent;
+  if (typeof maybeFn === "function") {
+    await maybeFn(userId, eventId);
+  }
+}
+
 export default function DashboardPage() {
   const params = useParams<{ userId: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const userIdParam = Array.isArray(params.userId) ? params.userId[0] : params.userId;
   const userId = decodeURIComponent(userIdParam ?? "");
@@ -205,6 +293,13 @@ export default function DashboardPage() {
   const [reminderBusy, setReminderBusy] = useState(false);
   const [reminderError, setReminderError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const tabFromQuery = searchParams.get("tab");
+    if (tabFromQuery === "home" || tabFromQuery === "chat" || tabFromQuery === "events" || tabFromQuery === "health" || tabFromQuery === "profile") {
+      setActiveTab(tabFromQuery);
+    }
+  }, [searchParams]);
+
   const loadDashboard = useCallback(async () => {
     if (!userId) {
       return;
@@ -221,7 +316,7 @@ export default function DashboardPage() {
       api.getFoodRecommendations(userId),
       api.getAppointments(userId),
       api.getCommunityEvents(userId),
-      api.getMyCommunityEvents(userId)
+      getMyCommunityEventsSafe(userId)
     ]);
 
     const errors: string[] = [];
@@ -315,6 +410,13 @@ export default function DashboardPage() {
   );
 
   const recommendedEvents = community?.events ?? [];
+  const homeEventsPreview = recommendedEvents.slice(0, 2);
+  const recommendedEventsPanel = recommendedEvents.slice(0, 3);
+  const joinedEvents = myCommunityEvents?.joined ?? [];
+  const voicePreviewText = voiceResult?.cleaned_text ?? "I forgot my medicine today lah.";
+  const voicePreviewLanguage = voiceResult?.language_hint ?? "Singlish";
+  const voicePreviewEmotion = voiceResult?.emotion_tag ?? "Anxious";
+  const voicePreviewIntent = voiceResult?.intent ?? "Seeking advice";
   const medicationCount = medications?.items?.length ?? 0;
   const joinedEventIds = useMemo(
     () => new Set((myCommunityEvents?.joined ?? []).map((event) => event.event_id)),
@@ -555,7 +657,7 @@ export default function DashboardPage() {
     try {
       const [recommended, mine] = await Promise.all([
         api.getCommunityEvents(userId),
-        api.getMyCommunityEvents(userId)
+        getMyCommunityEventsSafe(userId)
       ]);
       setCommunity(recommended);
       setMyCommunityEvents(mine);
@@ -570,7 +672,7 @@ export default function DashboardPage() {
     setCommunityActionLoading(event.event_id);
     try {
       if (joinedEventIds.has(event.event_id)) {
-        await api.postCancelCommunityEvent(userId, event.event_id);
+        await postCancelCommunityEventSafe(userId, event.event_id);
       } else {
         await api.postJoinCommunityEvent(userId, event.event_id);
       }
@@ -753,7 +855,7 @@ export default function DashboardPage() {
       void loadAllMeds();
       void loadAllAppts();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, userId]);
 
   async function handleReminderResponse(responseStatus: ReminderResponseStatus) {
@@ -799,141 +901,311 @@ export default function DashboardPage() {
   }
 
   return (
-    <main className="demo-shell">
-      <div className="phone-frame">
-        <header className="app-header">
-          <div className="header-left">
-            <div className="avatar">{(userProfile?.name ?? "Patient").slice(0, 2).toUpperCase()}</div>
-            <div>
-              <h1>ByteCare - Patient</h1>
-              <p className="muted">{userProfile?.name ?? "Loading profile..."}</p>
+    <main className="flex min-h-screen justify-center bg-slate-100">
+      <div className="relative min-h-screen w-full max-w-md bg-slate-100 pb-24">
+        {activeTab === "events" ? (
+          <header className="sticky top-0 z-30 border-b border-slate-200 bg-white px-4 py-5">
+            <div className="mb-4 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setActiveTab("home")}
+                className="tc-icon-btn inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-700 transition hover:bg-slate-100"
+              >
+                <ArrowLeft size={22} />
+              </button>
+              <h1 className="text-[2rem] font-bold leading-none tracking-tight text-slate-900">Jio Events</h1>
             </div>
-          </div>
-          <button className="icon-button" type="button" aria-label="Reload" onClick={() => void loadDashboard()}>
-            Reload
-          </button>
-        </header>
+            <p className="text-[0.77rem] text-slate-600">
+              Discover nearby activities to stay healthy and connected.
+            </p>
+          </header>
+        ) : (
+          <header className="app-header">
+            <div className="header-left">
+              <Image
+                src={PROFILE_IMAGE_URL}
+                alt="ByteCare logo"
+                width={38}
+                height={38}
+                className="h-[2.35rem] w-[2.35rem] rounded-full border-2 border-blue-100 object-cover"
+                referrerPolicy="no-referrer"
+              />
+              <div className="header-copy">
+                <h1>ByteCare</h1>
+                <p className="muted">{userProfile?.name ?? "Loading profile..."}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              aria-label="Settings"
+              onClick={() => void loadDashboard()}
+              className="tc-icon-btn inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100"
+            >
+              <Settings size={20} />
+            </button>
+          </header>
+        )}
 
-        {dashboardLoading ? <p className="status-ok">Loading dashboard...</p> : null}
-        {dashboardError ? <p className="status-error">{dashboardError}</p> : null}
+        {dashboardLoading ? <p className="px-4 pt-2 text-xs text-emerald-700">Loading dashboard...</p> : null}
+        {dashboardError ? <p className="px-4 pt-2 text-xs text-red-700">{dashboardError}</p> : null}
 
-        <section className="tab-body">
+        <section
+          key={activeTab}
+          className={`tc-motion-stack ${activeTab === "events" ? "space-y-5 px-4 py-6" : "space-y-4 px-4 py-4"}`}
+        >
           {activeTab === "home" ? (
             <>
-              <section className="card">
-                <div className="card-title">Patient Overview</div>
-                <h2 className="patient-name">{userProfile?.name ?? "-"}</h2>
-                <p className="muted">Age {userProfile?.age ?? "-"} | {userProfile?.timezone ?? "-"}</p>
-                {userProfile?.conditions && userProfile.conditions.length > 0 ? (
-                  <p className="muted">Conditions: {userProfile.conditions.join(", ")}</p>
-                ) : null}
-                <p className="muted">Condition signal: {food?.condition ?? "Not available"}</p>
-                <p className="primary-text">{medicationCount} medications active</p>
-              </section>
-
-              <section className="card">
-                <div className="card-title">Load Demo Patients</div>
-                <p className="muted">Seed 3 demo patients with realistic medications for TCM Safety Check testing.</p>
-                <button type="button" onClick={() => void handleSeedDemo()} disabled={demoLoading} style={{ marginBottom: 8 }}>
-                  {demoLoading ? "Seeding..." : "Seed Demo Patients"}
-                </button>
-                {demoMsg ? <p className="muted">{demoMsg}</p> : null}
-                {demoPatients.length > 0 ? (
-                  <div className="demo-patient-list">
-                    {demoPatients.map((dp) => (
-                      <button
-                        key={dp.user_id}
-                        type="button"
-                        className="demo-patient-btn"
-                        onClick={() => router.push(`/dashboard/${dp.user_id}`)}
-                      >
-                        <strong>{dp.name}</strong>
-                        <span className="muted"> Age {dp.age} · {dp.medication_count} meds</span>
-                        {dp.email ? (
-                          <span className="muted" style={{ display: "block", fontSize: "0.78rem" }}>
-                            Login: {dp.email} / {dp.password}
-                            {dp.already_existed ? " (already seeded)" : ""}
-                          </span>
-                        ) : null}
-                        <span className="muted" style={{ display: "block", fontSize: "0.78rem" }}>
-                          {dp.conditions.join(", ")}
-                        </span>
-                      </button>
-                    ))}
+              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50">
+                    <User className="text-blue-600" size={30} />
                   </div>
-                ) : null}
+                  <div>
+                    <h2 className="text-[1.6rem] font-bold leading-tight text-slate-900">{userProfile?.name ?? "-"}, {userProfile?.age ?? "-"}</h2>
+                    <p className="text-sm text-slate-500">
+                      {userProfile?.conditions && userProfile.conditions.length > 0 ? userProfile.conditions.join(", ") : food?.condition ?? "No condition data"}
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-blue-600">{medicationCount} Medications Active</p>
+                  </div>
+                </div>
               </section>
 
-              <section className="card">
-                <div className="card-row">
-                  <div className="card-title">Medication Adherence</div>
-                  <span className={`severity-pill severity-${drift?.severity ?? "green"}`}>
-                    {drift?.severity ?? "green"}
+              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-3 flex items-start justify-between gap-2">
+                  <h3 className="text-[1.38rem] font-bold leading-none text-slate-900">Medication Adherence</h3>
+                  <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-600">
+                    Severity: {(drift?.severity ?? "red").replace(/^./, (s) => s.toUpperCase())}
                   </span>
                 </div>
-                <p>Drift detected: {String(drift?.drift_detected ?? false)}</p>
-                <p>Next action: {nextAction?.next_action ?? "-"}</p>
-                <p className="muted">{nextAction?.suggested_message ?? "-"}</p>
+                <div className="flex items-center gap-2 text-slate-600">
+                  <TriangleAlert size={18} className="text-amber-500" />
+                  <p className="text-sm italic">Drift detected: {drift?.drift_detected ? "Yes" : "No"}</p>
+                </div>
+                <div className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 p-3">
+                  <p className="text-sm font-medium text-blue-600">Next action: {nextAction?.next_action ?? "Reminder needed"}</p>
+                </div>
               </section>
 
-              <section className="card appointment-card">
-                <div className="card-title light">Upcoming Visit</div>
-                <p className="appointment-line">{appointmentText}</p>
+              <section className="relative overflow-hidden rounded-3xl bg-blue-600 p-5 text-white shadow-lg">
+                <div className="relative z-10">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-xs font-medium uppercase tracking-[0.11em] opacity-85">Upcoming Visit</span>
+                    <Clock3 size={16} className="opacity-80" />
+                  </div>
+                  <h3 className="text-[1.45rem] font-bold leading-tight">{appointments?.next_appointment?.location ?? "Polyclinic Visit"}</h3>
+                  <p className="mt-1 text-sm opacity-90">{appointments?.next_appointment ? formatDateTime(appointments.next_appointment.datetime) : appointmentText}</p>
+                  <div className="mt-4 flex items-baseline gap-1">
+                    <span className="text-5xl font-bold leading-none">{appointments?.days_remaining ?? "-"}</span>
+                    <span className="text-sm opacity-85">days to go</span>
+                  </div>
+                </div>
+                <div className="absolute -bottom-4 -right-4 h-24 w-24 rounded-full bg-white/10 blur-2xl" />
               </section>
 
-              <section className="card">
-                <div className="card-title">Diet Suggestions</div>
-                <ul className="list">
-                  {(food?.recommendations ?? []).map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
+              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-3 flex items-center gap-2">
+                  <Mic className="text-blue-600" size={18} />
+                  <h3 className="text-[1.3rem] font-bold leading-none text-slate-900">Voice Input Analysis</h3>
+                </div>
+                <p className="mb-4 rounded-2xl border-l-4 border-blue-200 bg-slate-100 p-3 text-sm italic text-slate-700">
+                  "{voicePreviewText}"
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <span className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs text-slate-600">{voicePreviewLanguage}</span>
+                  <span className="rounded-full border border-orange-200 bg-orange-100 px-3 py-1 text-xs text-orange-600">{voicePreviewEmotion}</span>
+                  <span className="rounded-full border border-blue-200 bg-blue-100 px-3 py-1 text-xs text-blue-600">{voicePreviewIntent}</span>
+                </div>
+              </section>
+
+              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-3 flex items-center gap-2">
+                  <Search className="text-slate-700" size={18} />
+                  <h3 className="text-[1.3rem] font-bold leading-none text-slate-900">TCM Safety Check</h3>
+                </div>
+                <div className="rounded-2xl border border-red-200 bg-red-50 p-3">
+                  <div className="flex gap-2">
+                    <TriangleAlert size={18} className="mt-0.5 text-amber-500" />
+                    <div>
+                      <p className="text-sm font-bold text-red-700">Interaction Warning</p>
+                      <p className="text-xs text-red-600">
+                        {tcmResult?.message ?? "May interact with blood thinners. Consult your doctor."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-3 flex items-center gap-2">
+                  <Utensils className="text-emerald-500" size={18} />
+                  <h3 className="text-[1.3rem] font-bold leading-none text-slate-900">Diet Suggestions</h3>
+                </div>
+                <ul className="space-y-2">
+                  {(food?.recommendations ?? []).slice(0, 3).map((item) => {
+                    const needsChange = isDietChangeSuggestion(item);
+                    return (
+                      <li
+                        key={item}
+                        className={`flex items-center gap-3 text-sm ${needsChange ? "font-medium text-red-500" : "text-slate-700"}`}
+                      >
+                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${needsChange ? "bg-red-500" : "bg-emerald-500"}`} />
+                        {item}
+                      </li>
+                    );
+                  })}
+                  {(food?.recommendations ?? []).length === 0 ? <li className="text-sm text-slate-500">No diet suggestions available.</li> : null}
                 </ul>
               </section>
 
-              <section className="card">
-                <div className="card-title">Community Activities</div>
-                {communityActionError ? <p className="status-error">{communityActionError}</p> : null}
+              <section className="space-y-4">
+                {homeEventsPreview.map((event, index) => {
+                  const isJoined = joinedEventIds.has(event.event_id);
+                  const isLoading = communityActionLoading === event.event_id;
+                  return (
+                    <article
+                      key={event.event_id}
+                      className="tc-animated-card tc-fade-item overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
+                      style={{ animationDelay: `${80 + index * 60}ms` }}
+                    >
+                      <div className="relative h-32">
+                        <Image
+                          src={eventImageFor(event)}
+                          alt={event.title}
+                          fill
+                          className="object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/65 to-transparent" />
+                        <div className="absolute bottom-3 left-4 text-white">
+                          <h4 className="text-[1.52rem] font-bold leading-tight">{event.title}</h4>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between p-4">
+                        <div className="space-y-1 text-xs text-slate-500">
+                          <div className="flex items-center gap-1"><Clock3 size={12} /> {formatEventTimeShort(event.datetime)}</div>
+                          <div className="flex items-center gap-1"><MapPin size={12} /> {event.location}</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="tc-btn tc-btn-primary"
+                          onClick={() => void handleToggleCommunityEvent(event)}
+                          disabled={isLoading}
+                        >
+                          {isLoading ? "Updating..." : isJoined ? "Cancel" : "Join"}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </section>
+            </>
+          ) : null}
 
-                {recommendedEvents.length === 0 ? <p className="muted">No recommended events available.</p> : null}
-
-                <div className="community-events-list">
-                  {recommendedEvents.map((event) => {
+          {activeTab === "events" ? (
+            <>
+              <section>
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-[1.5rem] font-bold leading-none text-slate-900">Recommended For You</h2>
+                  <button
+                    type="button"
+                    className="tc-btn-link"
+                    onClick={() => router.push(`/dashboard/${encodeURIComponent(userId)}/events`)}
+                  >
+                    See all
+                  </button>
+                </div>
+                {communityActionError ? <p className="mb-2 text-xs text-red-700">{communityActionError}</p> : null}
+                <div className="space-y-4">
+                  {recommendedEventsPanel.map((event, index) => {
                     const isJoined = joinedEventIds.has(event.event_id);
                     const isLoading = communityActionLoading === event.event_id;
                     return (
-                      <article className="community-event-card" key={event.event_id}>
-                        <h3>{event.title}</h3>
-                        <p className="muted">{formatDateTime(event.datetime)}</p>
-                        <p className="muted">{event.location}</p>
-                        <p className="muted">{event.description}</p>
-                        <p className="muted">{event.reason}</p>
-                        <div className="community-event-actions">
-                          <button
-                            type="button"
-                            className={isJoined ? "cancel-button" : "join-button"}
-                            onClick={() => void handleToggleCommunityEvent(event)}
-                            disabled={isLoading}
-                          >
-                            {isLoading ? "Updating..." : isJoined ? "Cancel" : "Join Event"}
-                          </button>
+                      <article
+                        key={event.event_id}
+                        className="tc-animated-card tc-fade-item overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
+                        style={{ animationDelay: `${80 + index * 60}ms` }}
+                      >
+                        <div className="relative h-32">
+                          <Image
+                            src={eventImageFor(event)}
+                            alt={event.title}
+                            fill
+                            className="object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+                          <div className="absolute right-3 top-3 rounded-md border border-white/25 bg-white/25 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur">
+                            {eventTagFor(event)}
+                          </div>
+                          <div className="absolute bottom-3 left-4 text-white">
+                            <h4 className="text-[1.5rem] font-bold leading-tight">{event.title}</h4>
+                          </div>
+                        </div>
+                        <div className="p-4">
+                          {event.reason ? <p className="mb-3 text-[10px] italic text-slate-500">{event.reason}</p> : null}
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-1 text-xs text-slate-500">
+                              <div className="flex items-center gap-1"><Clock3 size={12} /> {formatEventTimeShort(event.datetime)}</div>
+                              <div className="flex items-center gap-1"><MapPin size={12} /> {event.location}</div>
+                            </div>
+                            <button
+                              type="button"
+                              className="tc-btn tc-btn-primary"
+                              onClick={() => void handleToggleCommunityEvent(event)}
+                              disabled={isLoading}
+                            >
+                              {isLoading ? "Updating..." : isJoined ? "Cancel" : "Join Event"}
+                            </button>
+                          </div>
                         </div>
                       </article>
                     );
                   })}
                 </div>
+                {recommendedEventsPanel.length === 0 ? <p className="rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">No recommended events available.</p> : null}
+              </section>
 
-                <div className="my-events-section">
-                  <h3>My Events</h3>
-                  <p className="muted">Joined</p>
-                  <ul className="list">
-                    {(myCommunityEvents?.joined ?? []).map((event) => (
-                      <li key={`joined-${event.event_id}`}>
-                        {event.title} - {formatDateTime(event.datetime)}
-                      </li>
-                    ))}
-                  </ul>
-                  {(myCommunityEvents?.joined ?? []).length === 0 ? <p className="muted">No joined events yet.</p> : null}
-                </div>
+              <section>
+                <h2 className="mb-4 text-[1.5rem] font-bold leading-none text-slate-900">My Events</h2>
+                {joinedEvents.length > 0 ? (
+                  <article className="tc-animated-card tc-fade-item overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+                    <div className="relative h-32">
+                      <Image
+                        src={PROFILE_IMAGE_URL}
+                        alt={joinedEvents[0].title}
+                        fill
+                        className="object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+                      <div className="absolute left-4 top-3 inline-flex items-center gap-1 rounded-md bg-emerald-500 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
+                        <span aria-hidden="true">✓</span> Joined
+                      </div>
+                      <div className="absolute bottom-3 left-4 text-white">
+                        <h4 className="text-[1.5rem] font-bold leading-tight">{joinedEvents[0].title}</h4>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between p-4">
+                      <div className="space-y-1 text-xs text-slate-500">
+                        <div className="flex items-center gap-1"><Clock3 size={12} /> {formatEventTimeShort(joinedEvents[0].datetime)}</div>
+                        <div className="flex items-center gap-1"><MapPin size={12} /> {joinedEvents[0].location}</div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button type="button" className="tc-btn tc-btn-secondary">Details</button>
+                        <button
+                          type="button"
+                          className="tc-btn tc-btn-danger"
+                          onClick={() => void handleToggleCommunityEvent(joinedEvents[0])}
+                          disabled={communityActionLoading === joinedEvents[0].event_id}
+                        >
+                          {communityActionLoading === joinedEvents[0].event_id ? "Updating..." : "Cancel"}
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                ) : (
+                  <p className="rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">No joined events yet.</p>
+                )}
               </section>
             </>
           ) : null}
@@ -1306,7 +1578,7 @@ export default function DashboardPage() {
                     <p className="muted">Age: {userProfile?.age ?? "-"}</p>
                     <p className="muted">Timezone: {userProfile?.timezone ?? "-"}</p>
                     <p className="muted">Language: {userProfile?.language_preference ?? "-"}</p>
-                    <p className="muted">User ID: {userId}</p>
+                    <p className="muted profile-user-id">User ID: {userId}</p>
                   </>
                 ) : (
                   <div className="form-group">
@@ -1433,34 +1705,46 @@ export default function DashboardPage() {
           ) : null}
         </section>
 
-        <nav className="bottom-nav">
+        <nav className="tc-bottom-nav fixed bottom-0 left-1/2 z-40 flex w-full max-w-md -translate-x-1/2 items-center justify-between border-t border-slate-200 bg-white px-5 py-2">
           <button
             type="button"
-            className={activeTab === "home" ? "active" : ""}
+            className={`flex flex-col items-center gap-1 ${activeTab === "home" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
             onClick={() => setActiveTab("home")}
           >
-            Home
+            <BottomNavIcon tab="home" active={activeTab === "home"} />
+            <span className={`text-[11px] ${activeTab === "home" ? "font-medium" : "font-normal"}`}>Home</span>
           </button>
           <button
             type="button"
-            className={activeTab === "chat" ? "active" : ""}
+            className={`flex flex-col items-center gap-1 ${activeTab === "chat" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
             onClick={() => setActiveTab("chat")}
           >
-            Chat
+            <BottomNavIcon tab="chat" active={activeTab === "chat"} />
+            <span className={`text-[11px] ${activeTab === "chat" ? "font-medium" : "font-normal"}`}>Chat</span>
           </button>
           <button
             type="button"
-            className={activeTab === "health" ? "active" : ""}
+            className={`flex flex-col items-center gap-1 ${activeTab === "events" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
+            onClick={() => setActiveTab("events")}
+          >
+            <BottomNavIcon tab="events" active={activeTab === "events"} />
+            <span className={`text-[11px] ${activeTab === "events" ? "font-medium" : "font-normal"}`}>Events</span>
+          </button>
+          <button
+            type="button"
+            className={`flex flex-col items-center gap-1 ${activeTab === "health" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
             onClick={() => setActiveTab("health")}
           >
-            Health
+            <BottomNavIcon tab="health" active={activeTab === "health"} />
+            <span className={`text-[11px] ${activeTab === "health" ? "font-medium" : "font-normal"}`}>Health</span>
           </button>
           <button
             type="button"
-            className={activeTab === "profile" ? "active" : ""}
+            className={`flex flex-col items-center gap-1 ${activeTab === "profile" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
             onClick={() => setActiveTab("profile")}
           >
-            Profile
+            <BottomNavIcon tab="profile" active={activeTab === "profile"} />
+            <span className={`text-[11px] ${activeTab === "profile" ? "font-medium" : "font-normal"}`}>Profile</span>
           </button>
         </nav>
 

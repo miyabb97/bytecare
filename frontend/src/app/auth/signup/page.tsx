@@ -47,7 +47,7 @@ export default function SignUpPage() {
         <header className="app-header">
           <div className="header-left">
             <div className="avatar">BC</div>
-            <div>
+            <div className="header-copy">
               <h1>ByteCare</h1>
               <p className="muted">Create Account</p>
             </div>

@@ -3,6 +3,20 @@ const backendBaseUrl = process.env.BYTECARE_BACKEND_URL || "http://localhost:800
 
 const nextConfig = {
   reactStrictMode: true,
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "lh3.googleusercontent.com",
+        pathname: "/**"
+      },
+      {
+        protocol: "https",
+        hostname: "picsum.photos",
+        pathname: "/**"
+      }
+    ]
+  },
   async rewrites() {
     return [
       {

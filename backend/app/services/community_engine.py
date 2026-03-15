@@ -158,6 +158,56 @@ def recommend_community_events(user_id: str) -> Dict[str, Any]:
     return {"events": top_events}
 
 
+def list_community_events(user_id: str) -> Dict[str, Any]:
+    """Return all upcoming community events with recommendation metadata."""
+    _ensure_user_exists(user_id)
+
+    conditions = _infer_conditions(user_id)
+    drift = detect_adherence_drift(user_id)
+    drift_severity = drift.get("severity", "green")
+
+    appt = get_upcoming_appointments(user_id)
+    days_to_appointment = appt.get("days_remaining")
+
+    now_utc = _now_utc()
+    scored: List[Tuple[int, datetime, Dict[str, Any], str]] = []
+
+    for event in load_local_events():
+        event_dt = _as_utc(datetime.fromisoformat(event["datetime"]))
+        if event_dt < now_utc:
+            continue
+
+        score, reason = _event_reason_and_score(
+            event=event,
+            conditions=conditions,
+            drift_severity=drift_severity,
+            days_to_appointment=days_to_appointment,
+        )
+        scored.append((score, event_dt, event, reason))
+
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    recommended_ids = {item[2]["event_id"] for item in scored[:5]}
+
+    events: List[Dict[str, Any]] = []
+    for _score, _event_dt, event, reason in scored:
+        is_recommended = event["event_id"] in recommended_ids
+        events.append(
+            {
+                "event_id": event["event_id"],
+                "title": event["title"],
+                "location": event["location"],
+                "datetime": event["datetime"],
+                "type": event["type"],
+                "description": event["description"],
+                "organiser": event["organiser"],
+                "is_recommended": is_recommended,
+                "reason": reason if is_recommended else None,
+            }
+        )
+
+    return {"events": events}
+
+
 def join_community_event(user_id: str, event_id: str) -> Dict[str, Any]:
     """Join an event for a user in runtime state."""
     _ensure_user_exists(user_id)

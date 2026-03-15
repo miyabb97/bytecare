@@ -9,6 +9,7 @@ from app.services.community_engine import (
     cancel_community_event,
     get_user_community_events,
     join_community_event,
+    list_community_events,
     recommend_community_events,
     save_community_event,
 )
@@ -24,6 +25,12 @@ class CommunityEventActionRequest(BaseModel):
 def get_community_events(user_id: str):
     """Get recommended community events for a user."""
     return recommend_community_events(user_id)
+
+
+@router.get("/users/{user_id}/community-events/all")
+def get_all_community_events(user_id: str):
+    """Get all upcoming community events with recommendation metadata."""
+    return list_community_events(user_id)
 
 
 @router.post("/users/{user_id}/community-events/join")

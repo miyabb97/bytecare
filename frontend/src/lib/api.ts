@@ -54,9 +54,14 @@ export type CommunityEventItem = {
   type: string;
   description: string;
   organiser: string;
+  is_recommended?: boolean;
 };
 
 export type CommunityResponse = {
+  events: CommunityEventItem[];
+};
+
+export type CommunityAllEventsResponse = {
   events: CommunityEventItem[];
 };
 
@@ -211,6 +216,8 @@ export const api = {
     apiRequest<DoseEventListResponse>(`/users/${userId}/dose-events?days=${days}`),
   getCommunityEvents: (userId: string) =>
     apiRequest<CommunityResponse>(`/users/${userId}/community-events`),
+  getAllCommunityEvents: (userId: string) =>
+    apiRequest<CommunityAllEventsResponse>(`/users/${userId}/community-events/all`),
   getMyCommunityEvents: (userId: string) =>
     apiRequest<CommunityMyEventsResponse>(`/users/${userId}/community-events/my-events`),
   postJoinCommunityEvent: (userId: string, eventId: string) =>
