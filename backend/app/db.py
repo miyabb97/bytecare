@@ -76,6 +76,9 @@ def init_db():
         if "assigned_clinician_id" not in user_cols:
             conn.execute(text("ALTER TABLE users ADD COLUMN assigned_clinician_id TEXT DEFAULT NULL"))
 
+        if "caregiver_id" not in user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN caregiver_id TEXT DEFAULT NULL"))
+
         conn.commit()
 
     db = SessionLocal()
@@ -197,5 +200,57 @@ def _seed_demo_patients(db) -> None:
                 notes=appt.get("notes", ""),
                 created_at=_dt.utcnow().isoformat(),
             ))
+
+        db.commit()
+
+    # --- Seed demo caregivers and link to patients ---
+    _seed_demo_caregivers(db)
+
+
+def _seed_demo_caregivers(db) -> None:
+    """Create demo caregiver accounts and link each to a demo patient."""
+    from datetime import datetime as _dt
+    from uuid import uuid4 as _uuid4
+
+    from app.models import Account, User  # noqa
+
+    CAREGIVERS = [
+        {"name": "Grace Lim",   "email": "grace.lim@demo.com",   "patient_email": "mdm.lim@demo.com"},
+        {"name": "Daniel Ong",  "email": "daniel.ong@demo.com",  "patient_email": "mr.ong@demo.com"},
+        {"name": "Angela Wong", "email": "angela.wong@demo.com", "patient_email": "mrs.wong@demo.com"},
+    ]
+
+    for cg in CAREGIVERS:
+        # Skip if already seeded
+        if db.query(Account).filter_by(email=cg["email"]).first():
+            continue
+
+        cg_account_id = str(_uuid4())
+        cg_user_id = str(_uuid4())
+
+        db.add(Account(
+            account_id=cg_account_id,
+            name=cg["name"],
+            email=cg["email"],
+            password_hash=_hash_password("demo123"),
+            role="caregiver",
+        ))
+        db.add(User(
+            user_id=cg_user_id,
+            account_id=cg_account_id,
+            name=cg["name"],
+            age=0,
+            timezone="Asia/Singapore",
+            language_preference="English",
+            created_at=_dt.utcnow().isoformat(),
+        ))
+        db.flush()
+
+        # Link patient → caregiver
+        patient_account = db.query(Account).filter_by(email=cg["patient_email"]).first()
+        if patient_account:
+            patient_user = db.query(User).filter_by(account_id=patient_account.account_id).first()
+            if patient_user:
+                patient_user.caregiver_id = cg_user_id
 
         db.commit()

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { LayoutDashboard, Users, FileText, LogOut } from "lucide-react";
 import {
   api,
   type Account,
@@ -9,6 +10,10 @@ import {
   type ClinicianAllPatientItem,
   type MedicationItem,
   type AppointmentItem,
+  type MEEScoreResponse,
+  type DriftResponse,
+  type InterventionItem,
+  type ReportSummaryResponse,
 } from "../../../lib/api";
 
 function safeMessage(error: unknown): string {
@@ -16,7 +21,7 @@ function safeMessage(error: unknown): string {
   return "Something went wrong.";
 }
 
-type View = "patients" | "patient-detail";
+type Tab = "dashboard" | "patients" | "summary" | "profile";
 
 export default function ClinicianDashboard() {
   const params = useParams<{ accountId: string }>();
@@ -38,7 +43,8 @@ export default function ClinicianDashboard() {
   }, [router]);
 
   // View state
-  const [view, setView] = useState<View>("patients");
+  const [tab, setTab] = useState<Tab>("dashboard");
+  const [detailView, setDetailView] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,6 +63,12 @@ export default function ClinicianDashboard() {
   const [patientConditions, setPatientConditions] = useState<string[]>([]);
   const [patientMeds, setPatientMeds] = useState<MedicationItem[]>([]);
   const [patientAppts, setPatientAppts] = useState<AppointmentItem[]>([]);
+
+  // Adherence / risk overlay data
+  const [meeScore, setMeeScore] = useState<MEEScoreResponse | null>(null);
+  const [drift, setDrift] = useState<DriftResponse | null>(null);
+  const [interventions, setInterventions] = useState<InterventionItem[]>([]);
+  const [reportSummary, setReportSummary] = useState<ReportSummaryResponse | null>(null);
 
   // Conditions edit
   const [editingConditions, setEditingConditions] = useState(false);
@@ -128,7 +140,7 @@ export default function ClinicianDashboard() {
       await api.clinicianUnassignPatient(accountId, patientUserId);
       await loadMyPatients();
       if (selectedPatientId === patientUserId) {
-        setView("patients");
+        setDetailView(false);
         setSelectedPatientId(null);
       }
     } catch (e) {
@@ -136,19 +148,33 @@ export default function ClinicianDashboard() {
     }
   }
 
-  // Open patient detail
+  // Open patient detail — also fetch adherence/risk data
   async function openPatientDetail(patientUserId: string) {
     setLoading(true);
     setError(null);
+    setMeeScore(null);
+    setDrift(null);
+    setInterventions([]);
+    setReportSummary(null);
     try {
-      const res = await api.clinicianGetPatientDetail(accountId, patientUserId);
+      const [res, mee, driftRes, ivRes, rptRes] = await Promise.all([
+        api.clinicianGetPatientDetail(accountId, patientUserId),
+        api.getMEEScore(patientUserId).catch(() => null),
+        api.getDrift(patientUserId).catch(() => null),
+        api.getInterventions(patientUserId).catch(() => ({ items: [] })),
+        api.getReportSummary(patientUserId).catch(() => null),
+      ]);
       setSelectedPatientId(patientUserId);
       setPatientName(res.patient.name);
       setPatientAge(res.patient.age);
       setPatientConditions(res.patient.conditions ?? []);
       setPatientMeds(res.medications ?? []);
       setPatientAppts(res.appointments ?? []);
-      setView("patient-detail");
+      setMeeScore(mee);
+      setDrift(driftRes);
+      setInterventions(ivRes.items ?? []);
+      setReportSummary(rptRes);
+      setDetailView(true);
     } catch (e) {
       setError(safeMessage(e));
     } finally {
@@ -279,193 +305,281 @@ export default function ClinicianDashboard() {
 
   if (!account) return null;
 
+  const navTabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
+    { key: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={20} /> },
+    { key: "patients",  label: "Patients",  icon: <Users size={20} /> },
+    { key: "summary",   label: "Summary",   icon: <FileText size={20} /> },
+    { key: "profile",   label: "Profile",   icon: <LogOut size={20} /> },
+  ];
+
+  // Helper: input styles
+  const inputCls = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-400 focus:outline-none";
+  const selectCls = inputCls;
+  const btnPrimary = "rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-700 disabled:opacity-50";
+  const btnSecondary = "rounded-xl bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200";
+  const btnDanger = "rounded-xl bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 transition hover:bg-red-100";
+
   return (
-    <main className="demo-shell">
-      <div className="phone-frame auth-frame">
-        <header className="app-header">
-          <div className="header-left">
-            {view === "patient-detail" ? (
-              <button type="button" className="icon-button" onClick={() => { setView("patients"); setSelectedPatientId(null); }}>
-                &larr;
-              </button>
-            ) : null}
-            <div className="avatar">CL</div>
-            <div className="header-copy">
-              <h1>ByteCare</h1>
-              <p className="muted">{account.name} (Clinician)</p>
+    <main className="flex min-h-screen justify-center bg-slate-100">
+      <div className="relative flex min-h-screen w-full max-w-md flex-col bg-slate-100">
+        {/* Header */}
+        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-bold text-slate-900">
+                {detailView ? patientName : tab === "summary" ? "Weekly Summary" : tab === "profile" ? "Profile" : "Clinician Dashboard"}
+              </h1>
+              <p className="text-sm text-slate-500">{account.name} (Clinician)</p>
             </div>
+            {detailView && (
+              <button type="button" onClick={() => { setDetailView(false); setSelectedPatientId(null); }} className={btnSecondary}>
+                ← Back
+              </button>
+            )}
           </div>
-          <button className="icon-button" type="button" onClick={handleSignOut}>Sign Out</button>
         </header>
 
-        <section className="tab-body">
-          {error ? <p className="status-error">{error}</p> : null}
+        {/* Scrollable content */}
+        <div className="flex-1 space-y-4 overflow-y-auto p-4 pb-24">
+          {error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
+          {loading && <div className="py-8 text-center text-slate-500">Loading…</div>}
 
-          {/* ============ PATIENT LIST VIEW ============ */}
-          {view === "patients" ? (
+          {/* ============ DASHBOARD TAB — overview cards ============ */}
+          {tab === "dashboard" && !detailView && !loading && (
             <>
-              <section className="card">
-                <div className="card-row">
-                  <div className="card-title">My Patients</div>
-                  <button type="button" className="icon-button" onClick={() => { setShowAssign(true); void loadAllPatients(); }}>
+              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h3 className="text-lg font-bold text-slate-900">Overview</h3>
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl bg-blue-50 p-4 text-center">
+                    <span className="text-3xl font-bold text-blue-600">{myPatients.length}</span>
+                    <p className="text-xs text-slate-500">Patients</p>
+                  </div>
+                  <div className="rounded-2xl bg-emerald-50 p-4 text-center">
+                    <span className="text-3xl font-bold text-emerald-600">{myPatients.reduce((a, p) => a + p.medication_count, 0)}</span>
+                    <p className="text-xs text-slate-500">Total Meds</p>
+                  </div>
+                </div>
+              </section>
+              {myPatients.length > 0 && (
+                <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <h3 className="mb-3 text-lg font-bold text-slate-900">Quick Access</h3>
+                  <div className="space-y-2">
+                    {myPatients.slice(0, 5).map((p) => (
+                      <button key={p.user_id} type="button" onClick={() => { setTab("patients"); void openPatientDetail(p.user_id); }}
+                        className="flex w-full items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-left transition hover:border-blue-200">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">{p.name}</p>
+                          <p className="text-xs text-slate-500">Age {p.age} &middot; {p.medication_count} meds</p>
+                        </div>
+                        <span className="text-xs text-slate-400">&rarr;</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </>
+          )}
+
+          {/* ============ PATIENTS TAB — list view ============ */}
+          {tab === "patients" && !detailView && !loading && (
+            <>
+              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-slate-900">My Patients</h3>
+                  <button type="button" className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700"
+                    onClick={() => { setShowAssign(true); void loadAllPatients(); }}>
                     + Assign
                   </button>
                 </div>
 
-                {loading ? <p className="muted">Loading...</p> : null}
-
-                {!loading && myPatients.length === 0 ? (
-                  <div className="empty-state">
-                    <p>No patients assigned yet.</p>
-                    <p className="muted">Use &ldquo;+ Assign&rdquo; to add patients to your care list.</p>
+                {myPatients.length === 0 ? (
+                  <div className="mt-4 text-center">
+                    <p className="text-sm text-slate-500">No patients assigned yet.</p>
+                    <p className="text-xs text-slate-400">Use &ldquo;+ Assign&rdquo; to add patients.</p>
                   </div>
-                ) : null}
-
-                <div className="item-list">
-                  {myPatients.map((p) => (
-                    <div key={p.user_id} className="item-row" style={{ cursor: "pointer" }} onClick={() => void openPatientDetail(p.user_id)}>
-                      <div>
-                        <div className="item-name">{p.name}</div>
-                        <div className="muted">
-                          Age {p.age} &middot; {p.medication_count} med(s) &middot; {p.appointment_count} appt(s)
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {myPatients.map((p) => (
+                      <div key={p.user_id}
+                        className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 cursor-pointer transition hover:border-blue-200"
+                        onClick={() => void openPatientDetail(p.user_id)}>
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">{p.name}</p>
+                          <p className="text-xs text-slate-500">
+                            Age {p.age} &middot; {p.medication_count} med(s) &middot; {p.appointment_count} appt(s)
+                          </p>
+                          {p.conditions.length > 0 && <p className="text-xs text-slate-400">{p.conditions.join(", ")}</p>}
                         </div>
-                        {p.conditions.length > 0 ? (
-                          <div className="muted" style={{ fontSize: "0.75rem" }}>{p.conditions.join(", ")}</div>
-                        ) : null}
-                      </div>
-                      <div className="item-actions">
-                        <button type="button" className="icon-button danger-btn" onClick={(e) => { e.stopPropagation(); void handleUnassign(p.user_id); }}>
+                        <button type="button" className={btnDanger} onClick={(e) => { e.stopPropagation(); void handleUnassign(p.user_id); }}>
                           Remove
                         </button>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </section>
 
               {/* Assign Patient Modal */}
-              {showAssign ? (
-                <section className="card">
-                  <div className="card-row">
-                    <div className="card-title">Assign a Patient</div>
-                    <button type="button" className="icon-button" onClick={() => setShowAssign(false)}>Close</button>
+              {showAssign && (
+                <section className="rounded-3xl border border-blue-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-slate-900">Assign a Patient</h3>
+                    <button type="button" className={btnSecondary} onClick={() => setShowAssign(false)}>Close</button>
                   </div>
-
-                  {assignLoading ? <p className="muted">Loading patients...</p> : null}
-
-                  <div className="item-list">
+                  {assignLoading && <p className="mt-2 text-sm text-slate-500">Loading patients…</p>}
+                  <div className="mt-3 space-y-2">
                     {allPatients.map((p) => {
                       const isAssignedToMe = myPatients.some(mp => mp.user_id === p.user_id);
                       const isAssignedToOther = !isAssignedToMe && !!p.assigned_clinician_id;
                       return (
-                        <div key={p.user_id} className="item-row">
+                        <div key={p.user_id} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
                           <div>
-                            <div className="item-name">{p.name}</div>
-                            <div className="muted">
+                            <p className="text-sm font-semibold text-slate-800">{p.name}</p>
+                            <p className="text-xs text-slate-500">
                               Age {p.age}
                               {isAssignedToMe ? " — Assigned to you" : ""}
                               {isAssignedToOther ? " — Assigned to another clinician" : ""}
-                            </div>
+                            </p>
                           </div>
-                          <div className="item-actions">
-                            {!isAssignedToMe && !isAssignedToOther ? (
-                              <button type="button" className="icon-button" onClick={() => void handleAssign(p.user_id)}>
-                                Assign
-                              </button>
-                            ) : null}
-                          </div>
+                          {!isAssignedToMe && !isAssignedToOther && (
+                            <button type="button" className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700"
+                              onClick={() => void handleAssign(p.user_id)}>
+                              Assign
+                            </button>
+                          )}
                         </div>
                       );
                     })}
                   </div>
                 </section>
-              ) : null}
+              )}
             </>
-          ) : null}
+          )}
 
-          {/* ============ PATIENT DETAIL VIEW ============ */}
-          {view === "patient-detail" && selectedPatientId ? (
+          {/* ============ PATIENT DETAIL ============ */}
+          {detailView && selectedPatientId && !loading && (
             <>
-              {/* Patient Info */}
-              <section className="card">
-                <div className="card-title">{patientName}</div>
-                <p className="muted">Age: {patientAge}</p>
+              {/* Patient Info + Adherence Score */}
+              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h3 className="text-xl font-bold text-slate-900">{patientName}</h3>
+                <p className="text-sm text-slate-500">Age: {patientAge}</p>
 
-                <div className="card-row" style={{ marginTop: "0.5rem" }}>
-                  <strong style={{ fontSize: "0.85rem" }}>Conditions</strong>
-                  {!editingConditions ? (
-                    <button type="button" className="icon-button" onClick={startEditConditions}>Edit</button>
-                  ) : null}
+                {/* Adherence Score */}
+                {meeScore && (
+                  <div className="mt-4 flex items-center gap-4">
+                    <div className="flex flex-col items-center">
+                      <span className="text-4xl font-bold text-blue-600">{Math.round(meeScore.score)}%</span>
+                      <span className="text-xs text-slate-500">Adherence</span>
+                    </div>
+                    <div className="flex-1 space-y-1 text-sm text-slate-600">
+                      <p>Taken: <span className="font-semibold text-emerald-600">{meeScore.counts.taken}</span></p>
+                      <p>Missed: <span className="font-semibold text-red-600">{meeScore.counts.missed}</span></p>
+                      <p>Late: <span className="font-semibold text-amber-600">{meeScore.counts.late}</span></p>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${
+                      meeScore.score < 50 ? "bg-red-100 text-red-600"
+                      : meeScore.score < 75 ? "bg-amber-100 text-amber-600"
+                      : "bg-emerald-100 text-emerald-600"
+                    }`}>
+                      {meeScore.score < 50 ? "HIGH RISK" : meeScore.score < 75 ? "MEDIUM" : "LOW RISK"}
+                    </span>
+                  </div>
+                )}
+
+                {/* Drift Alert */}
+                {drift && drift.drift_detected && (
+                  <div className={`mt-3 flex items-center gap-2 rounded-2xl p-3 ${
+                    drift.severity === "HIGH" ? "border border-red-200 bg-red-50" : "border border-amber-200 bg-amber-50"
+                  }`}>
+                    <span className="text-lg">⚠</span>
+                    <div>
+                      <p className={`text-sm font-bold ${drift.severity === "HIGH" ? "text-red-700" : "text-amber-700"}`}>
+                        Drift Detected — {drift.severity}
+                      </p>
+                      <p className={`text-xs ${drift.severity === "HIGH" ? "text-red-600" : "text-amber-600"}`}>
+                        {drift.trigger} &middot; {drift.details.missed_doses} missed &middot; {drift.details.late_doses} late
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Conditions */}
+                <div className="mt-4 flex items-center justify-between">
+                  <span className="text-sm font-bold text-slate-800">Conditions</span>
+                  {!editingConditions && (
+                    <button type="button" className="text-xs font-medium text-blue-600 hover:text-blue-800" onClick={startEditConditions}>Edit</button>
+                  )}
                 </div>
-
                 {!editingConditions ? (
-                  <p className="muted">{patientConditions.length > 0 ? patientConditions.join(", ") : "None listed"}</p>
+                  <p className="text-sm text-slate-500">{patientConditions.length > 0 ? patientConditions.join(", ") : "None listed"}</p>
                 ) : (
-                  <div className="form-group">
-                    <input
-                      value={conditionsText}
-                      onChange={(e) => setConditionsText(e.target.value)}
-                      placeholder="e.g. Hypertension, Diabetes"
-                    />
-                    <button type="button" onClick={() => void handleSaveConditions()} disabled={conditionsSaving}>
-                      {conditionsSaving ? "Saving..." : "Save"}
-                    </button>
-                    <button type="button" className="secondary-button" onClick={() => setEditingConditions(false)}>Cancel</button>
+                  <div className="mt-2 space-y-2">
+                    <input value={conditionsText} onChange={(e) => setConditionsText(e.target.value)} placeholder="e.g. Hypertension, Diabetes"
+                      className={inputCls} />
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => void handleSaveConditions()} disabled={conditionsSaving} className={btnPrimary}>
+                        {conditionsSaving ? "Saving…" : "Save"}
+                      </button>
+                      <button type="button" className={btnSecondary} onClick={() => setEditingConditions(false)}>Cancel</button>
+                    </div>
                   </div>
                 )}
               </section>
 
               {/* Medications */}
-              <section className="card">
-                <div className="card-row">
-                  <div className="card-title">Medications</div>
-                  <button type="button" className="icon-button" onClick={() => { resetMedForm(); setShowMedForm(true); }}>+ Add</button>
+              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-slate-900">Medications</h3>
+                  <button type="button" className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700"
+                    onClick={() => { resetMedForm(); setShowMedForm(true); }}>+ Add</button>
                 </div>
 
-                {showMedForm ? (
-                  <div className="form-group">
-                    <label className="form-label">Medication Name</label>
-                    <input value={medName} onChange={(e) => setMedName(e.target.value)} placeholder="e.g. Amlodipine 5mg" />
-                    <label className="form-label">Dose Text</label>
-                    <input value={medDose} onChange={(e) => setMedDose(e.target.value)} placeholder="e.g. 5mg" />
-                    <label className="form-label">Frequency</label>
-                    <select value={medFreq} onChange={(e) => setMedFreq(e.target.value)}>
+                {showMedForm && (
+                  <div className="mt-3 space-y-2 rounded-2xl border border-blue-100 bg-blue-50/30 p-4">
+                    <label className="text-xs font-medium text-slate-600">Name</label>
+                    <input value={medName} onChange={(e) => setMedName(e.target.value)} placeholder="e.g. Amlodipine 5mg" className={inputCls} />
+                    <label className="text-xs font-medium text-slate-600">Dose Text</label>
+                    <input value={medDose} onChange={(e) => setMedDose(e.target.value)} placeholder="e.g. 5mg" className={inputCls} />
+                    <label className="text-xs font-medium text-slate-600">Frequency</label>
+                    <select value={medFreq} onChange={(e) => setMedFreq(e.target.value)} className={selectCls}>
                       <option value="once_daily">Once daily</option>
                       <option value="twice_daily">Twice daily</option>
                       <option value="thrice_daily">Thrice daily</option>
                       <option value="as_needed">As needed</option>
                     </select>
-                    <label className="form-label">Times (comma-separated)</label>
-                    <input value={medTimes} onChange={(e) => setMedTimes(e.target.value)} placeholder="08:00" />
-                    <label className="form-label">Window (minutes)</label>
-                    <input type="number" value={medWindow} onChange={(e) => setMedWindow(e.target.value)} />
-                    <label className="form-label">Criticality</label>
-                    <select value={medCrit} onChange={(e) => setMedCrit(e.target.value)}>
+                    <label className="text-xs font-medium text-slate-600">Times (comma-separated)</label>
+                    <input value={medTimes} onChange={(e) => setMedTimes(e.target.value)} placeholder="08:00" className={inputCls} />
+                    <label className="text-xs font-medium text-slate-600">Window (minutes)</label>
+                    <input type="number" value={medWindow} onChange={(e) => setMedWindow(e.target.value)} className={inputCls} />
+                    <label className="text-xs font-medium text-slate-600">Criticality</label>
+                    <select value={medCrit} onChange={(e) => setMedCrit(e.target.value)} className={selectCls}>
                       <option value="low">Low</option>
                       <option value="medium">Medium</option>
                       <option value="high">High</option>
                     </select>
-                    {medMsg ? <p className="status-error">{medMsg}</p> : null}
-                    <button type="button" onClick={() => void handleSaveMed()} disabled={medSaving}>
-                      {medSaving ? "Saving..." : editMedId ? "Update Medication" : "Add Medication"}
-                    </button>
-                    <button type="button" className="secondary-button" onClick={resetMedForm}>Cancel</button>
+                    {medMsg && <p className="text-xs text-red-600">{medMsg}</p>}
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => void handleSaveMed()} disabled={medSaving} className={btnPrimary}>
+                        {medSaving ? "Saving…" : editMedId ? "Update" : "Add Medication"}
+                      </button>
+                      <button type="button" className={btnSecondary} onClick={resetMedForm}>Cancel</button>
+                    </div>
                   </div>
-                ) : null}
+                )}
 
                 {patientMeds.length === 0 ? (
-                  <p className="muted">No medications prescribed yet.</p>
+                  <p className="mt-3 text-sm text-slate-500">No medications prescribed yet.</p>
                 ) : (
-                  <div className="item-list">
+                  <div className="mt-3 space-y-2">
                     {patientMeds.map((med) => (
-                      <div key={med.medication_id} className="item-row">
+                      <div key={med.medication_id} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
                         <div>
-                          <div className="item-name">{med.name}</div>
-                          <div className="muted">{med.dose_text} &middot; {med.schedule.frequency} &middot; {med.schedule.times.join(", ")} &middot; {med.criticality}</div>
+                          <p className="text-sm font-semibold text-slate-800">{med.name}</p>
+                          <p className="text-xs text-slate-500">{med.dose_text} &middot; {med.schedule.frequency} &middot; {med.schedule.times.join(", ")} &middot; {med.criticality}</p>
                         </div>
-                        <div className="item-actions">
-                          <button type="button" className="icon-button" onClick={() => startEditMed(med)}>Edit</button>
-                          <button type="button" className="icon-button danger-btn" onClick={() => void handleDeleteMed(med.medication_id)}>Del</button>
+                        <div className="flex gap-1.5">
+                          <button type="button" className="text-xs font-medium text-blue-600 hover:text-blue-800" onClick={() => startEditMed(med)}>Edit</button>
+                          <button type="button" className="text-xs font-medium text-red-600 hover:text-red-800" onClick={() => void handleDeleteMed(med.medication_id)}>Del</button>
                         </div>
                       </div>
                     ))}
@@ -474,51 +588,145 @@ export default function ClinicianDashboard() {
               </section>
 
               {/* Appointments */}
-              <section className="card">
-                <div className="card-row">
-                  <div className="card-title">Appointments</div>
-                  <button type="button" className="icon-button" onClick={() => { resetApptForm(); setShowApptForm(true); }}>+ Add</button>
+              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-slate-900">Appointments</h3>
+                  <button type="button" className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700"
+                    onClick={() => { resetApptForm(); setShowApptForm(true); }}>+ Add</button>
                 </div>
 
-                {showApptForm ? (
-                  <div className="form-group">
-                    <label className="form-label">Date &amp; Time</label>
-                    <input type="datetime-local" value={apptDatetime} onChange={(e) => setApptDatetime(e.target.value)} />
-                    <label className="form-label">Location</label>
-                    <input value={apptLocation} onChange={(e) => setApptLocation(e.target.value)} placeholder="e.g. Polyclinic" />
-                    <label className="form-label">Notes</label>
-                    <textarea value={apptNotes} onChange={(e) => setApptNotes(e.target.value)} placeholder="e.g. Follow-up visit" />
-                    {apptMsg ? <p className="status-error">{apptMsg}</p> : null}
-                    <button type="button" onClick={() => void handleSaveAppt()} disabled={apptSaving}>
-                      {apptSaving ? "Saving..." : editApptId ? "Update Appointment" : "Add Appointment"}
-                    </button>
-                    <button type="button" className="secondary-button" onClick={resetApptForm}>Cancel</button>
+                {showApptForm && (
+                  <div className="mt-3 space-y-2 rounded-2xl border border-blue-100 bg-blue-50/30 p-4">
+                    <label className="text-xs font-medium text-slate-600">Date &amp; Time</label>
+                    <input type="datetime-local" value={apptDatetime} onChange={(e) => setApptDatetime(e.target.value)} className={inputCls} />
+                    <label className="text-xs font-medium text-slate-600">Location</label>
+                    <input value={apptLocation} onChange={(e) => setApptLocation(e.target.value)} placeholder="e.g. Polyclinic" className={inputCls} />
+                    <label className="text-xs font-medium text-slate-600">Notes</label>
+                    <textarea value={apptNotes} onChange={(e) => setApptNotes(e.target.value)} placeholder="e.g. Follow-up visit"
+                      className={inputCls + " min-h-[60px] resize-none"} />
+                    {apptMsg && <p className="text-xs text-red-600">{apptMsg}</p>}
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => void handleSaveAppt()} disabled={apptSaving} className={btnPrimary}>
+                        {apptSaving ? "Saving…" : editApptId ? "Update" : "Add Appointment"}
+                      </button>
+                      <button type="button" className={btnSecondary} onClick={resetApptForm}>Cancel</button>
+                    </div>
                   </div>
-                ) : null}
+                )}
 
                 {patientAppts.length === 0 ? (
-                  <p className="muted">No appointments scheduled.</p>
+                  <p className="mt-3 text-sm text-slate-500">No appointments scheduled.</p>
                 ) : (
-                  <div className="item-list">
+                  <div className="mt-3 space-y-2">
                     {patientAppts.map((appt) => (
-                      <div key={appt.appointment_id} className="item-row">
+                      <div key={appt.appointment_id} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
                         <div>
-                          <div className="item-name">{new Date(appt.datetime).toLocaleString()}</div>
-                          <div className="muted">{appt.location}{appt.notes ? ` — ${appt.notes}` : ""}</div>
+                          <p className="text-sm font-semibold text-slate-800">{new Date(appt.datetime).toLocaleString()}</p>
+                          <p className="text-xs text-slate-500">{appt.location}{appt.notes ? ` — ${appt.notes}` : ""}</p>
                         </div>
-                        <div className="item-actions">
-                          <button type="button" className="icon-button" onClick={() => startEditAppt(appt)}>Edit</button>
-                          <button type="button" className="icon-button danger-btn" onClick={() => void handleDeleteAppt(appt.appointment_id)}>Del</button>
+                        <div className="flex gap-1.5">
+                          <button type="button" className="text-xs font-medium text-blue-600 hover:text-blue-800" onClick={() => startEditAppt(appt)}>Edit</button>
+                          <button type="button" className="text-xs font-medium text-red-600 hover:text-red-800" onClick={() => void handleDeleteAppt(appt.appointment_id)}>Del</button>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
-                {apptMsg && !showApptForm ? <p className="status-error">{apptMsg}</p> : null}
+                {apptMsg && !showApptForm && <p className="mt-2 text-xs text-red-600">{apptMsg}</p>}
+              </section>
+
+              {/* Intervention History */}
+              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h3 className="mb-3 text-lg font-bold text-slate-900">Intervention History</h3>
+                {interventions.length === 0 ? (
+                  <p className="text-sm text-slate-500">No interventions triggered yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {interventions.slice(0, 10).map((iv, idx) => (
+                      <div key={idx} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold text-slate-800">{iv.action_type.replace(/_/g, " ")}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                            iv.risk_level === "HIGH" ? "bg-red-100 text-red-600"
+                            : iv.risk_level === "MEDIUM" ? "bg-amber-100 text-amber-600"
+                            : "bg-slate-200 text-slate-500"
+                          }`}>
+                            {iv.risk_level}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-600">{iv.message}</p>
+                        <p className="mt-0.5 text-xs text-slate-400">{new Date(iv.timestamp).toLocaleString()}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </section>
             </>
-          ) : null}
-        </section>
+          )}
+
+          {/* ============ SUMMARY TAB ============ */}
+          {tab === "summary" && !detailView && !loading && (
+            <>
+              {reportSummary ? (
+                <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <h3 className="text-lg font-bold text-slate-900">Report — {reportSummary.patient_name}</h3>
+                  <p className="mt-2 text-sm text-slate-700 whitespace-pre-line">{reportSummary.summary}</p>
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div className="rounded-2xl bg-blue-50 p-3 text-center">
+                      <span className="text-2xl font-bold text-blue-600">{reportSummary.avg_mes_7d.toFixed(0)}%</span>
+                      <p className="text-xs text-slate-500">7-day MES</p>
+                    </div>
+                    <div className="rounded-2xl bg-red-50 p-3 text-center">
+                      <span className="text-2xl font-bold text-red-600">{reportSummary.missed_doses_7d}</span>
+                      <p className="text-xs text-slate-500">Missed (7d)</p>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-xs text-slate-500">
+                    <span className="font-semibold">Next action:</span> {reportSummary.next_action}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    <span className="font-semibold">Follow-up:</span> {reportSummary.recommended_follow_up}
+                  </p>
+                </section>
+              ) : (
+                <div className="rounded-3xl border border-slate-200 bg-white p-6 text-center">
+                  <p className="text-lg text-slate-500">No summary available</p>
+                  <p className="mt-1 text-sm text-slate-400">Open a patient first, then view their summary here.</p>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ============ PROFILE TAB ============ */}
+          {tab === "profile" && !detailView && (
+            <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h3 className="text-lg font-bold text-slate-900">{account.name}</h3>
+              <p className="text-sm text-slate-500">{account.email}</p>
+              <p className="mt-1 text-xs text-slate-400">Role: Clinician</p>
+              <button type="button" onClick={handleSignOut}
+                className="mt-6 w-full rounded-2xl bg-red-50 py-3 text-sm font-bold text-red-600 transition hover:bg-red-100">
+                Sign Out
+              </button>
+            </section>
+          )}
+        </div>
+
+        {/* Bottom Navigation */}
+        <nav className="fixed bottom-0 left-1/2 z-40 flex w-full max-w-md -translate-x-1/2 border-t border-slate-200 bg-white">
+          {navTabs.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => { setTab(t.key); if (t.key !== "patients") setDetailView(false); }}
+              className={`flex flex-1 flex-col items-center gap-0.5 py-3 text-xs font-medium transition ${
+                tab === t.key ? "text-blue-600" : "text-slate-400 hover:text-slate-600"
+              }`}
+            >
+              {t.icon}
+              {t.label}
+            </button>
+          ))}
+        </nav>
       </div>
     </main>
   );

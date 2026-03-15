@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Dict
+from uuid import uuid4
 
 from fastapi import HTTPException
 
 from app.db import SessionLocal
-from app.models import Appointment, Medication, User
+from app.models import Appointment, ChatMessage, Medication, User
 from app.services.agent_engine import determine_next_action
 from app.services.drift_engine import detect_adherence_drift
 from app.services.meralion_client import MeralionClient, MeralionClientError
@@ -93,21 +95,49 @@ def generate_patient_reply(user_id: str, message: str, language: str = "en") -> 
             reply = _rule_based_reply(user.get("name", "Patient"), message, action["next_action"])
 
     # Translate if a non-English language is requested
+    reply_en = reply
+    final_reply = reply
+    final_lang = "en"
+
     if language and language != "en":
         try:
             from app.services.voice_engine import translate_text
             translated = translate_text(reply, language)
-            return {
-                "reply": translated,
-                "reply_en": reply,
-                "context": context,
-                "language": language,
-            }
+            final_reply = translated
+            final_lang = language
         except Exception:
             pass
 
-    return {
-        "reply": reply,
+    # Persist user message and assistant reply
+    now_str = datetime.now().isoformat(timespec="seconds")
+    with SessionLocal() as db:
+        db.add(ChatMessage(
+            message_id=str(uuid4()),
+            user_id=user_id,
+            role="user",
+            content=message,
+            language=language or "en",
+            is_read=1,
+            created_at=now_str,
+        ))
+        db.add(ChatMessage(
+            message_id=str(uuid4()),
+            user_id=user_id,
+            role="assistant",
+            content=final_reply,
+            language=final_lang,
+            is_read=1,
+            created_at=now_str,
+        ))
+        # Mark system messages as read since user is actively in chat
+        db.query(ChatMessage).filter_by(user_id=user_id, role="system", is_read=0).update({"is_read": 1})
+        db.commit()
+
+    result = {
+        "reply": final_reply,
         "context": context,
-        "language": "en",
+        "language": final_lang,
     }
+    if final_lang != "en":
+        result["reply_en"] = reply_en
+    return result

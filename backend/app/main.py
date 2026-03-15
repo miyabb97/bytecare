@@ -23,7 +23,9 @@ from app.db import SessionLocal, _hash_password, get_db, init_db
 from app.models import (
     Account,
     Appointment,
+    ChatMessage,
     DoseEvent,
+    InterventionLog,
     Medication,
     MesScore,
     Simulation,
@@ -36,6 +38,7 @@ from app.routers.clinician import router as clinician_router
 from app.routers.community import router as community_router
 from app.routers.drift import router as drift_router
 from app.routers.nutrition import router as nutrition_router
+from app.routers.orchestrator import router as orchestrator_router
 from app.routers.report import router as report_router
 from app.routers.tcm import router as tcm_router
 from app.routers.voice import router as voice_router
@@ -252,7 +255,7 @@ class DoseEventListOut(BaseModel):
 class IntakeResponseCreate(BaseModel):
     medication_ids: List[str] = Field(min_length=1)
     scheduled_for: str
-    response_status: Literal["taken", "skipped", "snoozed"]
+    response_status: Literal["taken", "skipped", "snoozed", "missed", "late"]
     source: str = "dashboard_popup"
 
 
@@ -481,6 +484,74 @@ def get_care_plan_status(user_id: str, db: Session = Depends(get_db)):
     return {"managed_by_clinician": managed, "clinician_name": clinician_name}
 
 
+# -------------------------
+# Caregiver endpoints
+# -------------------------
+
+@app.get("/api/v1/caregiver/{account_id}/patients")
+def caregiver_get_patients(account_id: str, db: Session = Depends(get_db)):
+    """List patients linked to this caregiver."""
+    account = db.query(Account).filter_by(account_id=account_id).first()
+    if not account or account.role != "caregiver":
+        raise HTTPException(status_code=403, detail="Not a caregiver account")
+    cg_user = db.query(User).filter_by(account_id=account_id).first()
+    if not cg_user:
+        raise HTTPException(status_code=404, detail="Caregiver profile not found")
+    patients = db.query(User).filter(User.caregiver_id == cg_user.user_id).all()
+    items = []
+    for p in patients:
+        med_count = db.query(Medication).filter_by(user_id=p.user_id).count()
+        appt_count = db.query(Appointment).filter_by(user_id=p.user_id).count()
+        items.append({
+            "user_id": p.user_id,
+            "name": p.name,
+            "age": p.age,
+            "conditions": p.conditions,
+            "medication_count": med_count,
+            "appointment_count": appt_count,
+        })
+    return {"items": items}
+
+
+@app.get("/api/v1/caregiver/{account_id}/patients/{patient_user_id}")
+def caregiver_get_patient_detail(account_id: str, patient_user_id: str, db: Session = Depends(get_db)):
+    """Get full patient detail for a caregiver's linked patient."""
+    account = db.query(Account).filter_by(account_id=account_id).first()
+    if not account or account.role != "caregiver":
+        raise HTTPException(status_code=403, detail="Not a caregiver account")
+    cg_user = db.query(User).filter_by(account_id=account_id).first()
+    if not cg_user:
+        raise HTTPException(status_code=404, detail="Caregiver profile not found")
+    patient = db.query(User).filter_by(user_id=patient_user_id, caregiver_id=cg_user.user_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not linked to this caregiver")
+    meds = [m.to_dict() for m in db.query(Medication).filter_by(user_id=patient_user_id).all()]
+    appts = [a.to_dict() for a in db.query(Appointment).filter_by(user_id=patient_user_id).all()]
+
+    # Recent dose events (last 7 days)
+    since = (datetime.now() - timedelta(days=7)).isoformat(timespec="seconds")
+    dose_events = [
+        e.to_dict() for e in
+        db.query(DoseEvent).filter(DoseEvent.user_id == patient_user_id, DoseEvent.timestamp >= since)
+        .order_by(DoseEvent.timestamp.desc()).all()
+    ]
+
+    # Recent interventions
+    interventions = [
+        i.to_dict() for i in
+        db.query(InterventionLog).filter_by(user_id=patient_user_id)
+        .order_by(InterventionLog.timestamp.desc()).limit(10).all()
+    ]
+
+    return {
+        "patient": patient.to_dict(),
+        "medications": meds,
+        "appointments": appts,
+        "dose_events": dose_events,
+        "interventions": interventions,
+    }
+
+
 @app.put("/api/v1/users/{user_id}", response_model=UserOut)
 def update_user(user_id: str, payload: UserUpdate, db: Session = Depends(get_db)):
     user = get_user_or_404(db, user_id)
@@ -654,6 +725,8 @@ def record_medication_intake(user_id: str, payload: IntakeResponseCreate, db: Se
         "taken": "tap_confirm",
         "skipped": "dose_skipped",
         "snoozed": "dose_snoozed",
+        "missed": "dose_missed",
+        "late": "dose_late",
     }
     timestamp = now_iso()
     created_events: List[Dict[str, Any]] = []
@@ -675,10 +748,22 @@ def record_medication_intake(user_id: str, payload: IntakeResponseCreate, db: Se
 
     db.commit()
 
-    if payload.response_status in {"taken", "skipped"}:
+    if payload.response_status in {"taken", "skipped", "missed", "late"}:
         recompute_mes_for_user(db, user_id, days=14)
 
     return {"items": created_events}
+
+
+@app.delete("/api/v1/users/{user_id}/dose-events/{event_id}", status_code=200)
+def delete_dose_event(user_id: str, event_id: str, db: Session = Depends(get_db)):
+    get_user_or_404(db, user_id)
+    ev = db.query(DoseEvent).filter_by(event_id=event_id, user_id=user_id).first()
+    if not ev:
+        raise HTTPException(status_code=404, detail="Dose event not found")
+    db.delete(ev)
+    db.commit()
+    recompute_mes_for_user(db, user_id, days=14)
+    return {"status": "deleted", "event_id": event_id}
 
 
 @app.post("/api/v1/users/{user_id}/simulate/pillbox")
@@ -780,6 +865,123 @@ def get_mes(user_id: str, db: Session = Depends(get_db)):
     return {"items": [s.to_dict() for s in scores]}
 
 
+# -------------------------
+# MEE (Medication Evidence Engine) endpoint
+# -------------------------
+
+@app.get("/api/v1/users/{user_id}/mee")
+def get_mee_score(user_id: str, days: int = 7, db: Session = Depends(get_db)):
+    """Get patient-level adherence confidence score from the MEE."""
+    get_user_or_404(db, user_id)
+    from app.services.mee import compute_adherence_score
+    return compute_adherence_score(user_id, days)
+
+
+@app.get("/api/v1/users/{user_id}/mee/medications")
+def get_mee_per_medication(user_id: str, days: int = 7, db: Session = Depends(get_db)):
+    """Get per-medication adherence scores."""
+    get_user_or_404(db, user_id)
+    from app.services.mee import compute_per_medication_scores
+    return {"items": compute_per_medication_scores(user_id, days)}
+
+
+# -------------------------
+# Intervention log endpoints
+# -------------------------
+
+@app.get("/api/v1/users/{user_id}/interventions")
+def list_interventions(user_id: str, limit: int = 20, db: Session = Depends(get_db)):
+    """Get recent intervention log entries for a patient."""
+    get_user_or_404(db, user_id)
+    items = (
+        db.query(InterventionLog)
+        .filter_by(user_id=user_id)
+        .order_by(InterventionLog.timestamp.desc())
+        .limit(min(limit, 100))
+        .all()
+    )
+    return {"items": [i.to_dict() for i in items]}
+
+
+# -------------------------
+# Admin endpoints
+# -------------------------
+
+@app.get("/api/v1/admin/accounts")
+def admin_list_accounts(db: Session = Depends(get_db)):
+    """List all accounts (admin view)."""
+    accounts = db.query(Account).order_by(Account.created_at.desc()).all()
+    items = []
+    for a in accounts:
+        linked = db.query(User).filter_by(account_id=a.account_id).first()
+        items.append({
+            "account_id": a.account_id,
+            "name": a.name,
+            "email": a.email,
+            "role": a.role,
+            "user_id": linked.user_id if linked else None,
+            "created_at": a.created_at,
+        })
+    return {"items": items}
+
+
+@app.get("/api/v1/admin/interventions")
+def admin_list_all_interventions(limit: int = 50, db: Session = Depends(get_db)):
+    """List recent interventions across all patients (admin view)."""
+    items = (
+        db.query(InterventionLog)
+        .order_by(InterventionLog.timestamp.desc())
+        .limit(min(limit, 200))
+        .all()
+    )
+    result = []
+    for i in items:
+        d = i.to_dict()
+        user = db.query(User).filter_by(user_id=i.user_id).first()
+        d["patient_name"] = user.name if user else i.user_id
+        result.append(d)
+    return {"items": result}
+
+
+# -------------------------
+# Chat message endpoints
+# -------------------------
+
+@app.get("/api/v1/users/{user_id}/chat/messages")
+def list_chat_messages(user_id: str, limit: int = 50, db: Session = Depends(get_db)):
+    """Get chat message history for a patient."""
+    get_user_or_404(db, user_id)
+    items = (
+        db.query(ChatMessage)
+        .filter_by(user_id=user_id)
+        .order_by(ChatMessage.created_at.asc())
+        .limit(min(limit, 200))
+        .all()
+    )
+    return {"items": [m.to_dict() for m in items]}
+
+
+@app.get("/api/v1/users/{user_id}/chat/unread-count")
+def get_unread_count(user_id: str, db: Session = Depends(get_db)):
+    """Get count of unread system messages for badge display."""
+    get_user_or_404(db, user_id)
+    count = (
+        db.query(ChatMessage)
+        .filter_by(user_id=user_id, role="system", is_read=0)
+        .count()
+    )
+    return {"unread_count": count}
+
+
+@app.post("/api/v1/users/{user_id}/chat/mark-read")
+def mark_chat_read(user_id: str, db: Session = Depends(get_db)):
+    """Mark all system messages as read for a patient."""
+    get_user_or_404(db, user_id)
+    db.query(ChatMessage).filter_by(user_id=user_id, role="system", is_read=0).update({"is_read": 1})
+    db.commit()
+    return {"status": "ok"}
+
+
 app.include_router(drift_router, prefix="/api/v1")
 app.include_router(agent_router, prefix="/api/v1")
 app.include_router(nutrition_router, prefix="/api/v1")
@@ -790,6 +992,7 @@ app.include_router(chat_router, prefix="/api/v1")
 app.include_router(voice_router, prefix="/api/v1")
 app.include_router(report_router, prefix="/api/v1")
 app.include_router(clinician_router, prefix="/api/v1")
+app.include_router(orchestrator_router, prefix="/api/v1")
 
 
 # -------------------------
