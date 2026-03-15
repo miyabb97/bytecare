@@ -310,7 +310,7 @@ export default function EventDetailsPage() {
         <nav className="tc-bottom-nav fixed bottom-0 left-1/2 z-40 flex w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl -translate-x-1/2 items-center justify-between border-t border-slate-200 bg-white px-5 py-2">
           <button
             type="button"
-            className="flex flex-col items-center gap-1 text-slate-400 hover:text-blue-500"
+            className="flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 text-slate-400 transition hover:text-blue-500 hover:bg-slate-50"
             onClick={() => navigateToTab("home")}
           >
             <BottomNavIcon tab="home" active={false} />
@@ -318,19 +318,19 @@ export default function EventDetailsPage() {
           </button>
           <button
             type="button"
-            className="flex flex-col items-center gap-1 text-slate-400 hover:text-blue-500"
+            className="flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 text-slate-400 transition hover:text-blue-500 hover:bg-slate-50"
             onClick={() => navigateToTab("chat")}
           >
             <BottomNavIcon tab="chat" active={false} />
             <span className="text-[11px] font-normal">Chat</span>
           </button>
-          <button type="button" className="flex flex-col items-center gap-1 text-blue-600">
+          <button type="button" className="flex flex-col items-center gap-1 rounded-xl bg-blue-50 px-3 py-1.5 text-blue-600">
             <BottomNavIcon tab="events" active />
-            <span className="text-[11px] font-medium">Events</span>
+            <span className="text-[11px] font-semibold">Events</span>
           </button>
           <button
             type="button"
-            className="flex flex-col items-center gap-1 text-slate-400 hover:text-blue-500"
+            className="flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 text-slate-400 transition hover:text-blue-500 hover:bg-slate-50"
             onClick={() => navigateToTab("health")}
           >
             <BottomNavIcon tab="health" active={false} />
@@ -338,7 +338,7 @@ export default function EventDetailsPage() {
           </button>
           <button
             type="button"
-            className="flex flex-col items-center gap-1 text-slate-400 hover:text-blue-500"
+            className="flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 text-slate-400 transition hover:text-blue-500 hover:bg-slate-50"
             onClick={() => navigateToTab("profile")}
           >
             <BottomNavIcon tab="profile" active={false} />

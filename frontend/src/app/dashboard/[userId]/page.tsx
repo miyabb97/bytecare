@@ -1211,7 +1211,7 @@ export default function DashboardPage() {
             <section className="card">
               <h2 className="auth-title">Invalid patient selection</h2>
               <p className="muted">No user id was provided in the dashboard route.</p>
-              <button type="button" onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}>Sign Out</button>
+              <button type="button" onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}>🚪 Sign Out</button>
             </section>
           </section>
         </div>
@@ -1232,7 +1232,7 @@ export default function DashboardPage() {
               >
                 <ArrowLeft size={22} />
               </button>
-              <h1 className="text-[2rem] font-bold leading-none tracking-tight text-slate-900">Jio Events</h1>
+              <h1 className="text-[2rem] font-bold leading-none tracking-tight text-slate-900">🎉 Jio Events</h1>
             </div>
             <p className="text-[0.77rem] text-slate-600">
               Discover nearby activities to stay healthy and connected.
@@ -1291,7 +1291,7 @@ export default function DashboardPage() {
 
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="mb-3 flex items-start justify-between gap-2">
-                  <h3 className="text-[1.38rem] font-bold leading-none text-slate-900">Medication Adherence</h3>
+                  <h3 className="text-[1.38rem] font-bold leading-none text-slate-900">💊 Medication Adherence</h3>
                   {meeScore ? (() => {
                     const riskLevel = meeScore.score < 50 ? "HIGH" : meeScore.score < 75 ? "MEDIUM" : "LOW";
                     return (
@@ -1360,7 +1360,7 @@ export default function DashboardPage() {
               {/* Today's Doses */}
               {todayDoseSlots.length > 0 && (
                 <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <h3 className="mb-3 text-[1.25rem] font-bold leading-none text-slate-900">Today&apos;s Doses</h3>
+                  <h3 className="mb-3 text-[1.25rem] font-bold leading-none text-slate-900">📋 Today&apos;s Doses</h3>
                   <div className="space-y-3">
                     {todayDoseSlots.map((slot) => {
                       const key = `${slot.med.medication_id}:${slot.scheduledFor}`;
@@ -1381,7 +1381,7 @@ export default function DashboardPage() {
                                   onClick={() => setOpenDropdownKey(openDropdownKey === key ? null : key)}
                                   className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold transition active:scale-95 ${
                                     slot.status === "taken" ? "bg-emerald-100 text-emerald-600"
-                                    : slot.status === "skipped" ? "bg-slate-200 text-slate-500"
+                                    : slot.status === "skipped" ? "bg-orange-50 text-orange-600"
                                     : slot.status === "snoozed" ? "bg-blue-100 text-blue-600"
                                     : slot.status === "late" ? "bg-amber-100 text-amber-600"
                                     : "bg-red-100 text-red-600"
@@ -1487,7 +1487,7 @@ export default function DashboardPage() {
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="mb-3 flex items-center gap-2">
                   <Utensils className="text-emerald-500" size={18} />
-                  <h3 className="text-[1.3rem] font-bold leading-none text-slate-900">Diet Suggestions</h3>
+                  <h3 className="text-[1.3rem] font-bold leading-none text-slate-900">🥗 Diet Suggestions</h3>
                 </div>
                 <ul className="space-y-2">
                   {(food?.recommendations ?? []).slice(0, 3).map((item) => {
@@ -1596,7 +1596,7 @@ export default function DashboardPage() {
             <>
               <section>
                 <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-[1.5rem] font-bold leading-none text-slate-900">Recommended For You</h2>
+                  <h2 className="text-[1.5rem] font-bold leading-none text-slate-900">⭐ Recommended For You</h2>
                   <button
                     type="button"
                     className="tc-btn-link"
@@ -1906,7 +1906,7 @@ export default function DashboardPage() {
           {activeTab === "health" ? (
             <>
               <section className="card">
-                <div className="card-title">TCM Safety Check</div>
+                <div className="card-title">🌿 TCM Safety Check</div>
                 <p className="muted">Check herb-drug interactions against your current medications.</p>
 
                 <div className="tcm-mode-picker">
@@ -2067,7 +2067,7 @@ export default function DashboardPage() {
               </section>
 
               <section className="card">
-                <div className="card-title">Clinician Summary</div>
+                <div className="card-title">📊 Clinician Summary</div>
                 <button type="button" onClick={() => void handleLoadReportSummary()} disabled={reportLoading}>
                   {reportLoading ? "Loading..." : "Fetch Report Summary"}
                 </button>
@@ -2085,7 +2085,7 @@ export default function DashboardPage() {
 
               <section className="card">
                 <div className="card-row">
-                  <div className="card-title">Medication Tracking</div>
+                  <div className="card-title">💊 Medication Tracking</div>
                   <span className={`severity-pill severity-${drift?.severity ?? "green"}`}>
                     {drift?.severity ?? "green"}
                   </span>
@@ -2122,7 +2122,7 @@ export default function DashboardPage() {
               </section>
 
               <section className="card">
-                <div className="card-title">Appointment Tracking</div>
+                <div className="card-title">📅 Appointment Tracking</div>
                 {allAppts.length > 0 ? (
                   <div className="item-list">
                     {allAppts.map((appt) => (
@@ -2146,7 +2146,7 @@ export default function DashboardPage() {
               {/* --- Profile Section --- */}
               <section className="card">
                 <div className="card-row">
-                  <div className="card-title">Patient Profile</div>
+                  <div className="card-title">👤 Patient Profile</div>
                   {!editingProfile ? (
                     <button type="button" className="icon-button" onClick={startEditProfile}>Edit</button>
                   ) : null}
@@ -2177,13 +2177,13 @@ export default function DashboardPage() {
                   </div>
                 )}
                 {profileMsg ? <p className="status-ok">{profileMsg}</p> : null}
-                <button type="button" className="secondary-button" onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}>Sign Out</button>
+                <button type="button" className="secondary-button" onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}>🚪 Sign Out</button>
               </section>
 
               {/* --- Medications Section --- */}
               <section className="card">
                 <div className="card-row">
-                  <div className="card-title">Medications</div>
+                  <div className="card-title">💊 Medications</div>
                   {!carePlanReadOnly ? (
                     <button type="button" className="icon-button" onClick={() => { resetMedForm(); setShowMedForm(true); }}>+ Add</button>
                   ) : null}
@@ -2253,7 +2253,7 @@ export default function DashboardPage() {
               {/* --- Appointments Section --- */}
               <section className="card">
                 <div className="card-row">
-                  <div className="card-title">Appointments</div>
+                  <div className="card-title">📅 Appointments</div>
                   {!carePlanReadOnly ? (
                     <button type="button" className="icon-button" onClick={() => { resetApptForm(); setShowApptForm(true); }}>+ Add</button>
                   ) : null}
@@ -2312,15 +2312,15 @@ export default function DashboardPage() {
         <nav className="tc-bottom-nav fixed bottom-0 left-1/2 z-40 flex w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl -translate-x-1/2 items-center justify-between border-t border-slate-200 bg-white px-5 py-2">
           <button
             type="button"
-            className={`flex flex-col items-center gap-1 ${activeTab === "home" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
+            className={`flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "home" ? "bg-blue-50 text-blue-600" : "text-slate-400 hover:text-blue-500 hover:bg-slate-50"}`}
             onClick={() => setActiveTab("home")}
           >
             <BottomNavIcon tab="home" active={activeTab === "home"} />
-            <span className={`text-[11px] ${activeTab === "home" ? "font-medium" : "font-normal"}`}>Home</span>
+            <span className={`text-[11px] ${activeTab === "home" ? "font-semibold" : "font-normal"}`}>Home</span>
           </button>
           <button
             type="button"
-            className={`flex flex-col items-center gap-1 ${activeTab === "chat" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
+            className={`flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "chat" ? "bg-blue-50 text-blue-600" : "text-slate-400 hover:text-blue-500 hover:bg-slate-50"}`}
             onClick={() => setActiveTab("chat")}
           >
             <span className="relative">
@@ -2331,31 +2331,31 @@ export default function DashboardPage() {
                 </span>
               ) : null}
             </span>
-            <span className={`text-[11px] ${activeTab === "chat" ? "font-medium" : "font-normal"}`}>Chat</span>
+            <span className={`text-[11px] ${activeTab === "chat" ? "font-semibold" : "font-normal"}`}>Chat</span>
           </button>
           <button
             type="button"
-            className={`flex flex-col items-center gap-1 ${activeTab === "events" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
+            className={`flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "events" ? "bg-blue-50 text-blue-600" : "text-slate-400 hover:text-blue-500 hover:bg-slate-50"}`}
             onClick={() => setActiveTab("events")}
           >
             <BottomNavIcon tab="events" active={activeTab === "events"} />
-            <span className={`text-[11px] ${activeTab === "events" ? "font-medium" : "font-normal"}`}>Events</span>
+            <span className={`text-[11px] ${activeTab === "events" ? "font-semibold" : "font-normal"}`}>Events</span>
           </button>
           <button
             type="button"
-            className={`flex flex-col items-center gap-1 ${activeTab === "health" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
+            className={`flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "health" ? "bg-blue-50 text-blue-600" : "text-slate-400 hover:text-blue-500 hover:bg-slate-50"}`}
             onClick={() => setActiveTab("health")}
           >
             <BottomNavIcon tab="health" active={activeTab === "health"} />
-            <span className={`text-[11px] ${activeTab === "health" ? "font-medium" : "font-normal"}`}>Health</span>
+            <span className={`text-[11px] ${activeTab === "health" ? "font-semibold" : "font-normal"}`}>Health</span>
           </button>
           <button
             type="button"
-            className={`flex flex-col items-center gap-1 ${activeTab === "profile" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
+            className={`flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "profile" ? "bg-blue-50 text-blue-600" : "text-slate-400 hover:text-blue-500 hover:bg-slate-50"}`}
             onClick={() => setActiveTab("profile")}
           >
             <BottomNavIcon tab="profile" active={activeTab === "profile"} />
-            <span className={`text-[11px] ${activeTab === "profile" ? "font-medium" : "font-normal"}`}>Profile</span>
+            <span className={`text-[11px] ${activeTab === "profile" ? "font-semibold" : "font-normal"}`}>Profile</span>
           </button>
         </nav>
 

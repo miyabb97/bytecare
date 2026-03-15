@@ -129,7 +129,7 @@ export default function CaregiverDashboard() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold text-slate-900">
-                {tab === "patient" && detail ? detail.patient.name : tab === "alerts" ? "Alerts" : tab === "profile" ? "Profile" : "My Patients"}
+                {tab === "patient" && detail ? `👤 ${detail.patient.name}` : tab === "alerts" ? "🔔 Alerts" : tab === "profile" ? "⚙️ Profile" : "🏥 My Patients"}
               </h1>
               <p className="text-sm text-slate-500">Caregiver: {account.name}</p>
             </div>
@@ -160,7 +160,7 @@ export default function CaregiverDashboard() {
             <>
               {patients.length === 0 ? (
                 <div className="rounded-3xl border border-slate-200 bg-white p-6 text-center">
-                  <p className="text-lg text-slate-500">No linked patients found.</p>
+                  <p className="text-lg text-slate-500">🙅 No linked patients found.</p>
                   <p className="mt-1 text-sm text-slate-400">Ask a clinician to assign patients to your account.</p>
                 </div>
               ) : (
@@ -234,7 +234,7 @@ export default function CaregiverDashboard() {
 
               {/* Medications */}
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <h3 className="mb-3 text-lg font-bold text-slate-900">Medications ({detail.medications.length})</h3>
+                <h3 className="mb-3 text-lg font-bold text-slate-900">💊 Medications ({detail.medications.length})</h3>
                 {detail.medications.length === 0 ? (
                   <p className="text-sm text-slate-500">No medications recorded.</p>
                 ) : (
@@ -251,7 +251,7 @@ export default function CaregiverDashboard() {
 
               {/* Recent Dose Events — show medication NAME instead of ID */}
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <h3 className="mb-3 text-lg font-bold text-slate-900">Recent Doses</h3>
+                <h3 className="mb-3 text-lg font-bold text-slate-900">📆 Recent Doses</h3>
                 {detail.dose_events.length === 0 ? (
                   <p className="text-sm text-slate-500">No dose records yet.</p>
                 ) : (
@@ -266,7 +266,7 @@ export default function CaregiverDashboard() {
                           ev.response_status === "taken" ? "bg-emerald-100 text-emerald-600"
                           : ev.response_status === "snoozed" ? "bg-blue-100 text-blue-600"
                           : ev.response_status === "late" ? "bg-amber-100 text-amber-600"
-                          : ev.response_status === "skipped" ? "bg-slate-200 text-slate-500"
+                          : ev.response_status === "skipped" ? "bg-orange-50 text-orange-600"
                           : "bg-red-100 text-red-600"
                         }`}>
                           {(ev.response_status || ev.event_type || "recorded").charAt(0).toUpperCase() + (ev.response_status || ev.event_type || "recorded").slice(1)}
@@ -279,7 +279,7 @@ export default function CaregiverDashboard() {
 
               {/* Interventions */}
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <h3 className="mb-3 text-lg font-bold text-slate-900">Recent Interventions</h3>
+                <h3 className="mb-3 text-lg font-bold text-slate-900">🛡️ Recent Interventions</h3>
                 {detail.interventions.length === 0 ? (
                   <p className="text-sm text-slate-500">No interventions triggered yet.</p>
                 ) : (
@@ -291,7 +291,7 @@ export default function CaregiverDashboard() {
                           <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${
                             iv.risk_level === "HIGH" ? "bg-red-100 text-red-600"
                             : iv.risk_level === "MEDIUM" ? "bg-amber-100 text-amber-600"
-                            : "bg-slate-200 text-slate-500"
+                            : "bg-emerald-50 text-emerald-600"
                           }`}>
                             {iv.risk_level}
                           </span>
@@ -306,7 +306,7 @@ export default function CaregiverDashboard() {
 
               {/* Appointments */}
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <h3 className="mb-3 text-lg font-bold text-slate-900">Appointments</h3>
+                <h3 className="mb-3 text-lg font-bold text-slate-900">📅 Appointments</h3>
                 {detail.appointments.length === 0 ? (
                   <p className="text-sm text-slate-500">No appointments scheduled.</p>
                 ) : (
@@ -336,7 +336,7 @@ export default function CaregiverDashboard() {
             <>
               {alertInterventions.length === 0 ? (
                 <div className="rounded-3xl border border-slate-200 bg-white p-6 text-center">
-                  <p className="text-lg text-slate-500">No alerts</p>
+                  <p className="text-lg text-slate-500">✅ No alerts</p>
                   <p className="mt-1 text-sm text-slate-400">Interventions and risk alerts for the selected patient will appear here.</p>
                 </div>
               ) : (
@@ -349,7 +349,7 @@ export default function CaregiverDashboard() {
                         <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${
                           iv.risk_level === "HIGH" ? "bg-red-100 text-red-600"
                           : iv.risk_level === "MEDIUM" ? "bg-amber-100 text-amber-600"
-                          : "bg-slate-200 text-slate-500"
+                          : "bg-emerald-50 text-emerald-600"
                         }`}>
                           {iv.risk_level}
                         </span>
@@ -366,7 +366,7 @@ export default function CaregiverDashboard() {
           {/* ──── Profile Tab ──── */}
           {tab === "profile" && (
             <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h3 className="text-lg font-bold text-slate-900">{account.name}</h3>
+              <h3 className="text-lg font-bold text-slate-900">👤 {account.name}</h3>
               <p className="text-sm text-slate-500">{account.email}</p>
               <p className="mt-1 text-xs text-slate-400">Role: Caregiver</p>
               <button
@@ -374,7 +374,7 @@ export default function CaregiverDashboard() {
                 onClick={handleSignOut}
                 className="mt-6 w-full rounded-2xl bg-red-50 py-3 text-sm font-bold text-red-600 transition hover:bg-red-100"
               >
-                Sign Out
+                🚪 Sign Out
               </button>
             </section>
           )}
@@ -387,8 +387,8 @@ export default function CaregiverDashboard() {
               key={t.key}
               type="button"
               onClick={() => setTab(t.key)}
-              className={`flex flex-1 flex-col items-center gap-0.5 py-3 text-xs font-medium transition ${
-                tab === t.key ? "text-blue-600" : "text-slate-400 hover:text-slate-600"
+              className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl py-3 text-xs font-medium transition ${
+                tab === t.key ? "bg-blue-50 text-blue-600 font-semibold" : "text-slate-400 hover:text-blue-500 hover:bg-slate-50"
               }`}
             >
               {t.icon}

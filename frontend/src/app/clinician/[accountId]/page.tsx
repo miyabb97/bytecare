@@ -374,7 +374,7 @@ export default function ClinicianDashboard() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold text-slate-900">
-                {detailView ? patientName : tab === "summary" ? "Weekly Outcomes" : tab === "profile" ? "Profile" : "Clinician Dashboard"}
+                {detailView ? `👤 ${patientName}` : tab === "summary" ? "📊 Weekly Outcomes" : tab === "profile" ? "⚙️ Profile" : "🩺 Clinician Dashboard"}
               </h1>
               <p className="text-sm text-slate-500">{account.name} (Clinician)</p>
             </div>
@@ -395,7 +395,7 @@ export default function ClinicianDashboard() {
           {tab === "dashboard" && !detailView && !loading && (
             <>
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <h3 className="text-lg font-bold text-slate-900">Overview</h3>
+                <h3 className="text-lg font-bold text-slate-900">📊 Overview</h3>
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <div className="rounded-2xl bg-blue-50 p-4 text-center">
                     <span className="text-3xl font-bold text-blue-600">{myPatients.length}</span>
@@ -409,7 +409,7 @@ export default function ClinicianDashboard() {
               </section>
               {myPatients.length > 0 && (
                 <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <h3 className="mb-3 text-lg font-bold text-slate-900">Quick Access</h3>
+                  <h3 className="mb-3 text-lg font-bold text-slate-900">⚡ Quick Access</h3>
                   <div className="space-y-2 md:grid md:grid-cols-2 md:gap-3 md:space-y-0 lg:grid-cols-3">
                     {myPatients.slice(0, 5).map((p) => (
                       <button key={p.user_id} type="button" onClick={() => { setTab("patients"); void openPatientDetail(p.user_id); }}
@@ -432,7 +432,7 @@ export default function ClinicianDashboard() {
             <>
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-bold text-slate-900">My Patients</h3>
+                  <h3 className="text-lg font-bold text-slate-900">👥 My Patients</h3>
                   <button type="button" className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700"
                     onClick={() => { setShowAssign(true); void loadAllPatients(); }}>
                     + Assign
@@ -470,7 +470,7 @@ export default function ClinicianDashboard() {
               {showAssign && (
                 <section className="rounded-3xl border border-blue-200 bg-white p-5 shadow-sm">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-bold text-slate-900">Assign a Patient</h3>
+                    <h3 className="text-lg font-bold text-slate-900">➕ Assign a Patient</h3>
                     <button type="button" className={btnSecondary} onClick={() => setShowAssign(false)}>Close</button>
                   </div>
                   {assignLoading && <p className="mt-2 text-sm text-slate-500">Loading patients…</p>}
@@ -615,7 +615,7 @@ export default function ClinicianDashboard() {
               {/* Medications */}
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-bold text-slate-900">Medications</h3>
+                  <h3 className="text-lg font-bold text-slate-900">💊 Medications</h3>
                   <button type="button" className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700"
                     onClick={() => { resetMedForm(); setShowMedForm(true); }}>+ Add</button>
                 </div>
@@ -676,7 +676,7 @@ export default function ClinicianDashboard() {
               {/* Appointments */}
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-bold text-slate-900">Appointments</h3>
+                  <h3 className="text-lg font-bold text-slate-900">📅 Appointments</h3>
                   <button type="button" className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700"
                     onClick={() => { resetApptForm(); setShowApptForm(true); }}>+ Add</button>
                 </div>
@@ -758,7 +758,7 @@ export default function ClinicianDashboard() {
 
               {/* Intervention History */}
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <h3 className="mb-3 text-lg font-bold text-slate-900">Intervention History</h3>
+                <h3 className="mb-3 text-lg font-bold text-slate-900">🛡️ Intervention History</h3>
                 {interventions.length === 0 ? (
                   <p className="text-sm text-slate-500">No interventions triggered yet.</p>
                 ) : (
@@ -791,7 +791,7 @@ export default function ClinicianDashboard() {
               {/* Patient selector if no summary loaded */}
               {!weeklySummary && !summaryLoading && (
                 <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <h3 className="text-lg font-bold text-slate-900">Weekly Outcomes</h3>
+                  <h3 className="text-lg font-bold text-slate-900">📊 Weekly Outcomes</h3>
                   {myPatients.length === 0 ? (
                     <p className="mt-3 text-sm text-slate-500">No patients assigned. Assign a patient first.</p>
                   ) : (
@@ -939,7 +939,7 @@ export default function ClinicianDashboard() {
                               <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${
                                 iv.risk_level === "HIGH" ? "bg-red-100 text-red-600"
                                 : iv.risk_level === "MEDIUM" ? "bg-amber-100 text-amber-600"
-                                : "bg-slate-200 text-slate-500"
+                                : "bg-emerald-50 text-emerald-600"
                               }`}>{iv.risk_level}</span>
                             </div>
                             <p className="mt-1 text-xs text-slate-600">{iv.message}</p>
@@ -1027,7 +1027,7 @@ export default function ClinicianDashboard() {
           {/* ============ PROFILE TAB ============ */}
           {tab === "profile" && !detailView && (
             <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h3 className="text-lg font-bold text-slate-900">{account.name}</h3>
+              <h3 className="text-lg font-bold text-slate-900">👤 {account.name}</h3>
               <p className="text-sm text-slate-500">{account.email}</p>
               <p className="mt-1 text-xs text-slate-400">Role: Clinician</p>
               <button type="button" onClick={handleSignOut}
@@ -1045,8 +1045,8 @@ export default function ClinicianDashboard() {
               key={t.key}
               type="button"
               onClick={() => { setTab(t.key); if (t.key !== "patients") setDetailView(false); }}
-              className={`flex flex-1 flex-col items-center gap-0.5 py-3 text-xs font-medium transition ${
-                tab === t.key ? "text-blue-600" : "text-slate-400 hover:text-slate-600"
+              className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl py-3 text-xs font-medium transition ${
+                tab === t.key ? "bg-blue-50 text-blue-600 font-semibold" : "text-slate-400 hover:text-blue-500 hover:bg-slate-50"
               }`}
             >
               {t.icon}

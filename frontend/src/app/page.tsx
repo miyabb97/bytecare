@@ -128,7 +128,7 @@ export default function SelectUserPage() {
               <p className="muted">{account.name} ({account.role})</p>
             </div>
           </div>
-          <button className="icon-button" type="button" onClick={handleSignOut}>Sign Out</button>
+          <button className="icon-button" type="button" onClick={handleSignOut}>🚪 Sign Out</button>
         </header>
 
         <section className="tab-body">
@@ -139,7 +139,7 @@ export default function SelectUserPage() {
               className={showCreate ? "secondary-button" : ""}
               onClick={() => setShowCreate((v) => !v)}
             >
-              {showCreate ? "Cancel" : "Create New Patient"}
+              {showCreate ? "Cancel" : "➕ Create New Patient"}
             </button>
 
             {showCreate ? (
@@ -167,7 +167,7 @@ export default function SelectUserPage() {
 
           {/* Select Existing Patient */}
           <section className="card">
-            <h2 className="auth-title">Select a Patient Profile</h2>
+            <h2 className="auth-title">👥 Select a Patient Profile</h2>
             <p className="muted">Choose an available demo user from the backend in-memory database.</p>
 
             <button type="button" className="secondary-button" onClick={() => void loadUsers()} disabled={loading}>

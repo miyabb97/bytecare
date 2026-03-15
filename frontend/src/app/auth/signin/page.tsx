@@ -84,7 +84,7 @@ export default function SignInPage() {
 
         <section className="tab-body">
           <section className="card">
-            <h2 className="auth-title">Sign In</h2>
+            <h2 className="auth-title">🔐 Sign In</h2>
             <p className="muted">Log into your ByteCare account.</p>
 
             <div className="form-group">
