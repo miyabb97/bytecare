@@ -285,7 +285,7 @@ export default function DashboardPage() {
   const [tcmAudioUrl, setTcmAudioUrl] = useState<string | null>(null);
   const [tcmAudioLoading, setTcmAudioLoading] = useState(false);
   const [tcmAudioPlaying, setTcmAudioPlaying] = useState(false);
-  const [tcmLang, setTcmLang] = useState<"en" | "zh" | "ms" | "ta">("en");
+  const [tcmLang, setTcmLang] = useState<"en" | "zh" | "yue" | "ms" | "ta" | "hi">("en");
   const [tcmTranslatedText, setTcmTranslatedText] = useState<{ message: string; singlish: string } | null>(null);
   const [tcmTranslating, setTcmTranslating] = useState(false);
 
@@ -1562,7 +1562,7 @@ export default function DashboardPage() {
                         <select
                           value={tcmLang}
                           onChange={async (e) => {
-                            const lang = e.target.value as "en" | "zh" | "ms" | "ta";
+                            const lang = e.target.value as "en" | "zh" | "yue" | "ms" | "ta" | "hi";
                             setTcmLang(lang);
                             setTcmAudioUrl(null);
                             setTcmTranslatedText(null);
@@ -1580,9 +1580,11 @@ export default function DashboardPage() {
                           style={{ fontSize: "0.85rem", padding: "4px 8px", borderRadius: 6 }}
                         >
                           <option value="en">English (Singlish)</option>
-                          <option value="zh">中文 (Chinese)</option>
+                          <option value="zh">普通话 (Mandarin)</option>
+                          <option value="yue">廣東話 (Cantonese)</option>
                           <option value="ms">Bahasa Melayu (Malay)</option>
                           <option value="ta">தமிழ் (Tamil)</option>
+                          <option value="hi">हिन्दी (Hindi)</option>
                         </select>
                       </div>
 

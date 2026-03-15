@@ -3,6 +3,16 @@ const backendBaseUrl = process.env.BYTECARE_BACKEND_URL || "http://localhost:800
 
 const nextConfig = {
   reactStrictMode: true,
+  // Increase outgoing HTTP keep-alive timeout so the proxy doesn't drop
+  // long-running backend requests (e.g. TCM image scan)
+  httpAgentOptions: {
+    keepAliveMsecs: 60000,
+  },
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "4mb",
+    },
+  },
   images: {
     remotePatterns: [
       {

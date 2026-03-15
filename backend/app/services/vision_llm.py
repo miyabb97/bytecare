@@ -26,7 +26,7 @@ def is_vision_available() -> bool:
     return bool(_get_api_key())
 
 
-def analyze_herb_image(image_bytes: bytes, timeout: float = 15.0) -> Optional[Dict[str, Any]]:
+def analyze_herb_image(image_bytes: bytes, timeout: float = 10.0) -> Optional[Dict[str, Any]]:
     """Send an image to GPT-4o-mini vision and ask it to identify the herb.
 
     Returns a dict with:
@@ -97,16 +97,15 @@ def analyze_herb_image(image_bytes: bytes, timeout: float = 15.0) -> Optional[Di
     import time as _time
 
     data = None
-    for _attempt in range(3):
+    for _attempt in range(2):
         try:
             with urlopen(req, timeout=timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             break
         except HTTPError as exc:
-            if exc.code == 429 and _attempt < 2:
-                wait = 2 ** (_attempt + 1)
-                logger.info("Vision LLM 429 rate-limited, retrying in %ds…", wait)
-                _time.sleep(wait)
+            if exc.code == 429 and _attempt < 1:
+                # Short wait on first 429, then give up — this is a user-facing request
+                _time.sleep(1)
                 continue
             logger.warning("Vision LLM request failed: HTTP %s", exc.code)
             return None
