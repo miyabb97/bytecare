@@ -139,7 +139,7 @@ export default function DashboardPage() {
   ]);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
-  const [chatLang, setChatLang] = useState<"en" | "zh" | "ms" | "ta">("en");
+  const [chatLang, setChatLang] = useState<"en" | "zh" | "yue" | "ms" | "ta" | "hi">("en");
   const [isRecording, setIsRecording] = useState(false);
   const [chatAudioLoading, setChatAudioLoading] = useState<number | null>(null);
   const [chatAudioPlaying, setChatAudioPlaying] = useState<number | null>(null);
@@ -502,8 +502,10 @@ export default function DashboardPage() {
   const LANG_SPEECH_MAP: Record<string, string> = {
     en: "en-SG",
     zh: "zh-CN",
+    yue: "zh-HK",
     ms: "ms-MY",
     ta: "ta-SG",
+    hi: "hi-IN",
   };
 
   function detectLangFromText(text: string): "en" | "zh" | "ms" | "ta" {
@@ -1078,12 +1080,14 @@ export default function DashboardPage() {
                 <select
                   className="chat-lang-select"
                   value={chatLang}
-                  onChange={(e) => setChatLang(e.target.value as "en" | "zh" | "ms" | "ta")}
+                  onChange={(e) => setChatLang(e.target.value as "en" | "zh" | "yue" | "ms" | "ta" | "hi")}
                 >
                   <option value="en">SG English</option>
-                  <option value="zh">中文 Chinese</option>
+                  <option value="zh">普通话 Mandarin</option>
+                  <option value="yue">廣東話 Cantonese</option>
                   <option value="ms">Bahasa Melayu</option>
                   <option value="ta">தமிழ் Tamil</option>
+                  <option value="hi">हिन्दी Hindi</option>
                 </select>
               </div>
 
