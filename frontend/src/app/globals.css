@@ -296,6 +296,10 @@ button {
   color: #ffffff;
 }
 
+.tc-btn-event {
+  min-width: 6.4rem;
+}
+
 .tc-btn-link {
   width: auto;
   min-height: auto;

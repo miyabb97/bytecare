@@ -95,6 +95,7 @@ export default function EventsPage() {
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [joinCandidate, setJoinCandidate] = useState<CommunityEventItem | null>(null);
 
   const joinedEventIds = useMemo(
     () => new Set((myEvents.joined ?? []).map((event) => event.event_id)),
@@ -170,6 +171,13 @@ export default function EventsPage() {
     }
   }
 
+  async function confirmJoinCandidate() {
+    if (!joinCandidate) return;
+    const selected = joinCandidate;
+    setJoinCandidate(null);
+    await handleToggleJoin(selected);
+  }
+
   function handleBack() {
     router.push(`/dashboard/${encodeURIComponent(userId)}?tab=events`);
   }
@@ -214,7 +222,11 @@ export default function EventsPage() {
               />
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+              <select
+                value={typeFilter}
+                onChange={(event) => setTypeFilter(event.target.value)}
+                className="text-sm text-slate-700"
+              >
                 <option value="all">All types</option>
                 <option value="exercise">Exercise</option>
                 <option value="wellness">Wellness</option>
@@ -224,6 +236,7 @@ export default function EventsPage() {
               <select
                 value={recommendationFilter}
                 onChange={(event) => setRecommendationFilter(event.target.value as RecommendationFilter)}
+                className="text-sm text-slate-700"
               >
                 <option value="all">All activities</option>
                 <option value="recommended">Recommended</option>
@@ -244,7 +257,22 @@ export default function EventsPage() {
               return (
                 <article
                   key={event.event_id}
-                  className="tc-animated-card tc-fade-item overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() =>
+                    router.push(
+                      `/dashboard/${encodeURIComponent(userId)}/events/${encodeURIComponent(event.event_id)}`
+                    )
+                  }
+                  onKeyDown={(keyEvent) => {
+                    if (keyEvent.key === "Enter" || keyEvent.key === " ") {
+                      keyEvent.preventDefault();
+                      router.push(
+                        `/dashboard/${encodeURIComponent(userId)}/events/${encodeURIComponent(event.event_id)}`
+                      );
+                    }
+                  }}
+                  className="tc-animated-card tc-fade-item cursor-pointer overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
                   style={{ animationDelay: `${100 + index * 60}ms` }}
                 >
                   <div className="relative h-32">
@@ -272,14 +300,35 @@ export default function EventsPage() {
                         <div className="flex items-center gap-1"><Clock3 size={12} /> {formatEventTimeShort(event.datetime)}</div>
                         <div className="flex items-center gap-1"><MapPin size={12} /> {event.location}</div>
                       </div>
-                      <button
-                        type="button"
-                        className={isJoined ? "tc-btn tc-btn-secondary" : "tc-btn tc-btn-primary"}
-                        onClick={() => void handleToggleJoin(event)}
-                        disabled={isLoading}
-                      >
-                        {isLoading ? "Updating..." : isJoined ? "Cancel" : "Join Event"}
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className="tc-btn tc-btn-secondary tc-btn-event"
+                          onClick={(clickEvent) => {
+                            clickEvent.stopPropagation();
+                            router.push(
+                              `/dashboard/${encodeURIComponent(userId)}/events/${encodeURIComponent(event.event_id)}`
+                            );
+                          }}
+                        >
+                          Details
+                        </button>
+                        <button
+                          type="button"
+                          className={isJoined ? "tc-btn tc-btn-danger tc-btn-event" : "tc-btn tc-btn-primary tc-btn-event"}
+                          onClick={(clickEvent) => {
+                            clickEvent.stopPropagation();
+                            if (isJoined) {
+                              void handleToggleJoin(event);
+                              return;
+                            }
+                            setJoinCandidate(event);
+                          }}
+                          disabled={isLoading}
+                        >
+                          {isLoading ? "Updating..." : isJoined ? "Cancel" : "Join Event"}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </article>
@@ -293,6 +342,38 @@ export default function EventsPage() {
             ) : null}
           </section>
         </section>
+
+        {joinCandidate ? (
+          <div className="medication-modal-backdrop" role="presentation">
+            <section
+              className="medication-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="join-event-confirm-title"
+            >
+              <p className="modal-kicker">Join event</p>
+              <h2 id="join-event-confirm-title">Confirm joining this activity?</h2>
+              <p className="muted"><strong>{joinCandidate.title}</strong></p>
+              <p className="muted">{formatEventTimeShort(joinCandidate.datetime)} &middot; {joinCandidate.location}</p>
+              <div className="medication-modal-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setJoinCandidate(null)}
+                >
+                  Not now
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void confirmJoinCandidate()}
+                  disabled={Boolean(actionLoading)}
+                >
+                  {actionLoading ? "Joining..." : "Join Event"}
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
 
         <nav className="tc-bottom-nav fixed bottom-0 left-1/2 z-40 flex w-full max-w-md -translate-x-1/2 items-center justify-between border-t border-slate-200 bg-white px-5 py-2">
           <button

@@ -223,6 +223,7 @@ export default function DashboardPage() {
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [communityActionLoading, setCommunityActionLoading] = useState<string | null>(null);
   const [communityActionError, setCommunityActionError] = useState<string | null>(null);
+  const [joinConfirmEvent, setJoinConfirmEvent] = useState<CommunityEventItem | null>(null);
 
   const [chatDraft, setChatDraft] = useState("");
   const [chatResult, setChatResult] = useState<ChatResponse | null>(null);
@@ -836,6 +837,13 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleConfirmJoinEvent() {
+    if (!joinConfirmEvent) return;
+    const selected = joinConfirmEvent;
+    setJoinConfirmEvent(null);
+    await handleToggleCommunityEvent(selected);
+  }
+
   // --- Profile CRUD handlers ---
   function startEditProfile() {
     if (!userProfile) return;
@@ -1216,7 +1224,22 @@ export default function DashboardPage() {
                   return (
                     <article
                       key={event.event_id}
-                      className="tc-animated-card tc-fade-item overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() =>
+                        router.push(
+                          `/dashboard/${encodeURIComponent(userId)}/events/${encodeURIComponent(event.event_id)}`
+                        )
+                      }
+                      onKeyDown={(keyEvent) => {
+                        if (keyEvent.key === "Enter" || keyEvent.key === " ") {
+                          keyEvent.preventDefault();
+                          router.push(
+                            `/dashboard/${encodeURIComponent(userId)}/events/${encodeURIComponent(event.event_id)}`
+                          );
+                        }
+                      }}
+                      className="tc-animated-card tc-fade-item cursor-pointer overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
                       style={{ animationDelay: `${80 + index * 60}ms` }}
                     >
                       <div className="relative h-32">
@@ -1227,24 +1250,51 @@ export default function DashboardPage() {
                           className="object-cover"
                           referrerPolicy="no-referrer"
                         />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/65 to-transparent" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+                        <div className="absolute right-3 top-3 rounded-md border border-white/25 bg-white/25 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur">
+                          {eventTagFor(event)}
+                        </div>
                         <div className="absolute bottom-3 left-4 text-white">
-                          <h4 className="text-[1.52rem] font-bold leading-tight">{event.title}</h4>
+                          <h4 className="text-[1.35rem] font-bold leading-tight">{event.title}</h4>
                         </div>
                       </div>
-                      <div className="flex items-center justify-between p-4">
-                        <div className="space-y-1 text-xs text-slate-500">
-                          <div className="flex items-center gap-1"><Clock3 size={12} /> {formatEventTimeShort(event.datetime)}</div>
-                          <div className="flex items-center gap-1"><MapPin size={12} /> {event.location}</div>
+                      <div className="p-4">
+                        {event.reason ? <p className="mb-3 text-[10px] italic text-slate-500">{event.reason}</p> : null}
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-1 text-xs text-slate-500">
+                            <div className="flex items-center gap-1"><Clock3 size={12} /> {formatEventTimeShort(event.datetime)}</div>
+                            <div className="flex items-center gap-1"><MapPin size={12} /> {event.location}</div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              className="tc-btn tc-btn-secondary tc-btn-event"
+                              onClick={(clickEvent) => {
+                                clickEvent.stopPropagation();
+                                router.push(
+                                  `/dashboard/${encodeURIComponent(userId)}/events/${encodeURIComponent(event.event_id)}`
+                                );
+                              }}
+                            >
+                              Details
+                            </button>
+                            <button
+                              type="button"
+                              className={isJoined ? "tc-btn tc-btn-danger tc-btn-event" : "tc-btn tc-btn-primary tc-btn-event"}
+                              onClick={(clickEvent) => {
+                                clickEvent.stopPropagation();
+                                if (isJoined) {
+                                  void handleToggleCommunityEvent(event);
+                                  return;
+                                }
+                                setJoinConfirmEvent(event);
+                              }}
+                              disabled={isLoading}
+                            >
+                              {isLoading ? "Updating..." : isJoined ? "Cancel" : "Join Event"}
+                            </button>
+                          </div>
                         </div>
-                        <button
-                          type="button"
-                          className="tc-btn tc-btn-primary"
-                          onClick={() => void handleToggleCommunityEvent(event)}
-                          disabled={isLoading}
-                        >
-                          {isLoading ? "Updating..." : isJoined ? "Cancel" : "Join"}
-                        </button>
                       </div>
                     </article>
                   );
@@ -1274,7 +1324,22 @@ export default function DashboardPage() {
                     return (
                       <article
                         key={event.event_id}
-                        className="tc-animated-card tc-fade-item overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() =>
+                          router.push(
+                            `/dashboard/${encodeURIComponent(userId)}/events/${encodeURIComponent(event.event_id)}`
+                          )
+                        }
+                        onKeyDown={(keyEvent) => {
+                          if (keyEvent.key === "Enter" || keyEvent.key === " ") {
+                            keyEvent.preventDefault();
+                            router.push(
+                              `/dashboard/${encodeURIComponent(userId)}/events/${encodeURIComponent(event.event_id)}`
+                            );
+                          }
+                        }}
+                        className="tc-animated-card tc-fade-item cursor-pointer overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
                         style={{ animationDelay: `${80 + index * 60}ms` }}
                       >
                         <div className="relative h-32">
@@ -1290,7 +1355,7 @@ export default function DashboardPage() {
                             {eventTagFor(event)}
                           </div>
                           <div className="absolute bottom-3 left-4 text-white">
-                            <h4 className="text-[1.5rem] font-bold leading-tight">{event.title}</h4>
+                            <h4 className="text-[1.35rem] font-bold leading-tight">{event.title}</h4>
                           </div>
                         </div>
                         <div className="p-4">
@@ -1300,14 +1365,35 @@ export default function DashboardPage() {
                               <div className="flex items-center gap-1"><Clock3 size={12} /> {formatEventTimeShort(event.datetime)}</div>
                               <div className="flex items-center gap-1"><MapPin size={12} /> {event.location}</div>
                             </div>
-                            <button
-                              type="button"
-                              className="tc-btn tc-btn-primary"
-                              onClick={() => void handleToggleCommunityEvent(event)}
-                              disabled={isLoading}
-                            >
-                              {isLoading ? "Updating..." : isJoined ? "Cancel" : "Join Event"}
-                            </button>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                className="tc-btn tc-btn-secondary tc-btn-event"
+                                onClick={(clickEvent) => {
+                                  clickEvent.stopPropagation();
+                                  router.push(
+                                    `/dashboard/${encodeURIComponent(userId)}/events/${encodeURIComponent(event.event_id)}`
+                                  );
+                                }}
+                              >
+                                Details
+                              </button>
+                              <button
+                                type="button"
+                                className={isJoined ? "tc-btn tc-btn-danger tc-btn-event" : "tc-btn tc-btn-primary tc-btn-event"}
+                                onClick={(clickEvent) => {
+                                  clickEvent.stopPropagation();
+                                  if (isJoined) {
+                                    void handleToggleCommunityEvent(event);
+                                    return;
+                                  }
+                                  setJoinConfirmEvent(event);
+                                }}
+                                disabled={isLoading}
+                              >
+                                {isLoading ? "Updating..." : isJoined ? "Cancel" : "Join Event"}
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </article>
@@ -1320,7 +1406,24 @@ export default function DashboardPage() {
               <section>
                 <h2 className="mb-4 text-[1.5rem] font-bold leading-none text-slate-900">My Events</h2>
                 {joinedEvents.length > 0 ? (
-                  <article className="tc-animated-card tc-fade-item overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+                  <article
+                    role="button"
+                    tabIndex={0}
+                    onClick={() =>
+                      router.push(
+                        `/dashboard/${encodeURIComponent(userId)}/events/${encodeURIComponent(joinedEvents[0].event_id)}`
+                      )
+                    }
+                    onKeyDown={(keyEvent) => {
+                      if (keyEvent.key === "Enter" || keyEvent.key === " ") {
+                        keyEvent.preventDefault();
+                        router.push(
+                          `/dashboard/${encodeURIComponent(userId)}/events/${encodeURIComponent(joinedEvents[0].event_id)}`
+                        );
+                      }
+                    }}
+                    className="tc-animated-card tc-fade-item cursor-pointer overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
+                  >
                     <div className="relative h-32">
                       <Image
                         src={PROFILE_IMAGE_URL}
@@ -1343,11 +1446,25 @@ export default function DashboardPage() {
                         <div className="flex items-center gap-1"><MapPin size={12} /> {joinedEvents[0].location}</div>
                       </div>
                       <div className="flex gap-2">
-                        <button type="button" className="tc-btn tc-btn-secondary">Details</button>
                         <button
                           type="button"
-                          className="tc-btn tc-btn-danger"
-                          onClick={() => void handleToggleCommunityEvent(joinedEvents[0])}
+                          className="tc-btn tc-btn-secondary tc-btn-event"
+                          onClick={(clickEvent) => {
+                            clickEvent.stopPropagation();
+                            router.push(
+                              `/dashboard/${encodeURIComponent(userId)}/events/${encodeURIComponent(joinedEvents[0].event_id)}`
+                            );
+                          }}
+                        >
+                          Details
+                        </button>
+                        <button
+                          type="button"
+                          className="tc-btn tc-btn-danger tc-btn-event"
+                          onClick={(clickEvent) => {
+                            clickEvent.stopPropagation();
+                            void handleToggleCommunityEvent(joinedEvents[0]);
+                          }}
                           disabled={communityActionLoading === joinedEvents[0].event_id}
                         >
                           {communityActionLoading === joinedEvents[0].event_id ? "Updating..." : "Cancel"}
@@ -1931,6 +2048,40 @@ export default function DashboardPage() {
             <span className={`text-[11px] ${activeTab === "profile" ? "font-medium" : "font-normal"}`}>Profile</span>
           </button>
         </nav>
+
+        {joinConfirmEvent ? (
+          <div className="medication-modal-backdrop" role="presentation">
+            <section
+              className="medication-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="join-event-confirm-title-dashboard"
+            >
+              <p className="modal-kicker">Join event</p>
+              <h2 id="join-event-confirm-title-dashboard">Confirm joining this activity?</h2>
+              <p className="muted"><strong>{joinConfirmEvent.title}</strong></p>
+              <p className="muted">
+                {formatEventTimeShort(joinConfirmEvent.datetime)} &middot; {joinConfirmEvent.location}
+              </p>
+              <div className="medication-modal-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => setJoinConfirmEvent(null)}
+                >
+                  Not now
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleConfirmJoinEvent()}
+                  disabled={Boolean(communityActionLoading)}
+                >
+                  {communityActionLoading ? "Joining..." : "Join Event"}
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
 
         {reminderGroup ? (
           <div className="medication-modal-backdrop" role="presentation">
