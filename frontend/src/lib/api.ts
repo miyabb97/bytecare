@@ -98,6 +98,8 @@ export type ChatResponse = {
     drift_detected: boolean;
     severity: string;
     next_action: string;
+    suggested_action?: string;
+    intent?: string;
   };
   language: string;
 };
@@ -163,6 +165,7 @@ export type MedicationItem = {
   time_window_minutes: number;
   criticality: string;
   total_supply: number;
+  reminder_offset_minutes?: number | null;
   created_at: string;
 };
 
@@ -546,6 +549,25 @@ export const api = {
 
   requestRefill: (userId: string, medId: string) =>
     apiRequest<{ success: boolean; medication: string }>(`/users/${userId}/medications/${medId}/refill-request`, { method: "POST" }),
+
+  // --- Reminder agent endpoints ---
+  checkReminders: (userId: string) =>
+    apiRequest<{ fired: Array<{ medication: string; scheduled_at: string; reminder_text: string }>; checked: number }>(
+      `/users/${userId}/reminders/check`,
+      { method: "POST" }
+    ),
+
+  setMedicationReminder: (userId: string, medId: string, offsetMinutes: number = 10) =>
+    apiRequest<{ success: boolean; set_count: number; offset_minutes: number; medications: string[] }>(
+      `/users/${userId}/medications/${medId}/reminder`,
+      { method: "PUT", body: JSON.stringify({ offset_minutes: offsetMinutes }) }
+    ),
+
+  clearMedicationReminder: (userId: string, medId: string) =>
+    apiRequest<{ success: boolean; medication: string }>(
+      `/users/${userId}/medications/${medId}/reminder`,
+      { method: "DELETE" }
+    ),
 };
 
 export type DemoPatient = {

@@ -272,6 +272,8 @@ export default function DashboardPage() {
 
     (async () => {
       try {
+        // Fire any due medication reminders before loading messages
+        api.checkReminders(userId).catch(() => {});
         const res = await api.getChatMessages(userId);
         const backendMsgs = res.items ?? [];
         // Find system messages that aren't already in our local state
@@ -821,6 +823,13 @@ export default function DashboardPage() {
       const response = await api.postChat(userId, message, lang);
       setChatResult(response);
       setChatMessages((prev) => [...prev, { id: Date.now() + 1, sender: "bot", text: response.reply, originalText: response.reply_en || response.reply, timestamp: new Date(), lang: response.language || lang }]);
+      // Refresh medications to show the reminder badge if a reminder was just set
+      if (response.context?.suggested_action === "set_reminder") {
+        api.getMedications(userId).then((res) => {
+          setMedications(res);
+          setAllMeds((res.items ?? []) as MedicationItem[]);
+        }).catch(() => {});
+      }
     } catch (error) {
       const msg = safeMessage(error);
       setChatError(msg);
@@ -1470,6 +1479,9 @@ export default function DashboardPage() {
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-semibold text-slate-800">{slot.med.name}</p>
                             <p className="text-xs text-slate-500">{slot.timeLabel} &middot; {slot.med.dose_text}</p>
+                            {slot.med.reminder_offset_minutes ? (
+                              <p className="mt-0.5 text-xs font-medium text-blue-500">⏰ Reminder {slot.med.reminder_offset_minutes} min before</p>
+                            ) : null}
                           </div>
                           {slot.status ? (
                             <div className="flex items-center gap-1.5">

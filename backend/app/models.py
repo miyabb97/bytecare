@@ -60,6 +60,7 @@ class Medication(Base):
     time_window_minutes = Column(Integer, default=120)
     criticality = Column(String, default="medium")
     total_supply = Column(Integer, default=0)   # 0 = not tracked
+    reminder_offset_minutes = Column(Integer, nullable=True)  # None = no reminder
     created_at = Column(String, nullable=False)
 
     @property
@@ -76,6 +77,7 @@ class Medication(Base):
             "time_window_minutes": self.time_window_minutes,
             "criticality": self.criticality,
             "total_supply": self.total_supply or 0,
+            "reminder_offset_minutes": self.reminder_offset_minutes,
             "created_at": self.created_at,
         }
 
