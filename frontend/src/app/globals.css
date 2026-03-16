@@ -326,6 +326,28 @@ button {
   line-height: 1.2;
 }
 
+.tc-segment-btn {
+  width: auto;
+  margin-top: 0;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+}
+
+.tc-segment-btn-active {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.tc-list-row-btn {
+  width: auto;
+  margin-top: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
 .tc-bottom-nav button {
   width: auto;
   margin-top: 0;
@@ -1430,9 +1452,9 @@ select {
 .medication-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 30;
+  z-index: 80;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
   padding: 1rem;
   background: rgba(15, 23, 42, 0.45);
@@ -1441,6 +1463,8 @@ select {
 .medication-modal {
   width: 100%;
   max-width: 440px;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
   background: #ffffff;
   border-radius: 22px;
   padding: 1rem;
@@ -1503,12 +1527,6 @@ select {
 
 .modal-status {
   margin: 0.75rem 0 0;
-}
-
-@media (min-width: 900px) {
-  .medication-modal-backdrop {
-    align-items: center;
-  }
 }
 
 /* ── Desktop responsive enhancements ── */

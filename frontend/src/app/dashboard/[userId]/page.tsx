@@ -5,23 +5,37 @@ import Image from "next/image";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
+  Bell,
   Camera,
   CalendarDays,
+  ChevronRight,
+  CheckCircle2,
   Clock3,
+  FileText,
   Heart,
+  HelpCircle,
   Home,
+  Info,
   Leaf,
+  LogOut,
   MapPin,
   MessageSquare,
   Mic,
+  Package,
+  Pencil,
   PhoneCall,
   Pill,
+  Play,
   Scan,
+  SendHorizonal,
   Search,
   Settings,
+  ShieldCheck,
   Sparkles,
   TriangleAlert,
   User,
+  Volume2,
+  XCircle,
   Utensils
 } from "lucide-react";
 import {
@@ -95,6 +109,31 @@ function formatDateTime(value: string): string {
   return new Date(value).toLocaleString();
 }
 
+function toCalendarStamp(value: Date): string {
+  return value.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function buildCalendarUrl(appointment: { datetime: string; location: string; notes?: string }): string {
+  const start = new Date(appointment.datetime);
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: "ByteCare Appointment",
+    dates: `${toCalendarStamp(start)}/${toCalendarStamp(end)}`,
+    location: appointment.location,
+    details: appointment.notes || "Upcoming ByteCare appointment",
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+function appointmentPrepNote(appointment: { notes?: string | null }): string {
+  const notes = (appointment.notes ?? "").toLowerCase();
+  if (notes.includes("fasting")) {
+    return "Please fast for 8-10 hours before your appointment. Only plain water is allowed.";
+  }
+  return "Please arrive 10 minutes early and bring any relevant medication or test records.";
+}
+
 const PROFILE_IMAGE_URL = "https://lh3.googleusercontent.com/aida-public/AB6AXuDrpjijg5RYen-KEp80Ku17lHJt6RK6oQ8jsW9yOGV8G22INjaHluVxszAVSYh7377YZduJY0z1JadmjpP-_slJeGgQKFmm53tOjbijQFoPrqrf32G8qlRqKcx5fRUjfVjGlREMUBlc9xtjTdcHypDPv6OA4gWbCQ2VxJVehPCypeFLrmiGy3QwVzlKW5gKU4PVT0_SQBD3riOiporPY9unbl6_T7IjdEnwDL7j1yxZItw3L9Fgj9T6Q8f8esWe3APv7JdvBOUrA0M";
 const IMAGE_WALK = "https://lh3.googleusercontent.com/aida-public/AB6AXuAVNP892HZuLcbaTsZyc-eOMPlYKDMlqVdP8ybsdVb0P1LZ6ug1VbuJgmaUGiqhMRe5x6J1iiLvm3WoSUQdUZQcnFbsq7ITJTq6mRYdfqHtLPGx-_sxdDCm5L3btLTI7HStACdyt49FXrTIAaaZzYAUxW2brjZZMGXVbX_FzFWxte_JaGXr5wQepX-cc_Lrot54PUiK5B-uSnldnT6OnrQTs_il1EbTxYpYop22BsDCibjOX49JtovQHcfTqTkd7XeeLSJGxgpP_dM";
 const IMAGE_TAI_CHI = "https://lh3.googleusercontent.com/aida-public/AB6AXuA3YolzPqhmPsepHcKCNeiXvywh-4SmaMp4_WdWbln4_lyFbklKzB9EOtjAPGYN_rbWybaVuXmZDQmNkonLqc593lRpRfrTbMRluqYuW3tvwHkzyVPO5jp2nUf6TCFC48TX9xDrJu6bw0fob2ND-eXkQhlDQG84otSIfX1lBKh1aPxuh9jnH1yoc7GKSRrCg0QjpvKlLonHjpChtDQOe1M0aIRCB73rjG3uuF3hZMnzP1XxOV7zBlPH4A-ve-5nzyHW1n2Kb27_PKk";
@@ -157,6 +196,32 @@ function getAdherenceRate(counts?: {
   const total = counts.taken + counts.missed + counts.late + counts.skipped;
   if (total <= 0) return 0;
   return Math.round((counts.taken / total) * 100);
+}
+
+function intakeStatusMeta(status: string | null | undefined) {
+  const normalized = (status ?? "").toLowerCase();
+  if (normalized === "taken") {
+    return {
+      label: "Taken",
+      icon: CheckCircle2,
+      iconClass: "text-emerald-500",
+      chipClass: "bg-emerald-50 text-emerald-600",
+    };
+  }
+  if (normalized === "late" || normalized === "snoozed") {
+    return {
+      label: normalized === "late" ? "Late" : "Snoozed",
+      icon: Clock3,
+      iconClass: "text-amber-500",
+      chipClass: "bg-amber-50 text-amber-600",
+    };
+  }
+  return {
+    label: normalized === "skipped" ? "Skipped" : "Missed",
+    icon: XCircle,
+    iconClass: "text-red-500",
+    chipClass: "bg-red-50 text-red-600",
+  };
 }
 
 function BottomNavIcon({ tab, active }: { tab: Tab; active: boolean }) {
@@ -686,6 +751,39 @@ export default function DashboardPage() {
     () => doseEvents.filter((event) => event.response_status).slice(0, 4),
     [doseEvents]
   );
+  const healthSupplyItems = useMemo(
+    () => refillStatus ?? allMeds.map<RefillStatusItem>((m) => ({
+      medication_id: m.medication_id,
+      name: m.name,
+      dose_text: m.dose_text,
+      total_supply: m.total_supply ?? 0,
+      taken_count: 0,
+      doses_remaining: null,
+      days_remaining: null,
+      is_low: false,
+      needs_refill: false,
+      tracking_enabled: false,
+    })),
+    [allMeds, refillStatus]
+  );
+  const nextHealthAppointment = useMemo(() => {
+    const sorted = [...allAppts].sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
+    if (appointments?.next_appointment) {
+      const matchingFullAppointment = sorted.find((appt) =>
+        appt.datetime === appointments.next_appointment?.datetime &&
+        appt.location === appointments.next_appointment?.location
+      );
+      if (matchingFullAppointment) {
+        return matchingFullAppointment;
+      }
+      return {
+        datetime: appointments.next_appointment.datetime,
+        location: appointments.next_appointment.location,
+        notes: "",
+      };
+    }
+    return sorted[0] ?? null;
+  }, [allAppts, appointments]);
 
   // Build today's dose slots for the home tab overview
   type TodayDoseSlot = { med: MedicationItem; scheduledFor: string; timeLabel: string; status: string | null };
@@ -1388,48 +1486,41 @@ export default function DashboardPage() {
   return (
     <main className="flex min-h-screen justify-center bg-slate-100">
       <div className="relative min-h-screen w-full max-w-md bg-slate-50 pb-24 md:border-x md:border-slate-200 md:bg-slate-50 md:shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+        <header className="app-header">
+          <div className="header-left">
+            <Image
+              src={PROFILE_IMAGE_URL}
+              alt="ByteCare logo"
+              width={38}
+              height={38}
+              className="h-[2.35rem] w-[2.35rem] rounded-full border-2 border-blue-100 object-cover"
+              referrerPolicy="no-referrer"
+            />
+            <div className="header-copy">
+              <h1>ByteCare</h1>
+              <p className="muted">{userProfile?.name ?? "Loading profile..."}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            aria-label="Settings"
+            onClick={() => void loadDashboard()}
+            className="tc-icon-btn inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100"
+          >
+            <Settings size={20} />
+          </button>
+        </header>
+
         {activeTab === "events" ? (
-          <header className="sticky top-0 z-30 border-b border-slate-200 bg-white px-4 py-5">
-            <div className="mb-4 flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setActiveTab("home")}
-                className="tc-icon-btn inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-700 transition hover:bg-slate-100"
-              >
-                <ArrowLeft size={22} />
-              </button>
+          <section className="border-b border-slate-200 bg-white px-4 py-5">
+            <div className="mb-4 flex items-center">
               <h1 className="text-[2rem] font-bold leading-none tracking-tight text-slate-900">Jio Events</h1>
             </div>
             <p className="text-[0.77rem] text-slate-600">
               Discover nearby activities to stay healthy and connected.
             </p>
-          </header>
-        ) : (
-          <header className="app-header">
-            <div className="header-left">
-              <Image
-                src={PROFILE_IMAGE_URL}
-                alt="ByteCare logo"
-                width={38}
-                height={38}
-                className="h-[2.35rem] w-[2.35rem] rounded-full border-2 border-blue-100 object-cover"
-                referrerPolicy="no-referrer"
-              />
-              <div className="header-copy">
-                <h1>ByteCare</h1>
-                <p className="muted">{userProfile?.name ?? "Loading profile..."}</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              aria-label="Settings"
-              onClick={() => void loadDashboard()}
-              className="tc-icon-btn inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100"
-            >
-              <Settings size={20} />
-            </button>
-          </header>
-        )}
+          </section>
+        ) : null}
 
         {dashboardLoading ? <p className="px-4 pt-2 text-xs text-emerald-700">Loading dashboard...</p> : null}
         {dashboardError ? <p className="px-4 pt-2 text-xs text-red-700">{dashboardError}</p> : null}
@@ -1501,7 +1592,10 @@ export default function DashboardPage() {
 
               <section className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="mb-3 flex items-start justify-between gap-2">
-                  <h3 className="text-[1.02rem] font-bold leading-none text-slate-900">Medication Adherence</h3>
+                  <div className="flex items-center gap-3">
+                    <Pill className="text-[#3670e2]" size={22} />
+                    <h3 className="text-[1.2rem] font-bold leading-none text-slate-900">Medication Adherence</h3>
+                  </div>
                   {meeScore ? (() => {
                     const riskLevel = getRiskLevel(meeScore.score);
                     return (
@@ -1600,7 +1694,10 @@ export default function DashboardPage() {
               {/* Today's Doses */}
               {todayDoseSlots.length > 0 && (
                 <section id="today-doses" className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
-                  <h3 className="mb-3 text-[1.25rem] font-bold leading-none text-slate-900">Today&apos;s Doses</h3>
+                  <div className="mb-3 flex items-center gap-3">
+                    <CalendarDays className="text-[#3670e2]" size={22} />
+                    <h3 className="text-[1.2rem] font-bold leading-none text-slate-900">Today&apos;s Doses</h3>
+                  </div>
                   <div className="space-y-3">
                     {todayDoseSlots.map((slot) => {
                       const key = `${slot.med.medication_id}:${slot.scheduledFor}`;
@@ -1709,11 +1806,14 @@ export default function DashboardPage() {
 
               <section id="upcoming-visit" className="relative overflow-hidden rounded-[1.75rem] bg-blue-600 p-5 text-white shadow-lg">
                 <div className="relative z-10">
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="text-xs font-medium uppercase tracking-[0.11em] opacity-85">Upcoming Visit</span>
-                    <Clock3 size={16} className="opacity-80" />
+                  <div className="mb-2 flex items-start justify-between gap-4">
+                    <div className="flex items-center gap-2">
+                      <CalendarDays size={18} className="opacity-90" />
+                      <span className="text-[1.2rem] font-bold leading-none">Upcoming Visit</span>
+                    </div>
+                    <Clock3 size={16} className="mt-1 opacity-80" />
                   </div>
-                  <h3 className="text-[1.2rem] font-bold leading-tight">{appointments?.next_appointment?.location ?? "Polyclinic Visit"}</h3>
+                  <h3 className="text-[1.1rem] font-semibold leading-tight">{appointments?.next_appointment?.location ?? "Polyclinic Visit"}</h3>
                   <p className="mt-1 text-sm opacity-90">{appointments?.next_appointment ? formatDateTime(appointments.next_appointment.datetime) : appointmentText}</p>
                   <div className="mt-4 flex items-baseline gap-1">
                     <span className="text-4xl font-bold leading-none">{appointments?.days_remaining ?? "-"}</span>
@@ -1728,7 +1828,7 @@ export default function DashboardPage() {
                   <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50">
                     <Utensils className="text-emerald-500" size={24} strokeWidth={2.2} />
                   </div>
-                  <h3 className="text-[1.08rem] font-semibold tracking-[-0.02em] text-slate-900 sm:text-[1.18rem]">
+                  <h3 className="text-[1.2rem] font-bold leading-none tracking-tight text-slate-900">
                     Diet Suggestions
                   </h3>
                 </div>
@@ -2129,9 +2229,16 @@ export default function DashboardPage() {
                             className="bubble-audio-btn"
                             onClick={() => void handlePlayChatAudio(message.id, message.text, message.lang || chatLang)}
                             disabled={chatAudioLoading === message.id || chatAudioPlaying === message.id}
+                            aria-label={chatAudioPlaying === message.id ? "Playing audio" : "Play audio"}
                             title={chatAudioPlaying === message.id ? "Playing..." : "Listen"}
                           >
-                            {chatAudioLoading === message.id ? <span className="audio-spinner" /> : chatAudioPlaying === message.id ? "Playing" : "Listen"}
+                            {chatAudioLoading === message.id ? (
+                              <span className="audio-spinner" />
+                            ) : chatAudioPlaying === message.id ? (
+                              <Volume2 size={14} strokeWidth={2.1} />
+                            ) : (
+                              <Play size={14} strokeWidth={2.1} />
+                            )}
                           </button>
                         </div>
                       </div>
@@ -2148,14 +2255,15 @@ export default function DashboardPage() {
                           className="bubble-audio-btn"
                           onClick={() => void handlePlayChatAudio(message.id, message.text, message.lang || chatLang)}
                           disabled={chatAudioLoading === message.id || chatAudioPlaying === message.id}
+                          aria-label={chatAudioPlaying === message.id ? "Playing audio" : "Play audio"}
                           title={chatAudioPlaying === message.id ? "Playing..." : "Listen"}
                         >
                           {chatAudioLoading === message.id ? (
                             <span className="audio-spinner" />
                           ) : chatAudioPlaying === message.id ? (
-                            "Playing"
+                            <Volume2 size={14} strokeWidth={2.1} />
                           ) : (
-                            "Listen"
+                            <Play size={14} strokeWidth={2.1} />
                           )}
                         </button>
                       </div>
@@ -2199,17 +2307,19 @@ export default function DashboardPage() {
                   className={`mic-btn ${isRecording ? "mic-recording" : ""}`}
                   onClick={handleVoiceInput}
                   disabled={chatLoading || isRecording}
+                  aria-label={isRecording ? "Listening" : "Voice input"}
                   title={isRecording ? "Listening..." : "Voice input"}
                 >
-                  {isRecording ? "Rec" : "Mic"}
+                  <Mic size={18} strokeWidth={2.1} />
                 </button>
                 <button
                   type="button"
                   className="send-btn"
                   onClick={() => void handleSendChat()}
                   disabled={chatLoading || !chatDraft.trim()}
+                  aria-label={chatLoading ? "Sending" : "Send message"}
                 >
-                  {chatLoading ? "..." : "Send"}
+                  {chatLoading ? <span className="audio-spinner" /> : <SendHorizonal size={18} strokeWidth={2.1} />}
                 </button>
               </div>
               {chatError ? <p className="chat-error">{chatError}</p> : null}
@@ -2219,400 +2329,530 @@ export default function DashboardPage() {
           {/* ── HEALTH TAB ── */}
           {activeTab === "health" ? (
             <>
-              <section className="card">
-                <div className="card-title">TCM Safety Check</div>
-                <p className="muted">Check herb-drug interactions against your current medications.</p>
-
-                <div className="tcm-mode-picker">
-                  <button
-                    type="button"
-                    className={tcmMode === "manual" ? "role-btn role-btn-active" : "role-btn"}
-                    onClick={() => setTcmMode("manual")}
-                  >
-                    Type Herb Name
-                  </button>
-                  <button
-                    type="button"
-                    className={tcmMode === "image" ? "role-btn role-btn-active" : "role-btn"}
-                    onClick={() => setTcmMode("image")}
-                  >
-                    Upload Image
-                  </button>
+              <section className="space-y-3">
+                <div className="flex items-center gap-3 px-1">
+                  <ShieldCheck className="text-[#3670e2]" size={24} />
+                  <h2 className="text-[1.2rem] font-bold leading-none tracking-tight text-slate-900">TCM Safety Check</h2>
                 </div>
+                <div className="rounded-[2rem] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
+                  <div className="space-y-4">
+                    <p className="text-sm leading-relaxed text-slate-500">
+                      Check herb-drug interactions against your current medications.
+                    </p>
 
-                {tcmMode === "manual" ? (
-                  <div className="form-group">
-                    <label className="form-label">Herb Name</label>
-                    <input
-                      value={herb}
-                      onChange={(e) => setHerb(e.target.value)}
-                      placeholder="e.g. ginseng, ginkgo, dong quai"
-                    />
-                  </div>
-                ) : (
-                  <div className="form-group">
-                    <label className="form-label">Upload TCM Herb Label / Bottle Image</label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => {
-                        setTcmImageFile(e.target.files?.[0] ?? null);
-                        setTCMResult(null);
-                      }}
-                      className="file-input"
-                    />
-                    {tcmImageFile ? (
-                      <div style={{ marginTop: 8 }}>
-                        <p className="muted">Selected: {tcmImageFile.name}</p>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={URL.createObjectURL(tcmImageFile)}
-                          alt="Uploaded herb"
-                          style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 8, marginTop: 6, objectFit: "contain" }}
+                    <div className="flex rounded-2xl bg-slate-100 p-1">
+                      <button
+                        type="button"
+                        className={`tc-segment-btn flex-1 rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                          tcmMode === "manual" ? "tc-segment-btn-active" : "hover:text-slate-700"
+                        }`}
+                        onClick={() => setTcmMode("manual")}
+                      >
+                        Type Herb Name
+                      </button>
+                      <button
+                        type="button"
+                        className={`tc-segment-btn flex-1 rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                          tcmMode === "image" ? "tc-segment-btn-active" : "hover:text-slate-700"
+                        }`}
+                        onClick={() => setTcmMode("image")}
+                      >
+                        Upload Image
+                      </button>
+                    </div>
+
+                    {tcmMode === "manual" ? (
+                      <div className="space-y-2">
+                        <label className="ml-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Herb Name</label>
+                        <input
+                          value={herb}
+                          onChange={(e) => setHerb(e.target.value)}
+                          placeholder="e.g. ginseng, ginkgo, dong quai"
+                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 placeholder:text-slate-300 outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/70"
                         />
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <label className="ml-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Upload Herb Image</label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            setTcmImageFile(e.target.files?.[0] ?? null);
+                            setTCMResult(null);
+                          }}
+                          className="file-input"
+                        />
+                        {tcmImageFile ? (
+                          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                            <p className="text-xs font-medium text-slate-500">Selected: {tcmImageFile.name}</p>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={URL.createObjectURL(tcmImageFile)}
+                              alt="Uploaded herb"
+                              style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 16, marginTop: 8, objectFit: "contain" }}
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => void handleTCMCheck()}
+                      disabled={tcmLoading || (tcmMode === "manual" ? !herb.trim() : !tcmImageFile)}
+                      className="w-full rounded-2xl bg-[#3670e2] py-3 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(54,112,226,0.22)] transition hover:bg-[#2f62ca] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {tcmLoading ? "Scanning..." : "Check Herb"}
+                    </button>
+
+                    {tcmError ? <p className="text-sm text-red-600">{tcmError}</p> : null}
+
+                    {tcmResult ? (
+                      <div className="space-y-4">
+                        <div
+                          className={`rounded-[1.5rem] border p-4 ${
+                            tcmResult.risk_level === "high"
+                              ? "border-red-100 bg-red-50"
+                              : tcmResult.risk_level === "moderate"
+                                ? "border-amber-100 bg-amber-50"
+                                : "border-emerald-100 bg-emerald-50"
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <strong className="text-sm text-slate-900">{tcmResult.herb_detected ?? "Unknown Herb"}</strong>
+                            <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] ${
+                              tcmResult.risk_level === "high"
+                                ? "bg-red-100 text-red-600"
+                                : tcmResult.risk_level === "moderate"
+                                  ? "bg-amber-100 text-amber-700"
+                                  : "bg-emerald-100 text-emerald-700"
+                            }`}>
+                              {tcmResult.risk_level} risk
+                            </span>
+                            {tcmResult.identification_source ? (
+                              <span className="rounded-full bg-white/80 px-2.5 py-1 text-[10px] font-medium text-slate-500">
+                                via {tcmResult.identification_source}{tcmResult.identification_confidence ? ` · ${tcmResult.identification_confidence}` : ""}
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-3 text-sm leading-relaxed text-slate-700">{tcmTranslatedText?.message ?? tcmResult.message}</p>
+                          {tcmResult.flagged_medications.length > 0 ? (
+                            <div className="mt-4 space-y-2">
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Flagged medications</p>
+                              <ul className="space-y-1 text-sm text-slate-600">
+                                {tcmResult.flagged_medications.map((m) => <li key={m}>{m}</li>)}
+                              </ul>
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                            ByteCare says{tcmLang === "en" ? " (Singlish)" : ""}
+                          </div>
+                          <p className="mt-2 text-sm leading-relaxed text-slate-700">{tcmTranslatedText?.singlish ?? tcmResult.singlish_message}</p>
+
+                          <div className="mt-4 flex flex-wrap items-center gap-2">
+                            <label className="text-xs font-medium text-slate-500">Translate to:</label>
+                            <select
+                              value={tcmLang}
+                              onChange={async (e) => {
+                                const lang = e.target.value as "en" | "zh" | "yue" | "ms" | "ta" | "hi";
+                                setTcmLang(lang);
+                                setTcmAudioUrl(null);
+                                setTcmTranslatedText(null);
+                                if (lang === "en") return;
+                                setTcmTranslating(true);
+                                try {
+                                  const [msgRes, singRes] = await Promise.all([
+                                    api.postTranslate(tcmResult.message, lang),
+                                    api.postTranslate(tcmResult.singlish_message || tcmResult.message, lang),
+                                  ]);
+                                  setTcmTranslatedText({ message: msgRes.translated_text, singlish: singRes.translated_text });
+                                } catch { }
+                                setTcmTranslating(false);
+                              }}
+                              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                            >
+                              <option value="en">English (Singlish)</option>
+                              <option value="zh">普通话 (Mandarin)</option>
+                              <option value="yue">廣東話 (Cantonese)</option>
+                              <option value="ms">Bahasa Melayu (Malay)</option>
+                              <option value="ta">தமிழ் (Tamil)</option>
+                              <option value="hi">हिन्दी (Hindi)</option>
+                            </select>
+                          </div>
+
+                          {tcmTranslating ? <p className="mt-2 text-xs text-slate-500">Translating...</p> : null}
+
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const ttsText = tcmLang === "en"
+                                ? (tcmResult.singlish_message || tcmResult.message)
+                                : (tcmTranslatedText?.singlish || tcmResult.singlish_message || tcmResult.message);
+                              if (!ttsText) return;
+                              setTcmAudioLoading(true);
+                              try {
+                                const blob = await api.postTTS(ttsText, tcmLang);
+                                const url = URL.createObjectURL(blob);
+                                setTcmAudioUrl(url);
+                                const audio = new Audio(url);
+                                setTcmAudioPlaying(true);
+                                audio.onended = () => setTcmAudioPlaying(false);
+                                audio.onerror = () => setTcmAudioPlaying(false);
+                                audio.play().catch(() => setTcmAudioPlaying(false));
+                              } catch {
+                                setTcmAudioPlaying(false);
+                              }
+                              setTcmAudioLoading(false);
+                            }}
+                            disabled={tcmAudioLoading || tcmAudioPlaying || (tcmLang !== "en" && tcmTranslating)}
+                            className="mt-4 rounded-2xl bg-white px-4 py-2.5 text-sm font-semibold text-[#3670e2] ring-1 ring-slate-200 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {tcmAudioLoading ? "Loading audio..." : tcmAudioPlaying ? "Playing..." : tcmAudioUrl ? "Replay Audio" : "Listen"}
+                          </button>
+                        </div>
                       </div>
                     ) : null}
                   </div>
-                )}
+                </div>
+              </section>
 
-                <button
-                  type="button"
-                  onClick={() => void handleTCMCheck()}
-                  disabled={tcmLoading || (tcmMode === "manual" ? !herb.trim() : !tcmImageFile)}
-                >
-                  {tcmLoading ? "Scanning..." : "Check Herb"}
-                </button>
-
-                {tcmError ? <p className="status-error">{tcmError}</p> : null}
-
-                {tcmResult ? (
-                  <div className="tcm-result">
-                    <div className={`alert-box ${tcmResult.risk_level === "high" ? "alert-danger" : tcmResult.risk_level === "moderate" ? "alert-warning" : "alert-safe"}`}>
-                      <div className="tcm-result-header">
-                        <strong>{tcmResult.herb_detected ?? "Unknown Herb"}</strong>
-                        <span className={`risk-badge risk-${tcmResult.risk_level}`}>
-                          {tcmResult.risk_level.toUpperCase()} RISK
-                        </span>
-                        {tcmResult.identification_source ? (
-                          <span className="risk-badge" style={{ marginLeft: 4, fontSize: "0.7rem" }}>
-                            via {tcmResult.identification_source}
-                            {tcmResult.identification_confidence ? ` · ${tcmResult.identification_confidence}` : ""}
-                          </span>
-                        ) : null}
-                      </div>
-                      <p>{tcmTranslatedText?.message ?? tcmResult.message}</p>
-                      {tcmResult.flagged_medications.length > 0 ? (
-                        <div className="flagged-meds">
-                          <p className="muted"><strong>Flagged medications:</strong></p>
-                          <ul className="list">
-                            {tcmResult.flagged_medications.map((m) => <li key={m}>{m}</li>)}
-                          </ul>
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <div className="va-reply-box">
-                      <div className="card-title small">ByteCare says{tcmLang === "en" ? " (Singlish)" : ""}:</div>
-                      <p className="va-reply-text">{tcmTranslatedText?.singlish ?? tcmResult.singlish_message}</p>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                        <label className="muted" style={{ fontSize: "0.8rem" }}>Translate to:</label>
-                        <select
-                          value={tcmLang}
-                          onChange={async (e) => {
-                            const lang = e.target.value as "en" | "zh" | "yue" | "ms" | "ta" | "hi";
-                            setTcmLang(lang);
-                            setTcmAudioUrl(null);
-                            setTcmTranslatedText(null);
-                            if (lang === "en") return;
-                            setTcmTranslating(true);
-                            try {
-                              const [msgRes, singRes] = await Promise.all([
-                                api.postTranslate(tcmResult.message, lang),
-                                api.postTranslate(tcmResult.singlish_message || tcmResult.message, lang),
-                              ]);
-                              setTcmTranslatedText({ message: msgRes.translated_text, singlish: singRes.translated_text });
-                            } catch { /* best-effort */ }
-                            setTcmTranslating(false);
-                          }}
-                          style={{ fontSize: "0.85rem", padding: "4px 8px", borderRadius: 6 }}
-                        >
-                          <option value="en">English (Singlish)</option>
-                          <option value="zh">普通话 (Mandarin)</option>
-                          <option value="yue">廣東話 (Cantonese)</option>
-                          <option value="ms">Bahasa Melayu (Malay)</option>
-                          <option value="ta">தமிழ் (Tamil)</option>
-                          <option value="hi">हिन्दी (Hindi)</option>
-                        </select>
-                      </div>
-
-                      {tcmTranslating ? (
-                        <p className="muted" style={{ marginTop: 6, fontSize: "0.85rem" }}>Translating...</p>
-                      ) : null}
-
+              <section className="space-y-3">
+                <div className="flex items-center gap-3 px-1">
+                  <Package className="text-[#3670e2]" size={24} />
+                  <h2 className="text-[1.2rem] font-bold leading-none tracking-tight text-slate-900">Medication Supply</h2>
+                </div>
+                <div className="rounded-[2rem] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
+                  <div className="space-y-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="max-w-[18rem] text-sm leading-relaxed text-slate-500">
+                        Each time you mark a dose as taken, your supply count updates automatically. You can correct the number anytime if needed.
+                      </p>
                       <button
                         type="button"
-                        onClick={async () => {
-                          const ttsText = tcmLang === "en"
-                            ? (tcmResult.singlish_message || tcmResult.message)
-                            : (tcmTranslatedText?.singlish || tcmResult.singlish_message || tcmResult.message);
-                          if (!ttsText) return;
-                          setTcmAudioLoading(true);
-                          try {
-                            const blob = await api.postTTS(ttsText, tcmLang);
-                            const url = URL.createObjectURL(blob);
-                            setTcmAudioUrl(url);
-                            const audio = new Audio(url);
-                            setTcmAudioPlaying(true);
-                            audio.onended = () => setTcmAudioPlaying(false);
-                            audio.onerror = () => setTcmAudioPlaying(false);
-                            audio.play().catch(() => setTcmAudioPlaying(false));
-                          } catch { setTcmAudioPlaying(false); }
-                          setTcmAudioLoading(false);
-                        }}
-                        disabled={tcmAudioLoading || tcmAudioPlaying || (tcmLang !== "en" && tcmTranslating)}
-                        style={{ marginTop: 8 }}
+                        className="w-auto rounded-2xl bg-[#3670e2] px-4 py-2.5 text-xs font-semibold text-white shadow-[0_10px_20px_rgba(54,112,226,0.2)] transition hover:bg-[#2f62ca] disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={refillCheckLoading}
+                        onClick={() => void handleRefillCheck()}
                       >
-                        {tcmAudioLoading ? "Loading audio..." : tcmAudioPlaying ? "Playing..." : tcmAudioUrl ? "Replay Audio" : "Listen"}
+                        {refillCheckLoading ? "Checking..." : "Check"}
+                      </button>
+                    </div>
+
+                    <div className="space-y-4">
+                      {healthSupplyItems.map((item) => {
+                        const isEditing = supplyInputs[item.medication_id] !== undefined;
+                        const toneClass = item.needs_refill
+                          ? "bg-red-50 text-red-600"
+                          : item.is_low
+                            ? "bg-amber-50 text-amber-600"
+                            : item.tracking_enabled
+                              ? "bg-emerald-50 text-emerald-600"
+                              : "bg-slate-100 text-slate-500";
+
+                        return (
+                          <div key={item.medication_id} className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
+                            <div className="space-y-3">
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="min-w-0">
+                                  <h4 className="text-sm font-semibold text-slate-900">{item.name}</h4>
+                                  <p className="mt-1 text-xs text-slate-500">{item.dose_text}</p>
+                                </div>
+                                <span className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold ${toneClass}`}>
+                                  {item.tracking_enabled && item.doses_remaining !== null
+                                    ? `${item.doses_remaining} left${item.days_remaining !== null ? ` · ${item.days_remaining}d` : ""}`
+                                    : "Not tracked"}
+                                </span>
+                              </div>
+
+                              {!isEditing ? (
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    className="flex-1 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+                                    onClick={() => setSupplyInputs((prev) => ({
+                                      ...prev,
+                                      [item.medication_id]: item.doses_remaining !== null ? String(item.doses_remaining) : ""
+                                    }))}
+                                  >
+                                    {item.tracking_enabled ? "Correct count" : "Set current supply"}
+                                  </button>
+                                  {(item.is_low || item.needs_refill) ? (
+                                    <button
+                                      type="button"
+                                      className={`flex-1 rounded-2xl px-3 py-2.5 text-xs font-semibold transition ${
+                                        refillOrdered[item.medication_id]
+                                          ? "bg-emerald-50 text-emerald-600"
+                                          : "bg-[#3670e2] text-white shadow-[0_10px_20px_rgba(54,112,226,0.18)] hover:bg-[#2f62ca]"
+                                      }`}
+                                      disabled={refillOrdered[item.medication_id]}
+                                      onClick={async () => {
+                                        if (!userId) return;
+                                        try {
+                                          await api.requestRefill(userId, item.medication_id);
+                                          setRefillOrdered((prev) => ({ ...prev, [item.medication_id]: true }));
+                                        } catch { }
+                                      }}
+                                    >
+                                      {refillOrdered[item.medication_id] ? "Sent to Clinician" : "Order Refill"}
+                                    </button>
+                                  ) : null}
+                                </div>
+                              ) : (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    autoFocus
+                                    placeholder="doses you have now"
+                                    value={supplyInputs[item.medication_id]}
+                                    onChange={(e) => setSupplyInputs((prev) => ({ ...prev, [item.medication_id]: e.target.value }))}
+                                    className="w-[9.5rem] rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100/70"
+                                  />
+                                  <button
+                                    type="button"
+                                    className="rounded-2xl bg-[#3670e2] px-4 py-2.5 text-xs font-semibold text-white"
+                                    disabled={supplyLoading === item.medication_id}
+                                    onClick={() => void handleSetSupply(item.medication_id)}
+                                  >
+                                    {supplyLoading === item.medication_id ? "Saving..." : "Save"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-600"
+                                    onClick={() => setSupplyInputs((prev) => {
+                                      const next = { ...prev };
+                                      delete next[item.medication_id];
+                                      return next;
+                                    })}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {(healthSupplyItems ?? []).some((s) => s.is_low) ? (
+                      <div className="flex gap-3 rounded-[1.5rem] border border-blue-100 bg-blue-50 p-4">
+                        <Info className="mt-0.5 shrink-0 text-[#3670e2]" size={18} />
+                        <p className="text-xs leading-relaxed text-slate-600">
+                          Running low. Tap <span className="font-semibold text-[#3670e2]">Check</span> to refresh your supply status, or <span className="font-semibold text-[#3670e2]">Order Refill</span> to send a refill request.
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <div className="flex items-center gap-3 px-1">
+                  <Pill className="text-[#3670e2]" size={24} />
+                  <h2 className="text-[1.2rem] font-bold leading-none tracking-tight text-slate-900">Medication Tracking</h2>
+                </div>
+                <div className="rounded-[2rem] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
+                  <div className="space-y-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Recent History</p>
+                    <div className="scrollbar-hide flex gap-3 overflow-x-auto pb-2">
+                      {recentIntakeEvents.length > 0 ? recentIntakeEvents.map((event) => {
+                        const meta = intakeStatusMeta(event.response_status);
+                        const Icon = meta.icon;
+                        return (
+                          <div key={event.event_id} className="min-w-[7rem] shrink-0 rounded-[1.5rem] border border-slate-200 bg-slate-50 px-3 py-3 text-center">
+                            <div className={`mx-auto flex h-11 w-11 items-center justify-center rounded-full ${meta.chipClass}`}>
+                              <Icon size={20} className={meta.iconClass} />
+                            </div>
+                            <p className="mt-3 text-[11px] font-semibold text-slate-700">{formatScheduledLabel(event.scheduled_for || event.timestamp)}</p>
+                            <p className="mt-1 text-[11px] text-slate-500">{meta.label}</p>
+                          </div>
+                        );
+                      }) : (
+                        <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
+                          No recent dose responses yet.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-6 space-y-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Daily Schedule</p>
+                    <div className="space-y-3">
+                      {allMeds.length > 0 ? allMeds.map((med) => (
+                        <div key={med.medication_id} className="flex gap-4 rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-4">
+                          <div className="w-12 pt-0.5 text-xs font-semibold text-slate-500">{med.schedule.times[0] ?? "--:--"}</div>
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <h5 className="text-sm font-semibold text-slate-900">{med.name}</h5>
+                            <p className="text-xs leading-relaxed text-slate-500">
+                              {med.dose_text} · {med.schedule.frequency} · {med.schedule.times.join(", ")}
+                            </p>
+                          </div>
+                        </div>
+                      )) : (
+                        <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
+                          No medications recorded yet.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-3 pb-8">
+                <div className="flex items-center justify-between gap-3 px-1">
+                  <div className="flex items-center gap-3">
+                    <CalendarDays className="text-[#3670e2]" size={24} />
+                    <h2 className="text-[1.2rem] font-bold leading-none tracking-tight text-slate-900">Upcoming Appointment</h2>
+                  </div>
+                  {!carePlanReadOnly ? (
+                    <button
+                      type="button"
+                      className="icon-button"
+                      onClick={() => { resetApptForm(); setShowApptForm(true); }}
+                    >
+                      + Add
+                    </button>
+                  ) : null}
+                </div>
+                {carePlanReadOnly ? (
+                  <p className="px-1 text-xs italic text-slate-500">
+                    {accountRole === "caregiver"
+                      ? "View only — caregivers cannot modify the care plan."
+                      : `Managed by ${clinicianName ?? "your clinician"}. Contact them for changes.`}
+                  </p>
+                ) : null}
+                {nextHealthAppointment ? (
+                  <div className="relative overflow-hidden rounded-[2rem] bg-[#3670e2] px-5 py-5 text-white shadow-[0_16px_36px_rgba(54,112,226,0.3)]">
+                    <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-3xl" />
+                    <div className="relative z-10 space-y-5">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="space-y-1.5">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-100/80">Appointment Date</p>
+                          <p className="text-xl font-bold leading-tight">{new Date(nextHealthAppointment.datetime).toLocaleString()}</p>
+                        </div>
+                        <Clock3 size={20} className="mt-1 text-blue-100/90" />
+                      </div>
+                      <div className="space-y-3 border-t border-white/10 pt-5">
+                        <div className="flex items-center gap-3">
+                          <MapPin size={18} className="text-blue-200" />
+                          <p className="text-sm font-medium">{nextHealthAppointment.location}</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Clock3 size={18} className="text-blue-200" />
+                          <p className="text-sm text-blue-50/90">
+                            {nextHealthAppointment.notes || "Upcoming appointment details are ready for review."}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3 rounded-[1.35rem] border border-white/12 bg-white/10 px-4 py-4">
+                        <TriangleAlert size={18} className="mt-0.5 shrink-0 text-white" />
+                        <p className="text-sm leading-relaxed text-blue-50">
+                          <span className="font-semibold text-white">Note:</span> {appointmentPrepNote(nextHealthAppointment)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="w-full rounded-[1.25rem] bg-white px-4 py-3 text-sm font-semibold text-[#3670e2] shadow-[0_10px_20px_rgba(15,23,42,0.12)] transition hover:bg-slate-50"
+                        onClick={() => window.open(buildCalendarUrl(nextHealthAppointment), "_blank", "noopener,noreferrer")}
+                      >
+                        Add to calendar
                       </button>
                     </div>
                   </div>
-                ) : null}
-              </section>
-
-              {/* ── Medication Supply ── */}
-              <section className="card">
-                <div className="card-row">
-                  <div className="card-title">Medication Supply</div>
-                  <button
-                    type="button"
-                    className="icon-button"
-                    disabled={refillCheckLoading}
-                    onClick={() => void handleRefillCheck()}
-                  >
-                    {refillCheckLoading ? "Checking..." : "Check"}
-                  </button>
-                </div>
-                <p className="muted" style={{ fontSize: "0.8rem", marginBottom: 8 }}>
-                  Each time you mark a dose as taken, your supply count updates automatically lah. You can correct the number anytime if needed.
-                </p>
-                <div className="item-list">
-                  {(refillStatus ?? allMeds.map<RefillStatusItem>((m) => ({
-                    medication_id: m.medication_id,
-                    name: m.name,
-                    dose_text: m.dose_text,
-                    total_supply: m.total_supply ?? 0,
-                    taken_count: 0,
-                    doses_remaining: null,
-                    days_remaining: null,
-                    is_low: false,
-                    needs_refill: false,
-                    tracking_enabled: false,
-                  }))).map((item) => {
-                    const isEditing = supplyInputs[item.medication_id] !== undefined;
-                    return (
-                      <div
-                        key={item.medication_id}
-                        className="item-row"
-                        style={{
-                          flexDirection: "column", alignItems: "stretch", gap: 6,
-                          borderLeft: item.needs_refill ? "3px solid #f87171" : item.is_low ? "3px solid #fbbf24" : item.tracking_enabled ? "3px solid #34d399" : undefined,
-                          paddingLeft: item.tracking_enabled || item.needs_refill || item.is_low ? 8 : undefined,
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <div style={{ flex: 1 }}>
-                            <div className="item-name">{item.name}</div>
-                            <div className="muted" style={{ fontSize: "0.75rem" }}>{item.dose_text}</div>
-                          </div>
-                          <div style={{ textAlign: "right" }}>
-                            {item.tracking_enabled && item.doses_remaining !== null ? (
-                              <>
-                                <div style={{ fontSize: "1.4rem", fontWeight: 700, color: item.needs_refill ? "#dc2626" : item.is_low ? "#d97706" : "#059669", lineHeight: 1 }}>
-                                  {item.doses_remaining}
-                                </div>
-                                <div style={{ fontSize: "0.7rem", color: "#94a3b8" }}>doses left</div>
-                                {item.days_remaining !== null ? (
-                                  <div style={{ fontSize: "0.72rem", color: item.needs_refill ? "#dc2626" : item.is_low ? "#d97706" : "#64748b", fontWeight: 600 }}>
-                                    ~{item.days_remaining}d
-                                  </div>
-                                ) : null}
-                              </>
-                            ) : (
-                              <div style={{ fontSize: "0.73rem", color: "#94a3b8" }}>Not tracked</div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Action row */}
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                          {!isEditing ? (
-                            <button
-                              type="button"
-                              className="icon-button"
-                              style={{ fontSize: "0.75rem" }}
-                              onClick={() => setSupplyInputs((prev) => ({
-                                ...prev,
-                                [item.medication_id]: item.doses_remaining !== null ? String(item.doses_remaining) : ""
-                              }))}
-                            >
-                              {item.tracking_enabled ? "Correct count" : "Set current supply"}
-                            </button>
-                          ) : (
-                            <>
-                              <input
-                                type="number"
-                                min={0}
-                                autoFocus
-                                placeholder="doses you have now"
-                                value={supplyInputs[item.medication_id]}
-                                onChange={(e) => setSupplyInputs((prev) => ({ ...prev, [item.medication_id]: e.target.value }))}
-                                style={{ width: 120, fontSize: "0.82rem", padding: "4px 6px", borderRadius: 6, border: "1px solid #e2e8f0" }}
-                              />
-                              <button
-                                type="button"
-                                className="icon-button"
-                                disabled={supplyLoading === item.medication_id}
-                                onClick={() => void handleSetSupply(item.medication_id)}
-                              >
-                                {supplyLoading === item.medication_id ? "..." : "Save"}
-                              </button>
-                              <button
-                                type="button"
-                                className="icon-button"
-                                onClick={() => setSupplyInputs((prev) => { const n = { ...prev }; delete n[item.medication_id]; return n; })}
-                              >
-                                Cancel
-                              </button>
-                            </>
-                          )}
-                          {(item.is_low || item.needs_refill) && !isEditing ? (
-                            <button
-                              type="button"
-                              className="icon-button"
-                              style={refillOrdered[item.medication_id]
-                                ? { background: "#f0fdf4", color: "#16a34a", fontWeight: 700, fontSize: "0.75rem" }
-                                : { background: "#eff6ff", color: "#2563eb", fontWeight: 700, fontSize: "0.75rem" }}
-                              disabled={refillOrdered[item.medication_id]}
-                              onClick={async () => {
-                                if (!userId) return;
-                                try {
-                                  await api.requestRefill(userId, item.medication_id);
-                                  setRefillOrdered((prev) => ({ ...prev, [item.medication_id]: true }));
-                                } catch { /* ignore */ }
-                              }}
-                            >
-                              {refillOrdered[item.medication_id] ? "Sent to Clinician" : "Order Refill"}
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                {(refillStatus ?? []).some((s) => s.is_low) ? (
-                  <div className="alert-box alert-warning" style={{ marginTop: 8 }}>
-                    <p style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                      Running low lah! Tap &quot;Check&quot; to get a reminder in your chat, or &quot;Order Refill&quot; to request a refill.
-                    </p>
-                  </div>
-                ) : null}
-              </section>
-
-              <section className="card">
-                <div className="card-title">Clinician Summary</div>
-                <button type="button" onClick={() => void handleLoadReportSummary()} disabled={reportLoading}>
-                  {reportLoading ? "Loading..." : "Fetch Report Summary"}
-                </button>
-                {reportError ? <p className="status-error">{reportError}</p> : null}
-                {reportSummary ? (
-                  <div className="report-box">
-                    <p>{reportSummary.summary}</p>
-                    <p className="muted">Average MES 7d: {reportSummary.avg_mes_7d}</p>
-                    <p className="muted">Missed doses 7d: {reportSummary.missed_doses_7d}</p>
-                    <p className="muted">Late doses 7d: {reportSummary.late_doses_7d}</p>
-                    <p className="muted">Recommended follow-up: {reportSummary.recommended_follow_up}</p>
-                  </div>
-                ) : null}
-              </section>
-
-              <section className="card">
-                <div className="card-row">
-                  <div className="card-title">Medication Tracking</div>
-                  <span className={`severity-pill severity-${drift?.severity ?? "green"}`}>
-                    {drift?.severity ?? "green"}
-                  </span>
-                </div>
-                <p>Drift detected: {String(drift?.drift_detected ?? false)}</p>
-                <p>Next action: {nextAction?.next_action ?? "-"}</p>
-                <p className="muted">{nextAction?.suggested_message ?? "-"}</p>
-                {recentIntakeEvents.length > 0 ? (
-                  <div className="reminder-history">
-                    {recentIntakeEvents.map((event) => (
-                      <div key={event.event_id} className="reminder-history-row">
-                        <span className="muted">{formatScheduledLabel(event.scheduled_for || event.timestamp)}</span>
-                        <span className={`intake-status intake-${event.response_status || "taken"}`}>
-                          {event.response_status || event.event_type}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                {allMeds.length > 0 ? (
-                  <div className="item-list" style={{ marginTop: 8 }}>
-                    {allMeds.map((med) => (
-                      <div key={med.medication_id} className="item-row">
-                        <div>
-                          <div className="item-name">{med.name}</div>
-                          <div className="muted">{med.dose_text} &middot; {med.schedule.frequency} &middot; {med.schedule.times.join(", ")}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
                 ) : (
-                  <p className="muted">No medications recorded yet.</p>
+                  <div className="rounded-[2rem] border border-slate-200/80 bg-white px-5 py-5 text-sm text-slate-500 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
+                    No appointments scheduled.
+                  </div>
                 )}
+                {showApptForm && !carePlanReadOnly ? (
+                  <div className="rounded-[2rem] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
+                    <div className="form-group">
+                      <label className="form-label">Date &amp; Time</label>
+                      <input type="datetime-local" value={apptDatetime} onChange={(e) => setApptDatetime(e.target.value)} />
+                      <label className="form-label">Location</label>
+                      <input value={apptLocation} onChange={(e) => setApptLocation(e.target.value)} placeholder="e.g. Polyclinic" />
+                      <label className="form-label">Notes</label>
+                      <textarea value={apptNotes} onChange={(e) => setApptNotes(e.target.value)} placeholder="e.g. Follow-up visit" />
+                      {apptMsg ? <p className="status-error">{apptMsg}</p> : null}
+                      <button type="button" onClick={() => void handleSaveAppt()} disabled={apptSaving}>
+                        {apptSaving ? "Saving..." : editApptId ? "Update Appointment" : "Add Appointment"}
+                      </button>
+                      <button type="button" className="secondary-button" onClick={resetApptForm}>Cancel</button>
+                    </div>
+                  </div>
+                ) : null}
+                {apptMsg && !showApptForm ? <p className="status-error">{apptMsg}</p> : null}
               </section>
 
-              <section className="card">
-                <div className="card-title">Appointment Tracking</div>
-                {allAppts.length > 0 ? (
-                  <div className="item-list">
-                    {allAppts.map((appt) => (
-                      <div key={appt.appointment_id} className="item-row">
-                        <div>
-                          <div className="item-name">{new Date(appt.datetime).toLocaleString()}</div>
-                          <div className="muted">{appt.location}{appt.notes ? ` — ${appt.notes}` : ""}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="muted">No appointments scheduled.</p>
-                )}
-              </section>
             </>
           ) : null}
 
           {activeTab === "profile" ? (
             <>
-              {/* --- Profile Section --- */}
-              <section className="card">
-                <div className="card-row">
-                  <div className="card-title">Patient Profile</div>
+              <section className="flex flex-col items-center px-2 pb-1 pt-2">
+                <div className="relative">
+                  <div className="relative h-28 w-28 overflow-hidden rounded-full border-4 border-white shadow-[0_10px_30px_rgba(15,23,42,0.12)]">
+                    <Image
+                      src={PROFILE_IMAGE_URL}
+                      alt={userProfile?.name ?? "Patient profile"}
+                      fill
+                      className="object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                  {!editingProfile ? (
+                    <button
+                      type="button"
+                      onClick={startEditProfile}
+                      className="absolute bottom-1 right-1 flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-[#3670e2] text-white shadow-md transition hover:bg-[#2f62ca]"
+                      aria-label="Edit profile"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                  ) : null}
+                </div>
+                <div className="mt-4 text-center">
+                  <h2 className="text-[1.65rem] font-bold leading-tight tracking-tight text-slate-900">
+                    {userProfile?.name ?? "Patient"}
+                  </h2>
+                  <p className="mt-1 text-sm font-medium text-slate-500">Patient ID: {userId}</p>
+                </div>
+              </section>
+
+              <section className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <User size={20} className="text-[#3670e2]" />
+                    <h3 className="text-base font-bold text-slate-900">Personal Information</h3>
+                  </div>
                   {!editingProfile ? (
                     <button type="button" className="icon-button" onClick={startEditProfile}>Edit</button>
                   ) : null}
                 </div>
 
                 {!editingProfile ? (
-                  <>
-                    <p className="muted">Name: {userProfile?.name ?? "-"}</p>
-                    <p className="muted">Age: {userProfile?.age ?? "-"}</p>
-                    <p className="muted">Timezone: {userProfile?.timezone ?? "-"}</p>
-                    <p className="muted">Language: {userProfile?.language_preference ?? "-"}</p>
-                    <p className="muted profile-user-id">User ID: {userId}</p>
-                  </>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Role</p>
+                      <p className="mt-1 text-sm font-medium text-slate-900">Patient</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Age</p>
+                      <p className="mt-1 text-sm font-medium text-slate-900">{userProfile?.age ?? "-"}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Timezone</p>
+                      <p className="mt-1 text-sm font-medium text-slate-900">{userProfile?.timezone ?? "-"}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Language</p>
+                      <p className="mt-1 text-sm font-medium text-slate-900">{userProfile?.language_preference ?? "-"}</p>
+                    </div>
+                  </div>
                 ) : (
                   <div className="form-group">
                     <label className="form-label">Display Name</label>
@@ -2630,133 +2870,116 @@ export default function DashboardPage() {
                   </div>
                 )}
                 {profileMsg ? <p className="status-ok">{profileMsg}</p> : null}
-                <button type="button" className="secondary-button" onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}>Sign Out</button>
               </section>
 
-              {/* --- Medications Section --- */}
-              <section className="card">
-                <div className="card-row">
-                  <div className="card-title">Medications</div>
-                  {!carePlanReadOnly ? (
-                    <button type="button" className="icon-button" onClick={() => { resetMedForm(); setShowMedForm(true); }}>+ Add</button>
-                  ) : null}
+              <section className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex items-center gap-2">
+                  <FileText size={20} className="text-[#3670e2]" />
+                  <h3 className="text-base font-bold text-slate-900">Medical Records</h3>
                 </div>
-
-                {carePlanReadOnly ? (
-                  <p className="muted" style={{ fontSize: "0.8rem", fontStyle: "italic" }}>
-                    {accountRole === "caregiver"
-                      ? "View only — caregivers cannot modify the care plan."
-                      : `Managed by ${clinicianName ?? "your clinician"}. Contact them for changes.`}
-                  </p>
-                ) : null}
-
-                {showMedForm && !carePlanReadOnly ? (
-                  <div className="form-group">
-                    <label className="form-label">Medication Name</label>
-                    <input value={medName} onChange={(e) => setMedName(e.target.value)} placeholder="e.g. Amlodipine 5mg" />
-                    <label className="form-label">Dose Text</label>
-                    <input value={medDose} onChange={(e) => setMedDose(e.target.value)} placeholder="e.g. 5mg" />
-                    <label className="form-label">Frequency</label>
-                    <select value={medFreq} onChange={(e) => setMedFreq(e.target.value)}>
-                      <option value="once_daily">Once daily</option>
-                      <option value="twice_daily">Twice daily</option>
-                      <option value="thrice_daily">Thrice daily</option>
-                      <option value="as_needed">As needed</option>
-                    </select>
-                    <label className="form-label">Times (comma-separated, e.g. 08:00, 20:00)</label>
-                    <input value={medTimes} onChange={(e) => setMedTimes(e.target.value)} placeholder="08:00" />
-                    <label className="form-label">Window (minutes)</label>
-                    <input type="number" value={medWindow} onChange={(e) => setMedWindow(e.target.value)} />
-                    <label className="form-label">Criticality</label>
-                    <select value={medCrit} onChange={(e) => setMedCrit(e.target.value)}>
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                    </select>
-                    {medMsg ? <p className="status-error">{medMsg}</p> : null}
-                    <button type="button" onClick={() => void handleSaveMed()} disabled={medSaving}>
-                      {medSaving ? "Saving..." : editMedId ? "Update Medication" : "Add Medication"}
-                    </button>
-                    <button type="button" className="secondary-button" onClick={resetMedForm}>Cancel</button>
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Primary Condition</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {(userProfile?.conditions?.length ?? 0) > 0 ? userProfile?.conditions?.map((condition) => (
+                        <span key={condition} className="rounded-md bg-[#3670e2]/10 px-2 py-1 text-[10px] font-bold text-[#3670e2]">
+                          {condition}
+                        </span>
+                      )) : (
+                        <span className="text-sm text-slate-500">No conditions recorded</span>
+                      )}
+                    </div>
                   </div>
-                ) : null}
-
-                {allMeds.length === 0 ? (
-                  <p className="muted">No medications added yet.</p>
-                ) : (
-                  <div className="item-list">
-                    {allMeds.map((med) => (
-                      <div key={med.medication_id} className="item-row">
-                        <div>
-                          <div className="item-name">{med.name}</div>
-                          <div className="muted">{med.dose_text} &middot; {med.schedule.frequency} &middot; {med.schedule.times.join(", ")} &middot; {med.criticality}</div>
-                        </div>
-                        {!carePlanReadOnly ? (
-                          <div className="item-actions">
-                            <button type="button" className="icon-button" onClick={() => startEditMed(med)}>Edit</button>
-                            <button type="button" className="icon-button danger-btn" onClick={() => void handleDeleteMed(med.medication_id)}>Del</button>
-                          </div>
-                        ) : null}
-                      </div>
-                    ))}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Active Medications</p>
+                      <p className="mt-1 text-sm font-medium text-slate-900">{medicationCount}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Care Plan</p>
+                      <p className="mt-1 text-sm font-medium text-slate-900">
+                        {clinicianName ? `Managed by ${clinicianName}` : "Self managed"}
+                      </p>
+                    </div>
                   </div>
-                )}
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Support Note</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {clinicianName
+                        ? `Contact ${clinicianName} or open ByteCare chat if you need help with your care plan.`
+                        : "Open ByteCare chat if you need help with your care plan or reminders."}
+                    </p>
+                  </div>
+                </div>
               </section>
 
-              {/* --- Appointments Section --- */}
-              <section className="card">
-                <div className="card-row">
-                  <div className="card-title">Appointments</div>
-                  {!carePlanReadOnly ? (
-                    <button type="button" className="icon-button" onClick={() => { resetApptForm(); setShowApptForm(true); }}>+ Add</button>
-                  ) : null}
+              <section className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex items-center gap-2">
+                  <PhoneCall size={20} className="text-[#3670e2]" />
+                  <h3 className="text-base font-bold text-slate-900">Help & Support</h3>
                 </div>
+                <p className="text-sm leading-relaxed text-slate-600">
+                  Need help with medications, appointments, or reminders? Open the support chat and ByteCare will guide you.
+                </p>
+                <button
+                  type="button"
+                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-[1rem] bg-red-500 px-4 py-3 text-sm font-bold text-white transition hover:bg-red-600"
+                  onClick={() => setActiveTab("chat")}
+                >
+                  <PhoneCall size={18} />
+                  Open Support Chat
+                </button>
+              </section>
 
-                {carePlanReadOnly ? (
-                  <p className="muted" style={{ fontSize: "0.8rem", fontStyle: "italic" }}>
-                    {accountRole === "caregiver"
-                      ? "View only — caregivers cannot modify the care plan."
-                      : `Managed by ${clinicianName ?? "your clinician"}. Contact them for changes.`}
-                  </p>
-                ) : null}
-
-                {showApptForm && !carePlanReadOnly ? (
-                  <div className="form-group">
-                    <label className="form-label">Date &amp; Time</label>
-                    <input type="datetime-local" value={apptDatetime} onChange={(e) => setApptDatetime(e.target.value)} />
-                    <label className="form-label">Location</label>
-                    <input value={apptLocation} onChange={(e) => setApptLocation(e.target.value)} placeholder="e.g. Polyclinic" />
-                    <label className="form-label">Notes</label>
-                    <textarea value={apptNotes} onChange={(e) => setApptNotes(e.target.value)} placeholder="e.g. Follow-up visit" />
-                    {apptMsg ? <p className="status-error">{apptMsg}</p> : null}
-                    <button type="button" onClick={() => void handleSaveAppt()} disabled={apptSaving}>
-                      {apptSaving ? "Saving..." : editApptId ? "Update Appointment" : "Add Appointment"}
-                    </button>
-                    <button type="button" className="secondary-button" onClick={resetApptForm}>Cancel</button>
-                  </div>
-                ) : null}
-
-                {allAppts.length === 0 ? (
-                  <p className="muted">No appointments added yet.</p>
-                ) : (
-                  <div className="item-list">
-                    {allAppts.map((appt) => (
-                      <div key={appt.appointment_id} className="item-row">
-                        <div>
-                          <div className="item-name">{new Date(appt.datetime).toLocaleString()}</div>
-                          <div className="muted">{appt.location}{appt.notes ? ` — ${appt.notes}` : ""}</div>
-                        </div>
-                        {!carePlanReadOnly ? (
-                          <div className="item-actions">
-                            <button type="button" className="icon-button" onClick={() => startEditAppt(appt)}>Edit</button>
-                            <button type="button" className="icon-button danger-btn" onClick={() => void handleDeleteAppt(appt.appointment_id)}>Del</button>
-                          </div>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {apptMsg && !showApptForm ? <p className="status-error">{apptMsg}</p> : null}
+              <section className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
+                <div className="border-b border-slate-100 px-5 py-4">
+                  <h3 className="text-base font-bold text-slate-900">App Settings</h3>
+                </div>
+                <div className="flex flex-col">
+                  <button
+                    type="button"
+                    className="tc-list-row-btn flex items-center justify-between border-b border-slate-50 px-5 py-4 text-left transition hover:bg-slate-50"
+                    onClick={() => void loadDashboard()}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Bell size={20} className="text-slate-400" />
+                      <span className="text-sm font-medium text-slate-700">Refresh Profile Data</span>
+                    </div>
+                    <ChevronRight size={18} className="text-slate-300" />
+                  </button>
+                  <button
+                    type="button"
+                    className="tc-list-row-btn flex items-center justify-between border-b border-slate-50 px-5 py-4 text-left transition hover:bg-slate-50"
+                    onClick={() => setActiveTab("health")}
+                  >
+                    <div className="flex items-center gap-3">
+                      <ShieldCheck size={20} className="text-slate-400" />
+                      <span className="text-sm font-medium text-slate-700">Health & Appointments</span>
+                    </div>
+                    <ChevronRight size={18} className="text-slate-300" />
+                  </button>
+                  <button
+                    type="button"
+                    className="tc-list-row-btn flex items-center justify-between border-b border-slate-50 px-5 py-4 text-left transition hover:bg-slate-50"
+                    onClick={() => setActiveTab("chat")}
+                  >
+                    <div className="flex items-center gap-3">
+                      <HelpCircle size={20} className="text-slate-400" />
+                      <span className="text-sm font-medium text-slate-700">Help & Support</span>
+                    </div>
+                    <ChevronRight size={18} className="text-slate-300" />
+                  </button>
+                  <button
+                    type="button"
+                    className="tc-list-row-btn flex items-center justify-between px-5 py-4 text-left transition hover:bg-red-50"
+                    onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <LogOut size={20} className="text-red-500" />
+                      <span className="text-sm font-bold text-red-500">Log Out</span>
+                    </div>
+                  </button>
+                </div>
               </section>
             </>
           ) : null}

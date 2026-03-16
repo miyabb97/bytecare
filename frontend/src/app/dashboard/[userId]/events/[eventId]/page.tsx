@@ -11,6 +11,7 @@ import {
   Home,
   MapPin,
   MessageSquare,
+  Settings,
   User,
   UsersRound
 } from "lucide-react";
@@ -18,9 +19,11 @@ import {
 import {
   api,
   type CommunityEventItem,
-  type CommunityMyEventsResponse
+  type CommunityMyEventsResponse,
+  type UserProfile
 } from "../../../../../lib/api";
 
+const PROFILE_IMAGE_URL = "https://lh3.googleusercontent.com/aida-public/AB6AXuDrpjijg5RYen-KEp80Ku17lHJt6RK6oQ8jsW9yOGV8G22INjaHluVxszAVSYh7377YZduJY0z1JadmjpP-_slJeGgQKFmm53tOjbijQFoPrqrf32G8qlRqKcx5fRUjfVjGlREMUBlc9xtjTdcHypDPv6OA4gWbCQ2VxJVehPCypeFLrmiGy3QwVzlKW5gKU4PVT0_SQBD3riOiporPY9unbl6_T7IjdEnwDL7j1yxZItw3L9Fgj9T6Q8f8esWe3APv7JdvBOUrA0M";
 const IMAGE_WALK = "https://lh3.googleusercontent.com/aida-public/AB6AXuAVNP892HZuLcbaTsZyc-eOMPlYKDMlqVdP8ybsdVb0P1LZ6ug1VbuJgmaUGiqhMRe5x6J1iiLvm3WoSUQdUZQcnFbsq7ITJTq6mRYdfqHtLPGx-_sxdDCm5L3btLTI7HStACdyt49FXrTIAaaZzYAUxW2brjZZMGXVbX_FzFWxte_JaGXr5wQepX-cc_Lrot54PUiK5B-uSnldnT6OnrQTs_il1EbTxYpYop22BsDCibjOX49JtovQHcfTqTkd7XeeLSJGxgpP_dM";
 const IMAGE_TAI_CHI = "https://lh3.googleusercontent.com/aida-public/AB6AXuA3YolzPqhmPsepHcKCNeiXvywh-4SmaMp4_WdWbln4_lyFbklKzB9EOtjAPGYN_rbWybaVuXmZDQmNkonLqc593lRpRfrTbMRluqYuW3tvwHkzyVPO5jp2nUf6TCFC48TX9xDrJu6bw0fob2ND-eXkQhlDQG84otSIfX1lBKh1aPxuh9jnH1yoc7GKSRrCg0QjpvKlLonHjpChtDQOe1M0aIRCB73rjG3uuF3hZMnzP1XxOV7zBlPH4A-ve-5nzyHW1n2Kb27_PKk";
 const IMAGE_COOKING = "https://lh3.googleusercontent.com/aida-public/AB6AXuBpTeUp98FkA_ijR4sKh9qL3wEqou6Af_Wd1AG7ALOUOnS6LXcC3KMY9CI0WqHvqbty9JM28p60IhnEq4D_m62M71bVaabYuZeg99AKdjn9Y9guhYmaCVhSoptJDwyUU1B_XFSApLn_Y_j5BV8hu4QzqcKomqmc5Me5zXNXRSo4_RIBkK-RBcjf7Vw1xOA4vbU4WOYMZEvMPiG9OU4FpUWKXh22gbqkCbGRQbH7Nj0MszNOcVbVJlyE83xNHgFE_az2edlt3DCN0kM";
@@ -90,6 +93,7 @@ export default function EventDetailsPage() {
   const userId = decodeURIComponent(userIdParam ?? "");
   const eventId = decodeURIComponent(eventIdParam ?? "");
 
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [event, setEvent] = useState<CommunityEventItem | null>(null);
   const [myEvents, setMyEvents] = useState<CommunityMyEventsResponse>({ joined: [], saved: [] });
   const [loading, setLoading] = useState(false);
@@ -112,10 +116,12 @@ export default function EventDetailsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [allRes, mineRes] = await Promise.all([
+      const [profileRes, allRes, mineRes] = await Promise.all([
+        api.getUser(userId),
         api.getAllCommunityEvents(userId),
         getMyCommunityEventsSafe(userId)
       ]);
+      setUserProfile(profileRes);
       const found = (allRes.events ?? []).find((item) => item.event_id === eventId) ?? null;
       setEvent(found);
       setMyEvents(mineRes);
@@ -123,6 +129,7 @@ export default function EventDetailsPage() {
         setError("Event not found.");
       }
     } catch (loadError) {
+      setUserProfile(null);
       setEvent(null);
       setError(safeMessage(loadError));
     } finally {
@@ -174,8 +181,33 @@ export default function EventDetailsPage() {
 
   return (
     <main className="flex min-h-screen justify-center bg-slate-100">
-      <div className="min-h-screen w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl bg-slate-100 pb-24">
-        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white px-4 py-5">
+      <div className="min-h-screen w-full max-w-md bg-slate-50 pb-24 md:border-x md:border-slate-200 md:shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+        <header className="app-header">
+          <div className="header-left">
+            <Image
+              src={PROFILE_IMAGE_URL}
+              alt="ByteCare logo"
+              width={38}
+              height={38}
+              className="h-[2.35rem] w-[2.35rem] rounded-full border-2 border-blue-100 object-cover"
+              referrerPolicy="no-referrer"
+            />
+            <div className="header-copy">
+              <h1>ByteCare</h1>
+              <p className="muted">{userProfile?.name ?? "Loading profile..."}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            aria-label="Settings"
+            onClick={() => void loadEvent()}
+            className="tc-icon-btn inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100"
+          >
+            <Settings size={20} />
+          </button>
+        </header>
+
+        <section className="border-b border-slate-200 bg-white px-4 py-5">
           <div className="mb-4 flex items-center gap-3">
             <button
               type="button"
@@ -189,7 +221,7 @@ export default function EventDetailsPage() {
           <p className="text-[0.77rem] text-slate-600">
             View full activity details and manage your participation.
           </p>
-        </header>
+        </section>
 
         <section className="tc-motion-stack space-y-4 px-4 py-4">
           {loading ? <p className="text-xs text-slate-600">Loading event details...</p> : null}
@@ -307,7 +339,7 @@ export default function EventDetailsPage() {
           </div>
         ) : null}
 
-        <nav className="tc-bottom-nav fixed bottom-0 left-1/2 z-40 flex w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl -translate-x-1/2 items-center justify-between border-t border-slate-200 bg-white px-5 py-2">
+        <nav className="tc-bottom-nav fixed bottom-0 left-1/2 z-40 flex w-full max-w-md -translate-x-1/2 items-center justify-between border-t border-slate-200 bg-white px-5 py-2">
           <button
             type="button"
             className="flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 text-slate-400 transition hover:text-blue-500 hover:bg-slate-50"
