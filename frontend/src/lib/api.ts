@@ -741,6 +741,7 @@ export type MedRecommendationResponse = {
 };
 
 export type CaregiverPatientSummary = {
+  user_id: string;
   name: string;
   age: number;
   conditions: string[];
