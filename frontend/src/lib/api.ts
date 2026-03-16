@@ -141,6 +141,7 @@ export type MedicationItem = {
   schedule: { frequency: string; times: string[] };
   time_window_minutes: number;
   criticality: string;
+  total_supply: number;
   created_at: string;
 };
 
@@ -478,6 +479,22 @@ export const api = {
 
   adminGetAllInterventions: () =>
     apiRequest<AdminInterventionListResponse>("/admin/interventions"),
+
+  // --- Refill reminder endpoints ---
+  getRefillStatus: (userId: string) =>
+    apiRequest<RefillStatusResponse>(`/users/${userId}/refill-status`),
+
+  runRefillCheck: (userId: string) =>
+    apiRequest<{ triggered: boolean; low_medications: string[]; statuses: RefillStatusItem[] }>(`/users/${userId}/refill-check`, { method: "POST" }),
+
+  updateMedicationSupply: (userId: string, medId: string, remaining: number) =>
+    apiRequest<MedicationItem>(`/users/${userId}/medications/${medId}/supply`, {
+      method: "PUT",
+      body: JSON.stringify({ remaining }),
+    }),
+
+  requestRefill: (userId: string, medId: string) =>
+    apiRequest<{ success: boolean; medication: string }>(`/users/${userId}/medications/${medId}/refill-request`, { method: "POST" }),
 };
 
 export type DemoPatient = {
@@ -681,4 +698,23 @@ export type AdminInterventionItem = InterventionItem & {
 
 export type AdminInterventionListResponse = {
   items: AdminInterventionItem[];
+};
+
+// --- Refill reminder types ---
+
+export type RefillStatusItem = {
+  medication_id: string;
+  name: string;
+  dose_text: string;
+  total_supply: number;
+  taken_count: number;
+  doses_remaining: number | null;
+  days_remaining: number | null;
+  is_low: boolean;
+  needs_refill: boolean;
+  tracking_enabled: boolean;
+};
+
+export type RefillStatusResponse = {
+  items: RefillStatusItem[];
 };

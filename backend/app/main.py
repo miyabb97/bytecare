@@ -39,6 +39,7 @@ from app.routers.community import router as community_router
 from app.routers.drift import router as drift_router
 from app.routers.nutrition import router as nutrition_router
 from app.routers.orchestrator import router as orchestrator_router
+from app.routers.refill import router as refill_router
 from app.routers.report import router as report_router
 from app.routers.tcm import router as tcm_router
 from app.routers.voice import router as voice_router
@@ -57,6 +58,15 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     init_db()
+    # Idempotent column migration: add total_supply to medications if not present
+    from sqlalchemy import text as _text
+    from app.db import engine as _engine
+    with _engine.connect() as conn:
+        try:
+            conn.execute(_text("ALTER TABLE medications ADD COLUMN total_supply INTEGER DEFAULT 0"))
+            conn.commit()
+        except Exception:
+            pass  # Column already exists — safe to ignore
     # Pre-load CLIP model in a background thread so the first /tcm-identify
     # request doesn't block long enough to trigger a proxy timeout.
     import threading
@@ -993,6 +1003,7 @@ app.include_router(voice_router, prefix="/api/v1")
 app.include_router(report_router, prefix="/api/v1")
 app.include_router(clinician_router, prefix="/api/v1")
 app.include_router(orchestrator_router, prefix="/api/v1")
+app.include_router(refill_router, prefix="/api/v1")
 
 
 # -------------------------

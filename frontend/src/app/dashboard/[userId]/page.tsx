@@ -36,6 +36,7 @@ import {
   type MedicationListResponse,
   type MEEScoreResponse,
   type NextActionResponse,
+  type RefillStatusItem,
   type ReportSummaryResponse,
   type TCMResponse,
   type UserProfile,
@@ -305,7 +306,7 @@ export default function DashboardPage() {
       try {
         const updated = await Promise.all(
           chatMessages.map(async (msg) => {
-            if (msg.sender !== "bot") return msg;
+            if (msg.sender !== "bot" && msg.sender !== "system") return msg;
             const source = msg.originalText || msg.text;
             if (chatLang === "en") {
               return { ...msg, text: source, lang: "en" };
@@ -406,6 +407,13 @@ export default function DashboardPage() {
   const [meeScore, setMeeScore] = useState<MEEScoreResponse | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [adherenceTracking, setAdherenceTracking] = useState<Record<string, string>>({});
+
+  // --- Medication Supply / Refill reminder state ---
+  const [refillStatus, setRefillStatus] = useState<RefillStatusItem[] | null>(null);
+  const [supplyInputs, setSupplyInputs] = useState<Record<string, string>>({});
+  const [supplyLoading, setSupplyLoading] = useState<string | null>(null);
+  const [refillCheckLoading, setRefillCheckLoading] = useState(false);
+  const [refillOrdered, setRefillOrdered] = useState<Record<string, boolean>>({});
 
   // True when the user should not edit the care plan (caregiver or clinician-locked patient)
   const carePlanReadOnly = carePlanLocked || accountRole === "caregiver";
@@ -1172,8 +1180,60 @@ export default function DashboardPage() {
       void loadAllMeds();
       void loadAllAppts();
     }
+    if (activeTab === "health" && userId) {
+      api.getRefillStatus(userId).then((res) => setRefillStatus(res.items)).catch(() => {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, userId]);
+
+  async function handleSetSupply(medId: string) {
+    const val = parseInt(supplyInputs[medId] ?? "", 10);
+    if (isNaN(val) || val < 0) return;
+    setSupplyLoading(medId);
+    try {
+      await api.updateMedicationSupply(userId, medId, val);
+      const res = await api.getRefillStatus(userId);
+      setRefillStatus(res.items);
+      setSupplyInputs((prev) => { const n = { ...prev }; delete n[medId]; return n; });
+    } catch { /* ignore */ } finally {
+      setSupplyLoading(null);
+    }
+  }
+
+  async function handleRefillCheck() {
+    if (!userId) return;
+    setRefillCheckLoading(true);
+    try {
+      const result = await api.runRefillCheck(userId);
+      const [statusRes, countRes] = await Promise.all([
+        api.getRefillStatus(userId),
+        api.getUnreadCount(userId),
+      ]);
+      setRefillStatus(statusRes.items);
+      setUnreadCount(countRes.unread_count);
+
+      if (result.triggered && result.low_medications?.length > 0) {
+        // Inject the system message into chat and navigate there
+        const msgText = (result as any).message ??
+          `💊 Refill Reminder:\n${result.low_medications.join(", ")} running low. Please arrange a refill soon.`;
+        setChatMessages((prev) => {
+          const withoutRefill = prev.filter((m) => !(m.sender === "system" && m.text.includes("Refill")));
+          return [{
+            id: Date.now(),
+            sender: "system" as const,
+            text: msgText,
+            originalText: msgText,
+            timestamp: new Date(),
+          }, ...withoutRefill];
+        });
+        // Reset chatLoadedRef so the latest message is fetched from DB too
+        chatLoadedRef.current = false;
+        setActiveTab("chat");
+      }
+    } catch { /* ignore */ } finally {
+      setRefillCheckLoading(false);
+    }
+  }
 
   async function handleReminderResponse(responseStatus: ReminderResponseStatus) {
     if (!userId || !reminderGroup) {
@@ -1813,11 +1873,25 @@ export default function DashboardPage() {
                     }
                   >
                     {message.sender === "system" ? (
-                      <div className="mx-auto max-w-[90%] rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-800">
-                        <TriangleAlert className="mb-0.5 mr-1 inline h-4 w-4" />
-                        {message.text}
-                        <div className="mt-0.5 text-xs text-amber-500">
-                          {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      <div className="mx-auto w-full max-w-[95%] rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                        <div className="mb-1 flex items-center gap-1.5 font-bold">
+                          <TriangleAlert className="h-4 w-4 shrink-0" />
+                          <span>ByteCare Alert</span>
+                        </div>
+                        <p style={{ whiteSpace: "pre-line" }}>{message.text}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-amber-500">
+                            {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                          <button
+                            type="button"
+                            className="bubble-audio-btn"
+                            onClick={() => void handlePlayChatAudio(message.id, message.text, message.lang || chatLang)}
+                            disabled={chatAudioLoading === message.id || chatAudioPlaying === message.id}
+                            title={chatAudioPlaying === message.id ? "Playing..." : "Listen"}
+                          >
+                            {chatAudioLoading === message.id ? <span className="audio-spinner" /> : chatAudioPlaying === message.id ? "🔊" : "▶"}
+                          </button>
                         </div>
                       </div>
                     ) : message.sender === "bot" ? (
@@ -2061,6 +2135,144 @@ export default function DashboardPage() {
                         {tcmAudioLoading ? "Loading audio..." : tcmAudioPlaying ? "\uD83D\uDD0A Playing..." : tcmAudioUrl ? "\uD83D\uDD0A Press to Replay" : "\uD83D\uDD0A Listen"}
                       </button>
                     </div>
+                  </div>
+                ) : null}
+              </section>
+
+              {/* ── Medication Supply ── */}
+              <section className="card">
+                <div className="card-row">
+                  <div className="card-title">💊 Medication Supply</div>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    disabled={refillCheckLoading}
+                    onClick={() => void handleRefillCheck()}
+                  >
+                    {refillCheckLoading ? "Checking..." : "🔔 Check"}
+                  </button>
+                </div>
+                <p className="muted" style={{ fontSize: "0.8rem", marginBottom: 8 }}>
+                  Each time you mark a dose as taken, your supply count updates automatically lah. You can correct the number anytime if needed.
+                </p>
+                <div className="item-list">
+                  {(refillStatus ?? allMeds.map<RefillStatusItem>((m) => ({
+                    medication_id: m.medication_id,
+                    name: m.name,
+                    dose_text: m.dose_text,
+                    total_supply: m.total_supply ?? 0,
+                    taken_count: 0,
+                    doses_remaining: null,
+                    days_remaining: null,
+                    is_low: false,
+                    needs_refill: false,
+                    tracking_enabled: false,
+                  }))).map((item) => {
+                    const isEditing = supplyInputs[item.medication_id] !== undefined;
+                    return (
+                      <div
+                        key={item.medication_id}
+                        className="item-row"
+                        style={{ flexDirection: "column", alignItems: "stretch", gap: 6,
+                          borderLeft: item.needs_refill ? "3px solid #f87171" : item.is_low ? "3px solid #fbbf24" : item.tracking_enabled ? "3px solid #34d399" : undefined,
+                          paddingLeft: item.tracking_enabled || item.needs_refill || item.is_low ? 8 : undefined,
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <div style={{ flex: 1 }}>
+                            <div className="item-name">{item.name}</div>
+                            <div className="muted" style={{ fontSize: "0.75rem" }}>{item.dose_text}</div>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            {item.tracking_enabled && item.doses_remaining !== null ? (
+                              <>
+                                <div style={{ fontSize: "1.4rem", fontWeight: 700, color: item.needs_refill ? "#dc2626" : item.is_low ? "#d97706" : "#059669", lineHeight: 1 }}>
+                                  {item.doses_remaining}
+                                </div>
+                                <div style={{ fontSize: "0.7rem", color: "#94a3b8" }}>doses left</div>
+                                {item.days_remaining !== null ? (
+                                  <div style={{ fontSize: "0.72rem", color: item.needs_refill ? "#dc2626" : item.is_low ? "#d97706" : "#64748b", fontWeight: 600 }}>
+                                    ~{item.days_remaining}d
+                                  </div>
+                                ) : null}
+                              </>
+                            ) : (
+                              <div style={{ fontSize: "0.73rem", color: "#94a3b8" }}>Not tracked</div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Action row */}
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                          {!isEditing ? (
+                            <button
+                              type="button"
+                              className="icon-button"
+                              style={{ fontSize: "0.75rem" }}
+                              onClick={() => setSupplyInputs((prev) => ({
+                                ...prev,
+                                [item.medication_id]: item.doses_remaining !== null ? String(item.doses_remaining) : ""
+                              }))}
+                            >
+                              ✏️ {item.tracking_enabled ? "Correct count" : "Set current supply"}
+                            </button>
+                          ) : (
+                            <>
+                              <input
+                                type="number"
+                                min={0}
+                                autoFocus
+                                placeholder="doses you have now"
+                                value={supplyInputs[item.medication_id]}
+                                onChange={(e) => setSupplyInputs((prev) => ({ ...prev, [item.medication_id]: e.target.value }))}
+                                style={{ width: 120, fontSize: "0.82rem", padding: "4px 6px", borderRadius: 6, border: "1px solid #e2e8f0" }}
+                              />
+                              <button
+                                type="button"
+                                className="icon-button"
+                                disabled={supplyLoading === item.medication_id}
+                                onClick={() => void handleSetSupply(item.medication_id)}
+                              >
+                                {supplyLoading === item.medication_id ? "..." : "Save"}
+                              </button>
+                              <button
+                                type="button"
+                                className="icon-button"
+                                onClick={() => setSupplyInputs((prev) => { const n = { ...prev }; delete n[item.medication_id]; return n; })}
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          )}
+                          {(item.is_low || item.needs_refill) && !isEditing ? (
+                            <button
+                              type="button"
+                              className="icon-button"
+                              style={refillOrdered[item.medication_id]
+                                ? { background: "#f0fdf4", color: "#16a34a", fontWeight: 700, fontSize: "0.75rem" }
+                                : { background: "#eff6ff", color: "#2563eb", fontWeight: 700, fontSize: "0.75rem" }}
+                              disabled={refillOrdered[item.medication_id]}
+                              onClick={async () => {
+                                if (!userId) return;
+                                try {
+                                  await api.requestRefill(userId, item.medication_id);
+                                  setRefillOrdered((prev) => ({ ...prev, [item.medication_id]: true }));
+                                } catch { /* ignore */ }
+                              }}
+                            >
+                              {refillOrdered[item.medication_id] ? "✅ Sent to Clinician" : "📦 Order Refill"}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {(refillStatus ?? []).some((s) => s.is_low) ? (
+                  <div className="alert-box alert-warning" style={{ marginTop: 8 }}>
+                    <p style={{ fontSize: "0.85rem", fontWeight: 600 }}>
+                      ⚠️ Running low lah! Tap &quot;🔔 Check&quot; to get a reminder in your chat, or &quot;📦 Order Refill&quot; to request a refill.
+                    </p>
                   </div>
                 ) : null}
               </section>

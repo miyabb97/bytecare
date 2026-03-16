@@ -59,6 +59,7 @@ class Medication(Base):
     schedule_json = Column(Text, nullable=False)
     time_window_minutes = Column(Integer, default=120)
     criticality = Column(String, default="medium")
+    total_supply = Column(Integer, default=0)   # 0 = not tracked
     created_at = Column(String, nullable=False)
 
     @property
@@ -74,6 +75,7 @@ class Medication(Base):
             "schedule": self.schedule,
             "time_window_minutes": self.time_window_minutes,
             "criticality": self.criticality,
+            "total_supply": self.total_supply or 0,
             "created_at": self.created_at,
         }
 

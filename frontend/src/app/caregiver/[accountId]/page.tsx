@@ -11,6 +11,7 @@ import {
   type InterventionItem,
   type MedicationItem,
   type MEEScoreResponse,
+  type RefillStatusItem,
 } from "../../../lib/api";
 
 function safeMessage(error: unknown): string {
@@ -50,6 +51,7 @@ export default function CaregiverDashboard() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [detail, setDetail] = useState<CaregiverPatientDetail | null>(null);
   const [meeScore, setMeeScore] = useState<MEEScoreResponse | null>(null);
+  const [refillStatus, setRefillStatus] = useState<RefillStatusItem[] | null>(null);
 
   // Med name lookup helper
   const medNameMap = useMemo(() => {
@@ -89,13 +91,16 @@ export default function CaregiverDashboard() {
     setError(null);
     setDetail(null);
     setMeeScore(null);
+    setRefillStatus(null);
     try {
-      const [det, mee] = await Promise.all([
+      const [det, mee, refill] = await Promise.all([
         api.caregiverGetPatientDetail(accountId, userId),
         api.getMEEScore(userId).catch(() => null),
+        api.getRefillStatus(userId).catch(() => null),
       ]);
       setDetail(det);
       setMeeScore(mee);
+      setRefillStatus(refill?.items ?? null);
     } catch (e) {
       setError(safeMessage(e));
     } finally {
@@ -248,6 +253,61 @@ export default function CaregiverDashboard() {
                   </div>
                 )}
               </section>
+
+              {/* Refill Status */}
+              {refillStatus && refillStatus.some((s) => s.tracking_enabled) ? (
+                <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <h3 className="mb-3 text-lg font-bold text-slate-900">💊 Refill Status</h3>
+                  <div className="space-y-2 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">
+                    {refillStatus.filter((s) => s.tracking_enabled).map((item) => (
+                      <div
+                        key={item.medication_id}
+                        className={`flex items-center justify-between rounded-2xl px-4 py-3 ${
+                          item.needs_refill
+                            ? "border border-red-200 bg-red-50"
+                            : item.is_low
+                              ? "border border-amber-200 bg-amber-50"
+                              : "border border-emerald-100 bg-emerald-50"
+                        }`}
+                      >
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">{item.name}</p>
+                          <p className="text-xs text-slate-500">{item.dose_text}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-bold ${
+                              item.needs_refill
+                                ? "bg-red-100 text-red-600"
+                                : item.is_low
+                                  ? "bg-amber-100 text-amber-600"
+                                  : "bg-emerald-100 text-emerald-600"
+                            }`}
+                          >
+                            {item.needs_refill ? "⚠️ Urgent" : item.is_low ? "🔶 Low" : "✓ OK"}
+                          </span>
+                          {item.days_remaining !== null ? (
+                            <span className="text-xs text-slate-400">{item.days_remaining}d left</span>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {refillStatus.some((s) => s.needs_refill) ? (
+                    <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3">
+                      <p className="text-sm font-bold text-red-700">
+                        ⚠️ Urgent: some medications need refilling now. Please check with {detail?.patient.name}.
+                      </p>
+                    </div>
+                  ) : refillStatus.some((s) => s.is_low) ? (
+                    <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+                      <p className="text-sm font-medium text-amber-700">
+                        Some medications are running low. Remind {detail?.patient.name} to arrange a refill soon.
+                      </p>
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
 
               {/* Recent Dose Events — show medication NAME instead of ID */}
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
