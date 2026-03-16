@@ -47,6 +47,40 @@ def _get_assigned_patient(clinician_user_id: str, patient_user_id: str, db: Sess
     return patient
 
 
+def _adherence_counts_for_window(db: Session, user_id: str, start_iso: str, end_iso: Optional[str] = None) -> Dict[str, int]:
+    """Aggregate adherence-related event counts from DB for a time window."""
+    query = db.query(DoseEvent).filter(DoseEvent.user_id == user_id, DoseEvent.timestamp >= start_iso)
+    if end_iso is not None:
+        query = query.filter(DoseEvent.timestamp < end_iso)
+    events = query.all()
+
+    counts = {"taken": 0, "missed": 0, "late": 0, "skipped": 0}
+    for ev in events:
+        status = (ev.response_status or "").lower().strip()
+        event_type = (ev.event_type or "").lower().strip()
+
+        if status == "taken" or event_type in ("pillbox_open", "tap_confirm", "voice_confirm"):
+            counts["taken"] += 1
+        elif status == "late" or event_type == "dose_late":
+            counts["late"] += 1
+        elif status in ("missed", "skipped") or event_type in ("dose_missed", "dose_skipped"):
+            if status == "skipped" or event_type == "dose_skipped":
+                counts["skipped"] += 1
+            else:
+                counts["missed"] += 1
+
+    return counts
+
+
+def _adherence_score_from_counts(counts: Dict[str, int]) -> float:
+    """Compute adherence % from event counts, weighted for late confirmations."""
+    total = counts["taken"] + counts["missed"] + counts["late"] + counts["skipped"]
+    if total == 0:
+        return 0.0
+    score = ((counts["taken"] + 0.5 * counts["late"]) / total) * 100.0
+    return round(max(0.0, min(100.0, score)), 1)
+
+
 # --------------- request / response models ---------------
 
 class PatientSummary(BaseModel):
@@ -439,29 +473,24 @@ def get_patient_weekly_summary(patient_user_id: str, account_id: str, db: Sessio
     meds = db.query(Medication).filter_by(user_id=patient_user_id).all()
     med_names = [m.name for m in meds]
 
-    # ---- Adherence trends (current week vs prior week) ----
-    try:
-        from app.services.mee import compute_adherence_score
-        current_mee = compute_adherence_score(patient_user_id, 7)
-        prior_mee = compute_adherence_score(patient_user_id, 14)
-    except Exception:
-        current_mee = {"score": 0, "counts": {"taken": 0, "missed": 0, "late": 0, "skipped": 0, "snoozed": 0}}
-        prior_mee = {"score": 0, "counts": {"taken": 0, "missed": 0, "late": 0, "skipped": 0, "snoozed": 0}}
+    # ---- Adherence trends (current week vs prior week) from DB events ----
+    now = datetime.utcnow()
+    current_start = (now - timedelta(days=7)).isoformat(timespec="seconds")
+    prior_start = (now - timedelta(days=14)).isoformat(timespec="seconds")
+    current_end = now.isoformat(timespec="seconds")
 
-    current_score = round(current_mee.get("score", 0), 1)
-    prior_score = round(prior_mee.get("score", 0), 1)
+    current_counts = _adherence_counts_for_window(db, patient_user_id, current_start, current_end)
+    prior_counts = _adherence_counts_for_window(db, patient_user_id, prior_start, current_start)
+
+    current_score = _adherence_score_from_counts(current_counts)
+    prior_score = _adherence_score_from_counts(prior_counts)
     adherence_delta = round(current_score - prior_score, 1)
 
     # ---- Dose event breakdown (last 7 days) ----
-    since_7d = (datetime.now() - timedelta(days=7)).isoformat(timespec="seconds")
-    recent_events = db.query(DoseEvent).filter(
-        DoseEvent.user_id == patient_user_id,
-        DoseEvent.timestamp >= since_7d,
-    ).all()
-
-    taken_count = sum(1 for e in recent_events if e.event_type in ("pillbox_open", "tap_confirm", "voice_confirm") or e.response_status == "taken")
-    missed_count = sum(1 for e in recent_events if e.event_type == "dose_skipped" or e.response_status in ("missed", "skipped"))
-    late_count = sum(1 for e in recent_events if e.response_status == "late")
+    since_7d = current_start
+    taken_count = current_counts["taken"]
+    missed_count = current_counts["missed"] + current_counts["skipped"]
+    late_count = current_counts["late"]
 
     # ---- Drift ----
     from app.services.drift_engine import detect_adherence_drift
@@ -524,6 +553,8 @@ def get_patient_weekly_summary(patient_user_id: str, account_id: str, db: Sessio
         bullets.append(f"Adherence improved from {prior_score}% to {current_score}% (+{adherence_delta}%)")
     elif adherence_delta < 0:
         bullets.append(f"Adherence declined from {prior_score}% to {current_score}% ({adherence_delta}%)")
+    elif current_score == 0 and taken_count == 0 and missed_count == 0 and late_count == 0:
+        bullets.append("No adherence events captured this week")
     else:
         bullets.append(f"Adherence stable at {current_score}%")
 

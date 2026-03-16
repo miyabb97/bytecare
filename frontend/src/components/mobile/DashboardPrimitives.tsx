@@ -141,10 +141,12 @@ export function TabBar({
   tabs,
   active,
   containerRef,
+  onTabChange,
 }: {
   tabs: Array<{ key: string; label: string; icon: ReactNode }>;
   active: string;
   containerRef?: RefObject<HTMLElement | null>;
+  onTabChange?: (key: string) => void;
 }) {
   const [bounds, setBounds] = useState<{ left: number; width: number } | null>(null);
 
@@ -193,6 +195,7 @@ export function TabBar({
             <button
               key={tab.key}
               type="button"
+              onClick={() => onTabChange?.(tab.key)}
               className={`mt-0 flex flex-1 flex-col items-center gap-1 rounded-xl px-2 py-2 ${isActive ? "bg-[#3B6EF5]" : "bg-transparent"}`}
             >
               <span className={isActive ? "text-white" : "text-[#98A2B3]"}>{tab.icon}</span>
