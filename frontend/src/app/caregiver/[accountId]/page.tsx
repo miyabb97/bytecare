@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bell,
@@ -128,7 +128,9 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => { loadAccount(router, setAccount); }, [router]);
+  const shellRef = useRef<HTMLDivElement>(null);
 
+  
   useEffect(() => {
     if (!account) return;
     api.caregiverGetPatients(accountId)
@@ -180,7 +182,7 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
 
   return (
     <main className="flex min-h-screen justify-center bg-white">
-      <div className="relative min-h-screen w-full max-w-md bg-[#F8FAFC] pb-24">
+      <div ref={shellRef} className="relative min-h-screen w-full max-w-md bg-[#F8FAFC] pb-24">
         <Header
           title="Caregiver"
           left={
@@ -715,7 +717,7 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
 
         </section>
 
-        <TabBar tabs={tabs} active="dashboard" />
+        <TabBar tabs={tabs} active="dashboard" containerRef={shellRef} />
       </div>
     </main>
   );

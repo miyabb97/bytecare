@@ -31,7 +31,6 @@ import {
   Search,
   Settings,
   ShieldCheck,
-  Sparkles,
   TriangleAlert,
   User,
   Volume2,
@@ -389,12 +388,44 @@ export default function DashboardPage() {
   const [chatAudioPlaying, setChatAudioPlaying] = useState<number | null>(null);
   const [chatTranslating, setChatTranslating] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
   const prevChatLang = useRef(chatLang);
   const nutritionImageInputRef = useRef<HTMLInputElement>(null);
+  const [bottomNavBounds, setBottomNavBounds] = useState<{ left: number; width: number } | null>(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages, chatLoading]);
+
+  useEffect(() => {
+    const updateBottomNavBounds = () => {
+      const shell = shellRef.current;
+      if (!shell) return;
+      const rect = shell.getBoundingClientRect();
+      setBottomNavBounds({ left: rect.left, width: rect.width });
+    };
+
+    updateBottomNavBounds();
+
+    window.addEventListener("resize", updateBottomNavBounds);
+    window.addEventListener("scroll", updateBottomNavBounds, { passive: true });
+
+    const shell = shellRef.current;
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" && shell
+        ? new ResizeObserver(() => updateBottomNavBounds())
+        : null;
+
+    if (resizeObserver && shell) {
+      resizeObserver.observe(shell);
+    }
+
+    return () => {
+      window.removeEventListener("resize", updateBottomNavBounds);
+      window.removeEventListener("scroll", updateBottomNavBounds);
+      resizeObserver?.disconnect();
+    };
+  }, []);
 
   // Load system messages from backend when chat tab opens
   const chatLoadedRef = useRef(false);
@@ -568,6 +599,11 @@ export default function DashboardPage() {
   const [medCrit, setMedCrit] = useState("medium");
   const [medSaving, setMedSaving] = useState(false);
   const [medMsg, setMedMsg] = useState<string | null>(null);
+
+  // --- Reschedule state (home card) ---
+  const [showReschedule, setShowReschedule] = useState(false);
+  const [rescheduleSlot, setRescheduleSlot] = useState<string | null>(null);
+  const [rescheduleSent, setRescheduleSent] = useState(false);
 
   // --- Appointments CRUD state ---
   const [allAppts, setAllAppts] = useState<AppointmentItem[]>([]);
@@ -858,17 +894,14 @@ export default function DashboardPage() {
   type TodayDoseSlot = { med: MedicationItem; scheduledFor: string; timeLabel: string; status: string | null };
   const todayDoseSlots = useMemo(() => {
     const timezone = userProfile?.timezone || "Asia/Singapore";
-    const { date, time } = getClockParts(timezone);
+    const { date } = getClockParts(timezone);
     const slots: TodayDoseSlot[] = [];
     for (const med of medications?.items ?? []) {
       for (const t of med.schedule?.times ?? []) {
         if (!t) continue;
         const scheduledFor = buildScheduledFor(date, t);
         const ev = latestDoseEventBySlot.get(`${med.medication_id}:${scheduledFor}`);
-        // Only show past or current time slots
-        if (t <= time) {
-          slots.push({ med, scheduledFor, timeLabel: t, status: ev?.response_status ?? null });
-        }
+        slots.push({ med, scheduledFor, timeLabel: t, status: ev?.response_status ?? null });
       }
     }
     slots.sort((a, b) => a.scheduledFor.localeCompare(b.scheduledFor));
@@ -1621,7 +1654,7 @@ export default function DashboardPage() {
 
   return (
     <main className="flex min-h-screen justify-center bg-slate-100">
-      <div className="relative min-h-screen w-full max-w-md bg-slate-50 pb-24 md:border-x md:border-slate-200 md:bg-slate-50 md:shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+      <div ref={shellRef} className="relative min-h-screen w-full max-w-md bg-slate-50 pb-24 md:border-x md:border-slate-200 md:bg-slate-50 md:shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
         <header className="app-header">
           <div className="header-left">
             <Image
@@ -1700,10 +1733,10 @@ export default function DashboardPage() {
                     onClick={() => document.getElementById("upcoming-visit")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                   />
                   <QuickActionTile
-                    icon={<Sparkles className="h-5 w-5" />}
-                    label="Ask AI"
+                    icon={<CalendarDays className="h-5 w-5" />}
+                    label="Planner"
                     tone="teal"
-                    onClick={() => setActiveTab("chat")}
+                    onClick={() => router.push(`/dashboard/${userId}/planner`)}
                   />
                   <QuickActionTile
                     icon={<Scan className="h-5 w-5" />}
@@ -1726,29 +1759,20 @@ export default function DashboardPage() {
                 </div>
               </section>
 
-              <section className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="mb-3 flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-3">
-                    <Pill className="text-[#3670e2]" size={22} />
-                    <h3 className="text-[1.2rem] font-bold leading-none text-slate-900">Medication Adherence</h3>
-                  </div>
+              <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <Pill className="text-[#3670e2]" size={18} />
+                  <h3 className="text-sm font-bold text-slate-900">Medication Adherence</h3>
                   {meeScore ? (() => {
                     const riskLevel = getRiskLevel(meeScore.score);
                     return (
-                      <span
-                        className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider ${riskLevel === "HIGH"
-                          ? "bg-red-100 text-red-600"
-                          : riskLevel === "MEDIUM"
-                            ? "bg-amber-100 text-amber-600"
-                            : "bg-emerald-100 text-emerald-600"
-                          }`}
-                      >
-                        Risk: {riskLevel}
+                      <span className={`ml-auto rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${riskLevel === "HIGH" ? "bg-red-100 text-red-600" : riskLevel === "MEDIUM" ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"}`}>
+                        {riskLevel} Risk
                       </span>
                     );
                   })() : (
-                    <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-600">
-                      Severity: {(drift?.severity ?? "red").replace(/^./, (s) => s.toUpperCase())}
+                    <span className="ml-auto rounded-full bg-red-100 px-2.5 py-0.5 text-[9px] font-bold text-red-600">
+                      {(drift?.severity ?? "red").replace(/^./, (s) => s.toUpperCase())}
                     </span>
                   )}
                 </div>
@@ -1756,75 +1780,49 @@ export default function DashboardPage() {
                 {meeScore ? (() => {
                   const riskLevel = getRiskLevel(meeScore.score);
                   const adherenceRate = getAdherenceRate(meeScore.counts);
-                  const radius = 40;
+                  const radius = 28;
                   const circumference = 2 * Math.PI * radius;
                   const dashOffset = circumference - (adherenceRate / 100) * circumference;
                   return (
-                    <>
-                      <div className="mb-5 flex flex-col items-center justify-center">
-                        <div className="relative flex h-28 w-28 items-center justify-center">
-                          <svg className="h-full w-full -rotate-90" viewBox="0 0 96 96" aria-hidden="true">
-                            <circle cx="48" cy="48" r={radius} fill="transparent" stroke="currentColor" strokeWidth="8" className="text-slate-100" />
-                            <circle
-                              cx="48"
-                              cy="48"
-                              r={radius}
-                              fill="transparent"
-                              stroke="currentColor"
-                              strokeWidth="8"
-                              strokeDasharray={circumference}
-                              strokeDashoffset={dashOffset}
-                              strokeLinecap="round"
-                              className={riskLevel === "HIGH" ? "text-red-500" : riskLevel === "MEDIUM" ? "text-amber-500" : "text-emerald-500"}
-                            />
-                          </svg>
-                          <div className="absolute flex flex-col items-center">
-                            <span className="text-[1.65rem] font-black leading-none text-slate-900">{adherenceRate}%</span>
-                            <span className="mt-1 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">Adherence</span>
-                          </div>
+                    <div className="mt-3 flex items-center gap-4">
+                      {/* Compact ring */}
+                      <div className="relative flex h-16 w-16 flex-shrink-0 items-center justify-center">
+                        <svg className="h-full w-full -rotate-90" viewBox="0 0 68 68" aria-hidden="true">
+                          <circle cx="34" cy="34" r={radius} fill="transparent" stroke="currentColor" strokeWidth="6" className="text-slate-100" />
+                          <circle cx="34" cy="34" r={radius} fill="transparent" stroke="currentColor" strokeWidth="6" strokeDasharray={circumference} strokeDashoffset={dashOffset} strokeLinecap="round" className={riskLevel === "HIGH" ? "text-red-500" : riskLevel === "MEDIUM" ? "text-amber-500" : "text-emerald-500"} />
+                        </svg>
+                        <div className="absolute flex flex-col items-center">
+                          <span className="text-[13px] font-black leading-none text-slate-900">{adherenceRate}%</span>
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
-                        <div className="text-center">
-                          <p className="mb-1 text-xs font-medium text-slate-500">Taken</p>
-                          <p className="text-xl font-bold text-slate-900">{meeScore.counts.taken}</p>
+
+                      {/* Stats */}
+                      <div className="flex flex-1 flex-col gap-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-slate-500">Taken</span>
+                          <span className="text-[11px] font-bold text-slate-800">{meeScore.counts.taken}</span>
                         </div>
-                        <div className="border-l border-slate-100 text-center">
-                          <p className="mb-1 text-xs font-medium text-slate-500">Missed</p>
-                          <p className="text-xl font-bold text-red-500">{meeScore.counts.missed}</p>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-slate-500">Missed</span>
+                          <span className="text-[11px] font-bold text-red-500">{meeScore.counts.missed}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-slate-500">MEE Score</span>
+                          <span className="text-[11px] font-bold text-slate-800">{Math.round(meeScore.score)}%</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-slate-500">Next action</span>
+                          <span className="text-[11px] font-semibold text-blue-600 truncate max-w-[130px]">{nextAction?.next_action ?? "Reminder needed"}</span>
                         </div>
                       </div>
-                      <p className="mt-4 text-center text-[9px] font-medium uppercase tracking-[0.16em] text-slate-400">
-                        Window: Last {meeScore.period_days} Days
-                      </p>
-                      <p className="mt-1 text-center text-[10px] text-slate-500">
-                        MEE score: {Math.round(meeScore.score)}%
-                      </p>
-                      {(riskLevel === "HIGH" || riskLevel === "MEDIUM") && (
-                        <div className={`mt-5 flex items-center gap-2 rounded-2xl p-3 ${riskLevel === "HIGH"
-                          ? "border border-red-200 bg-red-50"
-                          : "border border-amber-200 bg-amber-50"
-                          }`}>
-                          <TriangleAlert size={18} className={riskLevel === "HIGH" ? "text-red-500" : "text-amber-500"} />
-                          <p className={`text-sm font-medium ${riskLevel === "HIGH" ? "text-red-700" : "text-amber-700"}`}>
-                            {riskLevel === "HIGH"
-                              ? "High risk — multiple doses missed recently. Please check in."
-                              : "Moderate risk — some doses missed. A gentle reminder may help."}
-                          </p>
-                        </div>
-                      )}
-                    </>
+                    </div>
                   );
                 })() : (
-                  <div className="flex items-center gap-2 text-slate-600">
-                    <TriangleAlert size={18} className="text-amber-500" />
-                    <p className="text-sm italic">Drift detected: {drift?.drift_detected ? "Yes" : "No"}</p>
+                  <div className="mt-3 flex items-center gap-2 text-slate-600">
+                    <TriangleAlert size={16} className="text-amber-500" />
+                    <p className="text-xs italic">Drift detected: {drift?.drift_detected ? "Yes" : "No"}</p>
                   </div>
                 )}
-
-                <div className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 p-3">
-                  <p className="text-sm font-medium text-blue-600">Next action: {nextAction?.next_action ?? "Reminder needed"}</p>
-                </div>
               </section>
 
               {/* Today's Doses */}
@@ -1943,24 +1941,137 @@ export default function DashboardPage() {
                 </section>
               )}
 
-              <section id="upcoming-visit" className="relative overflow-hidden rounded-[1.75rem] bg-blue-600 p-5 text-white shadow-lg">
-                <div className="relative z-10">
-                  <div className="mb-2 flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-2">
-                      <CalendarDays size={18} className="opacity-90" />
-                      <span className="text-[1.2rem] font-bold leading-none">Upcoming Visit</span>
+              {nextHealthAppointment ? (
+                <div id="upcoming-visit" className="relative overflow-hidden rounded-[2rem] bg-[#3670e2] px-5 py-5 text-white shadow-[0_16px_36px_rgba(54,112,226,0.3)]">
+                  <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-3xl" />
+                  <div className="relative z-10 space-y-4">
+                    {/* Header row */}
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <CalendarDays size={16} className="opacity-90" />
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-100/80">Upcoming Visit</span>
+                        </div>
+                        <p className="text-lg font-bold leading-tight">{new Date(nextHealthAppointment.datetime).toLocaleString()}</p>
+                        {clinicianName && (
+                          <p className="text-[11px] text-blue-100/80">Dr. {clinicianName}</p>
+                        )}
+                      </div>
+                      <div className="flex flex-col items-end">
+                        <span className="text-3xl font-black leading-none">{appointments?.days_remaining ?? "-"}</span>
+                        <span className="text-[11px] opacity-80">days to go</span>
+                      </div>
                     </div>
-                    <Clock3 size={16} className="mt-1 opacity-80" />
-                  </div>
-                  <h3 className="text-[1.1rem] font-semibold leading-tight">{appointments?.next_appointment?.location ?? "Polyclinic Visit"}</h3>
-                  <p className="mt-1 text-sm opacity-90">{appointments?.next_appointment ? formatDateTime(appointments.next_appointment.datetime) : appointmentText}</p>
-                  <div className="mt-4 flex items-baseline gap-1">
-                    <span className="text-4xl font-bold leading-none">{appointments?.days_remaining ?? "-"}</span>
-                    <span className="text-sm opacity-85">days to go</span>
+
+                    {/* Details */}
+                    <div className="space-y-2 border-t border-white/10 pt-3">
+                      <div className="flex items-center gap-2.5">
+                        <MapPin size={15} className="text-blue-200 flex-shrink-0" />
+                        <p className="text-sm font-medium">{nextHealthAppointment.location}</p>
+                      </div>
+                      {nextHealthAppointment.notes ? (
+                        <div className="flex items-center gap-2.5">
+                          <Clock3 size={15} className="text-blue-200 flex-shrink-0" />
+                          <p className="text-sm text-blue-50/90">{nextHealthAppointment.notes}</p>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {/* Prep note */}
+                    <div className="flex items-start gap-2.5 rounded-[1.2rem] border border-white/12 bg-white/10 px-3 py-3">
+                      <TriangleAlert size={15} className="mt-0.5 shrink-0 text-white" />
+                      <p className="text-xs leading-relaxed text-blue-50">{appointmentPrepNote(nextHealthAppointment)}</p>
+                    </div>
+
+                    {/* Reschedule panel */}
+                    {showReschedule && !rescheduleSent && (
+                      <div className="rounded-[1.35rem] border border-white/15 bg-white/10 p-4 space-y-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-blue-100">Available slots</p>
+                        <div className="grid grid-cols-1 gap-2">
+                          {[
+                            { label: "Mon 13 Apr, 9:00 AM", value: "2026-04-13T09:00" },
+                            { label: "Mon 13 Apr, 2:30 PM", value: "2026-04-13T14:30" },
+                            { label: "Wed 15 Apr, 10:00 AM", value: "2026-04-15T10:00" },
+                            { label: "Thu 16 Apr, 11:30 AM", value: "2026-04-16T11:30" },
+                            { label: "Fri 17 Apr, 3:00 PM", value: "2026-04-17T15:00" },
+                          ].map((slot) => (
+                            <button
+                              key={slot.value}
+                              type="button"
+                              style={{ width: "auto", margin: 0, borderRadius: "0.85rem" }}
+                              className={`px-3 py-2 text-sm font-medium transition text-left ${
+                                rescheduleSlot === slot.value
+                                  ? "bg-white text-[#3670e2] font-semibold"
+                                  : "bg-white/15 text-white hover:bg-white/25"
+                              }`}
+                              onClick={() => setRescheduleSlot(slot.value)}
+                            >
+                              {slot.label}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <button
+                            type="button"
+                            style={{ width: "auto", margin: 0, borderRadius: "0.85rem" }}
+                            className="flex-1 bg-white/15 px-3 py-2 text-sm font-medium text-white transition hover:bg-white/25"
+                            onClick={() => { setShowReschedule(false); setRescheduleSlot(null); }}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!rescheduleSlot}
+                            style={{ width: "auto", margin: 0, borderRadius: "0.85rem" }}
+                            className="flex-1 bg-white px-3 py-2 text-sm font-semibold text-[#3670e2] transition disabled:opacity-40"
+                            onClick={() => { if (rescheduleSlot) setRescheduleSent(true); }}
+                          >
+                            Send Request
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Sent confirmation */}
+                    {rescheduleSent && (
+                      <div className="flex items-center gap-2.5 rounded-[1.2rem] bg-white/15 px-3 py-3">
+                        <CheckCircle2 size={16} className="shrink-0 text-emerald-300" />
+                        <p className="text-xs text-blue-50">
+                          Reschedule request sent to {clinicianName ? `Dr. ${clinicianName}` : "your clinician"}. They will confirm shortly.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Action buttons */}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        style={{ width: "auto", margin: 0, borderRadius: "1.25rem" }}
+                        className="flex-1 bg-white/15 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/25"
+                        onClick={() => {
+                          setShowReschedule((v) => !v);
+                          setRescheduleSent(false);
+                          setRescheduleSlot(null);
+                        }}
+                      >
+                        {showReschedule ? "Hide" : "Reschedule"}
+                      </button>
+                      <button
+                        type="button"
+                        style={{ width: "auto", margin: 0, borderRadius: "1.25rem" }}
+                        className="flex-1 bg-white px-4 py-2.5 text-sm font-semibold text-[#3670e2] shadow-[0_10px_20px_rgba(15,23,42,0.12)] transition hover:bg-slate-50"
+                        onClick={() => window.open(buildCalendarUrl(nextHealthAppointment), "_blank", "noopener,noreferrer")}
+                      >
+                        Add to calendar
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div className="absolute -bottom-4 -right-4 h-24 w-24 rounded-full bg-white/10 blur-2xl" />
-              </section>
+              ) : (
+                <div id="upcoming-visit" className="rounded-[2rem] border border-slate-200/80 bg-white px-5 py-5 text-sm text-slate-500 shadow-sm">
+                  No upcoming appointments scheduled.
+                </div>
+              )}
 
               <section id="diet-suggestions" className="rounded-[1.75rem] border border-slate-200 bg-white px-6 py-6 shadow-[0_8px_30px_rgba(15,23,42,0.06)]">
                 <div className="flex items-center gap-3">
@@ -2353,9 +2464,20 @@ export default function DashboardPage() {
                   >
                     {message.sender === "system" ? (
                       <div className="mx-auto w-full max-w-[95%] rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                        <div className="mb-1 flex items-center gap-1.5 font-bold">
-                          <TriangleAlert className="h-4 w-4 shrink-0" />
-                          <span>ByteCare Alert</span>
+                        <div className="mb-1 flex items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1.5 font-bold">
+                            <TriangleAlert className="h-4 w-4 shrink-0" />
+                            <span>ByteCare Alert</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setChatMessages((prev) => prev.filter((m) => m.id !== message.id))}
+                            className="tc-icon-btn"
+                            style={{ width: "auto", margin: 0, padding: 0, opacity: 0.5 }}
+                            aria-label="Dismiss alert"
+                          >
+                            <XCircle size={15} />
+                          </button>
                         </div>
                         <p style={{ whiteSpace: "pre-line" }}>{message.text}</p>
                         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -2460,7 +2582,20 @@ export default function DashboardPage() {
                   {chatLoading ? <span className="audio-spinner" /> : <SendHorizonal size={18} strokeWidth={2.1} />}
                 </button>
               </div>
-              {chatError ? <p className="chat-error">{chatError}</p> : null}
+              {chatError ? (
+                <p className="chat-error" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+                  <span>{chatError}</span>
+                  <button
+                    type="button"
+                    onClick={() => setChatError(null)}
+                    className="tc-icon-btn"
+                    style={{ width: "auto", margin: 0, padding: 0, flexShrink: 0, opacity: 0.6 }}
+                    aria-label="Dismiss error"
+                  >
+                    <XCircle size={15} />
+                  </button>
+                </p>
+              ) : null}
             </section>
           ) : null}
 
@@ -2835,91 +2970,6 @@ export default function DashboardPage() {
                 </div>
               </section>
 
-              <section className="space-y-3 pb-8">
-                <div className="flex items-center justify-between gap-3 px-1">
-                  <div className="flex items-center gap-3">
-                    <CalendarDays className="text-[#3670e2]" size={24} />
-                    <h2 className="text-[1.2rem] font-bold leading-none tracking-tight text-slate-900">Upcoming Appointment</h2>
-                  </div>
-                  {!carePlanReadOnly ? (
-                    <button
-                      type="button"
-                      className="icon-button"
-                      onClick={() => { resetApptForm(); setShowApptForm(true); }}
-                    >
-                      + Add
-                    </button>
-                  ) : null}
-                </div>
-                {carePlanReadOnly ? (
-                  <p className="px-1 text-xs italic text-slate-500">
-                    {accountRole === "caregiver"
-                      ? "View only — caregivers cannot modify the care plan."
-                      : `Managed by ${clinicianName ?? "your clinician"}. Contact them for changes.`}
-                  </p>
-                ) : null}
-                {nextHealthAppointment ? (
-                  <div className="relative overflow-hidden rounded-[2rem] bg-[#3670e2] px-5 py-5 text-white shadow-[0_16px_36px_rgba(54,112,226,0.3)]">
-                    <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-3xl" />
-                    <div className="relative z-10 space-y-5">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="space-y-1.5">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-100/80">Appointment Date</p>
-                          <p className="text-xl font-bold leading-tight">{new Date(nextHealthAppointment.datetime).toLocaleString()}</p>
-                        </div>
-                        <Clock3 size={20} className="mt-1 text-blue-100/90" />
-                      </div>
-                      <div className="space-y-3 border-t border-white/10 pt-5">
-                        <div className="flex items-center gap-3">
-                          <MapPin size={18} className="text-blue-200" />
-                          <p className="text-sm font-medium">{nextHealthAppointment.location}</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <Clock3 size={18} className="text-blue-200" />
-                          <p className="text-sm text-blue-50/90">
-                            {nextHealthAppointment.notes || "Upcoming appointment details are ready for review."}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-start gap-3 rounded-[1.35rem] border border-white/12 bg-white/10 px-4 py-4">
-                        <TriangleAlert size={18} className="mt-0.5 shrink-0 text-white" />
-                        <p className="text-sm leading-relaxed text-blue-50">
-                          <span className="font-semibold text-white">Note:</span> {appointmentPrepNote(nextHealthAppointment)}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className="w-full rounded-[1.25rem] bg-white px-4 py-3 text-sm font-semibold text-[#3670e2] shadow-[0_10px_20px_rgba(15,23,42,0.12)] transition hover:bg-slate-50"
-                        onClick={() => window.open(buildCalendarUrl(nextHealthAppointment), "_blank", "noopener,noreferrer")}
-                      >
-                        Add to calendar
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-[2rem] border border-slate-200/80 bg-white px-5 py-5 text-sm text-slate-500 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
-                    No appointments scheduled.
-                  </div>
-                )}
-                {showApptForm && !carePlanReadOnly ? (
-                  <div className="rounded-[2rem] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
-                    <div className="form-group">
-                      <label className="form-label">Date &amp; Time</label>
-                      <input type="datetime-local" value={apptDatetime} onChange={(e) => setApptDatetime(e.target.value)} />
-                      <label className="form-label">Location</label>
-                      <input value={apptLocation} onChange={(e) => setApptLocation(e.target.value)} placeholder="e.g. Polyclinic" />
-                      <label className="form-label">Notes</label>
-                      <textarea value={apptNotes} onChange={(e) => setApptNotes(e.target.value)} placeholder="e.g. Follow-up visit" />
-                      {apptMsg ? <p className="status-error">{apptMsg}</p> : null}
-                      <button type="button" onClick={() => void handleSaveAppt()} disabled={apptSaving}>
-                        {apptSaving ? "Saving..." : editApptId ? "Update Appointment" : "Add Appointment"}
-                      </button>
-                      <button type="button" className="secondary-button" onClick={resetApptForm}>Cancel</button>
-                    </div>
-                  </div>
-                ) : null}
-                {apptMsg && !showApptForm ? <p className="status-error">{apptMsg}</p> : null}
-              </section>
 
             </>
           ) : null}
@@ -3273,8 +3323,12 @@ export default function DashboardPage() {
         ) : null}
       </div>
 
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pb-[max(env(safe-area-inset-bottom),0px)]">
-        <nav className="tc-bottom-nav pointer-events-auto flex w-full max-w-md items-center justify-between border-t border-slate-200 bg-white px-2 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.10)]">
+      <div
+        className="pointer-events-none fixed bottom-0 z-50 pb-[max(env(safe-area-inset-bottom),0px)]"
+        style={bottomNavBounds ? { left: `${bottomNavBounds.left}px`, width: `${bottomNavBounds.width}px` } : undefined}
+      >
+        <div className="w-full">
+          <nav className="tc-bottom-nav pointer-events-auto flex w-full items-center justify-between border-t border-slate-200 bg-white px-2 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.10)]">
           <button
             type="button"
             className={`flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "home" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
@@ -3322,7 +3376,8 @@ export default function DashboardPage() {
             <BottomNavIcon tab="profile" active={activeTab === "profile"} />
             <span className={`text-[11px] ${activeTab === "profile" ? "font-semibold" : "font-normal"}`}>Profile</span>
           </button>
-        </nav>
+          </nav>
+        </div>
       </div>
     </main>
   );
