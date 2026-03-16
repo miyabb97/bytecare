@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode, type RefObject } from "react";
 
 export type BadgeTone = "red" | "yellow" | "blue" | "neutral" | "success";
 
@@ -140,25 +140,67 @@ export function PatientCard({ children }: { children: ReactNode }) {
 export function TabBar({
   tabs,
   active,
+  containerRef,
 }: {
   tabs: Array<{ key: string; label: string; icon: ReactNode }>;
   active: string;
+  containerRef?: RefObject<HTMLElement | null>;
 }) {
+  const [bounds, setBounds] = useState<{ left: number; width: number } | null>(null);
+
+  useEffect(() => {
+    const updateBounds = () => {
+      const element = containerRef?.current;
+      if (!element) {
+        setBounds(null);
+        return;
+      }
+      const rect = element.getBoundingClientRect();
+      setBounds({ left: rect.left, width: rect.width });
+    };
+
+    updateBounds();
+
+    window.addEventListener("resize", updateBounds);
+    window.addEventListener("scroll", updateBounds, { passive: true });
+
+    const element = containerRef?.current;
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" && element
+        ? new ResizeObserver(() => updateBounds())
+        : null;
+
+    if (resizeObserver && element) {
+      resizeObserver.observe(element);
+    }
+
+    return () => {
+      window.removeEventListener("resize", updateBounds);
+      window.removeEventListener("scroll", updateBounds);
+      resizeObserver?.disconnect();
+    };
+  }, [containerRef]);
+
   return (
-    <nav className="fixed bottom-0 left-1/2 z-30 flex w-full max-w-md -translate-x-1/2 border-t border-[#E9EEF7] bg-white px-3 pb-3 pt-2">
-      {tabs.map((tab) => {
-        const isActive = tab.key === active;
-        return (
-          <button
-            key={tab.key}
-            type="button"
-            className={`mt-0 flex flex-1 flex-col items-center gap-1 rounded-xl px-2 py-2 ${isActive ? "bg-[#3B6EF5]" : "bg-transparent"}`}
-          >
-            <span className={isActive ? "text-white" : "text-[#98A2B3]"}>{tab.icon}</span>
-            <span className={`text-[11px] font-semibold ${isActive ? "text-white" : "text-[#98A2B3]"}`}>{tab.label}</span>
-          </button>
-        );
-      })}
-    </nav>
+    <div
+      className="fixed bottom-0 z-30"
+      style={bounds ? { left: `${bounds.left}px`, width: `${bounds.width}px` } : { left: 0, right: 0 }}
+    >
+      <nav className="flex w-full border-t border-[#E9EEF7] bg-white px-3 pb-3 pt-2">
+        {tabs.map((tab) => {
+          const isActive = tab.key === active;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              className={`mt-0 flex flex-1 flex-col items-center gap-1 rounded-xl px-2 py-2 ${isActive ? "bg-[#3B6EF5]" : "bg-transparent"}`}
+            >
+              <span className={isActive ? "text-white" : "text-[#98A2B3]"}>{tab.icon}</span>
+              <span className={`text-[11px] font-semibold ${isActive ? "text-white" : "text-[#98A2B3]"}`}>{tab.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </div>
   );
 }

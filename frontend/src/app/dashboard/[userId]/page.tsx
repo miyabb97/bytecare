@@ -389,12 +389,44 @@ export default function DashboardPage() {
   const [chatAudioPlaying, setChatAudioPlaying] = useState<number | null>(null);
   const [chatTranslating, setChatTranslating] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
   const prevChatLang = useRef(chatLang);
   const nutritionImageInputRef = useRef<HTMLInputElement>(null);
+  const [bottomNavBounds, setBottomNavBounds] = useState<{ left: number; width: number } | null>(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages, chatLoading]);
+
+  useEffect(() => {
+    const updateBottomNavBounds = () => {
+      const shell = shellRef.current;
+      if (!shell) return;
+      const rect = shell.getBoundingClientRect();
+      setBottomNavBounds({ left: rect.left, width: rect.width });
+    };
+
+    updateBottomNavBounds();
+
+    window.addEventListener("resize", updateBottomNavBounds);
+    window.addEventListener("scroll", updateBottomNavBounds, { passive: true });
+
+    const shell = shellRef.current;
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" && shell
+        ? new ResizeObserver(() => updateBottomNavBounds())
+        : null;
+
+    if (resizeObserver && shell) {
+      resizeObserver.observe(shell);
+    }
+
+    return () => {
+      window.removeEventListener("resize", updateBottomNavBounds);
+      window.removeEventListener("scroll", updateBottomNavBounds);
+      resizeObserver?.disconnect();
+    };
+  }, []);
 
   // Load system messages from backend when chat tab opens
   const chatLoadedRef = useRef(false);
@@ -1619,7 +1651,7 @@ export default function DashboardPage() {
 
   return (
     <main className="flex min-h-screen justify-center bg-slate-100">
-      <div className="relative min-h-screen w-full max-w-md bg-slate-50 pb-24 md:border-x md:border-slate-200 md:bg-slate-50 md:shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+      <div ref={shellRef} className="relative min-h-screen w-full max-w-md bg-slate-50 pb-24 md:border-x md:border-slate-200 md:bg-slate-50 md:shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
         <header className="app-header">
           <div className="header-left">
             <Image
@@ -3271,8 +3303,12 @@ export default function DashboardPage() {
         ) : null}
       </div>
 
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pb-[max(env(safe-area-inset-bottom),0px)]">
-        <nav className="tc-bottom-nav pointer-events-auto flex w-full max-w-md items-center justify-between border-t border-slate-200 bg-white px-2 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.10)]">
+      <div
+        className="pointer-events-none fixed bottom-0 z-50 pb-[max(env(safe-area-inset-bottom),0px)]"
+        style={bottomNavBounds ? { left: `${bottomNavBounds.left}px`, width: `${bottomNavBounds.width}px` } : undefined}
+      >
+        <div className="w-full">
+          <nav className="tc-bottom-nav pointer-events-auto flex w-full items-center justify-between border-t border-slate-200 bg-white px-2 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.10)]">
           <button
             type="button"
             className={`flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "home" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
@@ -3320,7 +3356,8 @@ export default function DashboardPage() {
             <BottomNavIcon tab="profile" active={activeTab === "profile"} />
             <span className={`text-[11px] ${activeTab === "profile" ? "font-semibold" : "font-normal"}`}>Profile</span>
           </button>
-        </nav>
+          </nav>
+        </div>
       </div>
     </main>
   );

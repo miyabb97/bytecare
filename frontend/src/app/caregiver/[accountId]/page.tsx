@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bell,
@@ -46,6 +46,7 @@ function loadAccount(router: ReturnType<typeof useRouter>, setAccount: (value: A
 export default function CaregiverDashboardPage() {
   const router = useRouter();
   const [account, setAccount] = useState<Account | null>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadAccount(router, setAccount);
@@ -65,7 +66,7 @@ export default function CaregiverDashboardPage() {
 
   return (
     <main className="flex min-h-screen justify-center bg-white">
-      <div className="relative min-h-screen w-full max-w-md bg-[#F8FAFC] pb-24">
+      <div ref={shellRef} className="relative min-h-screen w-full max-w-md bg-[#F8FAFC] pb-24">
         <Header
           title="ByteCare - Caregiver"
           left={
@@ -232,7 +233,7 @@ export default function CaregiverDashboardPage() {
           </section>
         </section>
 
-        <TabBar tabs={tabs} active="dashboard" />
+        <TabBar tabs={tabs} active="dashboard" containerRef={shellRef} />
       </div>
     </main>
   );
