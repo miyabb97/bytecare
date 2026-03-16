@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -10,11 +10,16 @@ import {
   Clock3,
   Heart,
   Home,
+  Leaf,
   MapPin,
   MessageSquare,
   Mic,
+  PhoneCall,
+  Pill,
+  Scan,
   Search,
   Settings,
+  Sparkles,
   TriangleAlert,
   User,
   Utensils
@@ -136,6 +141,24 @@ function isDietChangeSuggestion(item: string): boolean {
   ].some((keyword) => text.includes(keyword));
 }
 
+function getRiskLevel(score?: number | null): "HIGH" | "MEDIUM" | "LOW" {
+  if ((score ?? 0) < 50) return "HIGH";
+  if ((score ?? 0) < 75) return "MEDIUM";
+  return "LOW";
+}
+
+function getAdherenceRate(counts?: {
+  taken: number;
+  missed: number;
+  late: number;
+  skipped: number;
+} | null): number {
+  if (!counts) return 0;
+  const total = counts.taken + counts.missed + counts.late + counts.skipped;
+  if (total <= 0) return 0;
+  return Math.round((counts.taken / total) * 100);
+}
+
 function BottomNavIcon({ tab, active }: { tab: Tab; active: boolean }) {
   const common = { size: 19, strokeWidth: active ? 2.15 : 1.95 };
   if (tab === "home") return <Home {...common} />;
@@ -143,6 +166,41 @@ function BottomNavIcon({ tab, active }: { tab: Tab; active: boolean }) {
   if (tab === "events") return <CalendarDays {...common} />;
   if (tab === "health") return <Heart {...common} />;
   return <User {...common} />;
+}
+
+function QuickActionTile({
+  icon,
+  label,
+  tone,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  tone: "blue" | "violet" | "teal" | "orange" | "green" | "red";
+  onClick: () => void;
+}) {
+  const tones = {
+    blue: "bg-blue-50 text-blue-600",
+    violet: "bg-violet-50 text-violet-600",
+    teal: "bg-teal-50 text-teal-600",
+    orange: "bg-orange-50 text-orange-600",
+    green: "bg-emerald-50 text-emerald-600",
+    red: "bg-red-50 text-red-600",
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{ width: "auto", background: "transparent", marginTop: 0, padding: 0, borderRadius: 0 }}
+      className="group flex flex-col items-center gap-2 rounded-2xl p-2.5 transition active:scale-95"
+    >
+      <div className={`flex h-12 w-12 items-center justify-center rounded-2xl transition-transform group-hover:scale-105 ${tones[tone]}`}>
+        {icon}
+      </div>
+      <span className="text-center text-[10px] font-semibold leading-tight text-slate-600">{label}</span>
+    </button>
+  );
 }
 
 function normalizeHour(hour: string): string {
@@ -207,7 +265,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const raw = sessionStorage.getItem("bytecare_account") || localStorage.getItem("bytecare_account");
     if (raw) {
-      try { setAccountRole((JSON.parse(raw) as Account).role); } catch {}
+      try { setAccountRole((JSON.parse(raw) as Account).role); } catch { }
     }
   }, []);
 
@@ -273,7 +331,7 @@ export default function DashboardPage() {
     (async () => {
       try {
         // Fire any due medication reminders before loading messages
-        api.checkReminders(userId).catch(() => {});
+        api.checkReminders(userId).catch(() => { });
         const res = await api.getChatMessages(userId);
         const backendMsgs = res.items ?? [];
         // Find system messages that aren't already in our local state
@@ -540,10 +598,10 @@ export default function DashboardPage() {
       api.getCarePlanStatus(userId).then((res) => {
         setCarePlanLocked(res.managed_by_clinician);
         setClinicianName(res.clinician_name);
-      }).catch(() => {});
+      }).catch(() => { });
       // Load MEE score + unread count
-      api.getMEEScore(userId).then(setMeeScore).catch(() => {});
-      api.getUnreadCount(userId).then((res) => setUnreadCount(res.unread_count)).catch(() => {});
+      api.getMEEScore(userId).then(setMeeScore).catch(() => { });
+      api.getUnreadCount(userId).then((res) => setUnreadCount(res.unread_count)).catch(() => { });
     }
   }, [loadDashboard, loadDoseEvents, userId]);
 
@@ -554,7 +612,7 @@ export default function DashboardPage() {
       if (activeTab === "chat") return; // skip while viewing chat
       api.getUnreadCount(userId)
         .then((res) => setUnreadCount(res.unread_count))
-        .catch(() => {});
+        .catch(() => { });
     }, 30_000);
     return () => window.clearInterval(id);
   }, [userId, activeTab]);
@@ -674,13 +732,13 @@ export default function DashboardPage() {
           return next;
         });
       }
-      api.getMEEScore(userId).then(setMeeScore).catch(() => {});
+      api.getMEEScore(userId).then(setMeeScore).catch(() => { });
       // Trigger orchestration pipeline so the flow
       // patient action → MEE/risk → intervention → chat message works end-to-end
       api.postOrchestrate(userId)
         .then(() => api.getUnreadCount(userId))
         .then((res) => setUnreadCount(res.unread_count))
-        .catch(() => {});
+        .catch(() => { });
     } catch { /* ignore */ } finally {
       setQuickMarkLoading(null);
     }
@@ -701,7 +759,7 @@ export default function DashboardPage() {
         next.delete(key);
         return next;
       });
-      api.getMEEScore(userId).then(setMeeScore).catch(() => {});
+      api.getMEEScore(userId).then(setMeeScore).catch(() => { });
     } catch { /* ignore */ } finally {
       setQuickMarkLoading(null);
     }
@@ -828,7 +886,7 @@ export default function DashboardPage() {
         api.getMedications(userId).then((res) => {
           setMedications(res);
           setAllMeds((res.items ?? []) as MedicationItem[]);
-        }).catch(() => {});
+        }).catch(() => { });
       }
     } catch (error) {
       const msg = safeMessage(error);
@@ -1229,7 +1287,7 @@ export default function DashboardPage() {
       void loadAllAppts();
     }
     if (activeTab === "health" && userId) {
-      api.getRefillStatus(userId).then((res) => setRefillStatus(res.items)).catch(() => {});
+      api.getRefillStatus(userId).then((res) => setRefillStatus(res.items)).catch(() => { });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, userId]);
@@ -1303,7 +1361,7 @@ export default function DashboardPage() {
       setReminderGroup(null);
       void loadDashboard();
       // Refresh adherence score after recording a dose event
-      api.getMEEScore(userId).then(setMeeScore).catch(() => {});
+      api.getMEEScore(userId).then(setMeeScore).catch(() => { });
     } catch (error) {
       setReminderError(safeMessage(error));
     } finally {
@@ -1329,7 +1387,7 @@ export default function DashboardPage() {
 
   return (
     <main className="flex min-h-screen justify-center bg-slate-100">
-      <div className="relative min-h-screen w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl bg-slate-100 pb-24">
+      <div className="relative min-h-screen w-full max-w-md bg-slate-50 pb-24 md:border-x md:border-slate-200 md:bg-slate-50 md:shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
         {activeTab === "events" ? (
           <header className="sticky top-0 z-30 border-b border-slate-200 bg-white px-4 py-5">
             <div className="mb-4 flex items-center gap-3">
@@ -1382,13 +1440,15 @@ export default function DashboardPage() {
         >
           {activeTab === "home" ? (
             <>
-              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <section className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center gap-4">
                   <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50">
-                    <User className="text-blue-600" size={30} />
+                    <User className="text-blue-600" size={28} />
                   </div>
                   <div>
-                    <h2 className="text-[1.6rem] font-bold leading-tight text-slate-900">{userProfile?.name ?? "-"}, {userProfile?.age ?? "-"}</h2>
+                    <h2 className="text-[1.45rem] font-bold leading-tight tracking-[-0.02em] text-slate-900">
+                      {userProfile?.name ?? "-"}, {userProfile?.age ?? "-"}
+                    </h2>
                     <p className="text-sm text-slate-500">
                       {userProfile?.conditions && userProfile.conditions.length > 0 ? userProfile.conditions.join(", ") : food?.condition ?? "No condition data"}
                     </p>
@@ -1397,20 +1457,61 @@ export default function DashboardPage() {
                 </div>
               </section>
 
-              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <section className="space-y-3">
+                <h3 className="px-1 text-sm font-bold text-slate-900">Quick Access</h3>
+                <div className="grid grid-cols-3 gap-3 rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
+                  <QuickActionTile
+                    icon={<Pill className="h-5 w-5" />}
+                    label="Log Meds"
+                    tone="blue"
+                    onClick={() => document.getElementById("today-doses")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  />
+                  <QuickActionTile
+                    icon={<CalendarDays className="h-5 w-5" />}
+                    label="Book Visit"
+                    tone="violet"
+                    onClick={() => document.getElementById("upcoming-visit")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  />
+                  <QuickActionTile
+                    icon={<Sparkles className="h-5 w-5" />}
+                    label="Ask AI"
+                    tone="teal"
+                    onClick={() => setActiveTab("chat")}
+                  />
+                  <QuickActionTile
+                    icon={<Scan className="h-5 w-5" />}
+                    label="Scan Food"
+                    tone="orange"
+                    onClick={() => document.getElementById("diet-suggestions")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  />
+                  <QuickActionTile
+                    icon={<Leaf className="h-5 w-5" />}
+                    label="TCM Check"
+                    tone="green"
+                    onClick={() => setActiveTab("health")}
+                  />
+                  <QuickActionTile
+                    icon={<PhoneCall className="h-5 w-5" />}
+                    label="Support"
+                    tone="red"
+                    onClick={() => setActiveTab("chat")}
+                  />
+                </div>
+              </section>
+
+              <section className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="mb-3 flex items-start justify-between gap-2">
-                  <h3 className="text-[1.38rem] font-bold leading-none text-slate-900">Medication Adherence</h3>
+                  <h3 className="text-[1.02rem] font-bold leading-none text-slate-900">Medication Adherence</h3>
                   {meeScore ? (() => {
-                    const riskLevel = meeScore.score < 50 ? "HIGH" : meeScore.score < 75 ? "MEDIUM" : "LOW";
+                    const riskLevel = getRiskLevel(meeScore.score);
                     return (
                       <span
-                        className={`rounded-full px-3 py-1 text-xs font-bold ${
-                          riskLevel === "HIGH"
+                        className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider ${riskLevel === "HIGH"
                             ? "bg-red-100 text-red-600"
                             : riskLevel === "MEDIUM"
                               ? "bg-amber-100 text-amber-600"
                               : "bg-emerald-100 text-emerald-600"
-                        }`}
+                          }`}
                       >
                         Risk: {riskLevel}
                       </span>
@@ -1423,26 +1524,57 @@ export default function DashboardPage() {
                 </div>
 
                 {meeScore ? (() => {
-                  const riskLevel = meeScore.score < 50 ? "HIGH" : meeScore.score < 75 ? "MEDIUM" : "LOW";
+                  const riskLevel = getRiskLevel(meeScore.score);
+                  const adherenceRate = getAdherenceRate(meeScore.counts);
+                  const radius = 40;
+                  const circumference = 2 * Math.PI * radius;
+                  const dashOffset = circumference - (adherenceRate / 100) * circumference;
                   return (
                     <>
-                      <div className="mb-3 flex items-center gap-4">
-                        <div className="flex flex-col items-center">
-                          <span className="text-4xl font-bold text-blue-600">{Math.round(meeScore.score)}%</span>
-                          <span className="text-xs text-slate-500">Adherence</span>
-                        </div>
-                        <div className="flex-1 space-y-1 text-sm text-slate-600">
-                          <p>Taken: <span className="font-semibold text-emerald-600">{meeScore.counts.taken}</span></p>
-                          <p>Missed: <span className="font-semibold text-red-600">{meeScore.counts.missed}</span></p>
-                          <p>Window: last {meeScore.period_days} days</p>
+                      <div className="mb-5 flex flex-col items-center justify-center">
+                        <div className="relative flex h-28 w-28 items-center justify-center">
+                          <svg className="h-full w-full -rotate-90" viewBox="0 0 96 96" aria-hidden="true">
+                            <circle cx="48" cy="48" r={radius} fill="transparent" stroke="currentColor" strokeWidth="8" className="text-slate-100" />
+                            <circle
+                              cx="48"
+                              cy="48"
+                              r={radius}
+                              fill="transparent"
+                              stroke="currentColor"
+                              strokeWidth="8"
+                              strokeDasharray={circumference}
+                              strokeDashoffset={dashOffset}
+                              strokeLinecap="round"
+                              className={riskLevel === "HIGH" ? "text-red-500" : riskLevel === "MEDIUM" ? "text-amber-500" : "text-emerald-500"}
+                            />
+                          </svg>
+                          <div className="absolute flex flex-col items-center">
+                            <span className="text-[1.65rem] font-black leading-none text-slate-900">{adherenceRate}%</span>
+                            <span className="mt-1 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">Adherence</span>
+                          </div>
                         </div>
                       </div>
+                      <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
+                        <div className="text-center">
+                          <p className="mb-1 text-xs font-medium text-slate-500">Taken</p>
+                          <p className="text-xl font-bold text-slate-900">{meeScore.counts.taken}</p>
+                        </div>
+                        <div className="border-l border-slate-100 text-center">
+                          <p className="mb-1 text-xs font-medium text-slate-500">Missed</p>
+                          <p className="text-xl font-bold text-red-500">{meeScore.counts.missed}</p>
+                        </div>
+                      </div>
+                      <p className="mt-4 text-center text-[9px] font-medium uppercase tracking-[0.16em] text-slate-400">
+                        Window: Last {meeScore.period_days} Days
+                      </p>
+                      <p className="mt-1 text-center text-[10px] text-slate-500">
+                        MEE score: {Math.round(meeScore.score)}%
+                      </p>
                       {(riskLevel === "HIGH" || riskLevel === "MEDIUM") && (
-                        <div className={`mb-3 flex items-center gap-2 rounded-2xl p-3 ${
-                          riskLevel === "HIGH"
+                        <div className={`mt-5 flex items-center gap-2 rounded-2xl p-3 ${riskLevel === "HIGH"
                             ? "border border-red-200 bg-red-50"
                             : "border border-amber-200 bg-amber-50"
-                        }`}>
+                          }`}>
                           <TriangleAlert size={18} className={riskLevel === "HIGH" ? "text-red-500" : "text-amber-500"} />
                           <p className={`text-sm font-medium ${riskLevel === "HIGH" ? "text-red-700" : "text-amber-700"}`}>
                             {riskLevel === "HIGH"
@@ -1467,7 +1599,7 @@ export default function DashboardPage() {
 
               {/* Today's Doses */}
               {todayDoseSlots.length > 0 && (
-                <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <section id="today-doses" className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
                   <h3 className="mb-3 text-[1.25rem] font-bold leading-none text-slate-900">Today&apos;s Doses</h3>
                   <div className="space-y-3">
                     {todayDoseSlots.map((slot) => {
@@ -1490,13 +1622,12 @@ export default function DashboardPage() {
                                   type="button"
                                   disabled={isLoading}
                                   onClick={() => setOpenDropdownKey(openDropdownKey === key ? null : key)}
-                                  className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold transition active:scale-95 ${
-                                    slot.status === "taken" ? "bg-emerald-100 text-emerald-600"
-                                    : slot.status === "skipped" ? "bg-orange-50 text-orange-600"
-                                    : slot.status === "snoozed" ? "bg-blue-100 text-blue-600"
-                                    : slot.status === "late" ? "bg-amber-100 text-amber-600"
-                                    : "bg-red-100 text-red-600"
-                                  }`}
+                                  className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold transition active:scale-95 ${slot.status === "taken" ? "bg-emerald-100 text-emerald-600"
+                                      : slot.status === "skipped" ? "bg-orange-50 text-orange-600"
+                                        : slot.status === "snoozed" ? "bg-blue-100 text-blue-600"
+                                          : slot.status === "late" ? "bg-amber-100 text-amber-600"
+                                            : "bg-red-100 text-red-600"
+                                    }`}
                                 >
                                   {slot.status.charAt(0).toUpperCase() + slot.status.slice(1)}
                                   <span className="ml-0.5 opacity-60 text-[9px]">▾</span>
@@ -1512,12 +1643,11 @@ export default function DashboardPage() {
                                           disabled={isLoading}
                                           onClick={() => { setOpenDropdownKey(null); void handleQuickMark(slot, s); }}
                                           style={{ background: "none", marginTop: 0, borderRadius: 0, padding: "0.5rem 1rem" }}
-                                          className={`block w-full text-left text-xs font-medium outline-none transition hover:bg-slate-200 ${
-                                            s === "taken" ? "text-emerald-700"
-                                            : s === "skipped" ? "text-slate-500"
-                                            : s === "late" ? "text-amber-700"
-                                            : "text-red-700"
-                                          }`}
+                                          className={`block w-full text-left text-xs font-medium outline-none transition hover:bg-slate-200 ${s === "taken" ? "text-emerald-700"
+                                              : s === "skipped" ? "text-slate-500"
+                                                : s === "late" ? "text-amber-700"
+                                                  : "text-red-700"
+                                            }`}
                                         >
                                           Mark as {s.charAt(0).toUpperCase() + s.slice(1)}
                                         </button>
@@ -1556,13 +1686,12 @@ export default function DashboardPage() {
                                       disabled={isLoading}
                                       onClick={() => { setOpenDropdownKey(null); void handleQuickMark(slot, s); }}
                                       style={{ background: "none", marginTop: 0, borderRadius: 0, padding: "0.5rem 1rem" }}
-                                      className={`block w-full text-left text-xs font-medium outline-none transition hover:bg-slate-200 ${
-                                        s === "taken" ? "text-emerald-700"
-                                        : s === "skipped" ? "text-slate-500"
-                                        : s === "snoozed" ? "text-blue-600"
-                                        : s === "late" ? "text-amber-700"
-                                        : "text-red-700"
-                                      }`}
+                                      className={`block w-full text-left text-xs font-medium outline-none transition hover:bg-slate-200 ${s === "taken" ? "text-emerald-700"
+                                          : s === "skipped" ? "text-slate-500"
+                                            : s === "snoozed" ? "text-blue-600"
+                                              : s === "late" ? "text-amber-700"
+                                                : "text-red-700"
+                                        }`}
                                     >
                                       Mark as {s.charAt(0).toUpperCase() + s.slice(1)}
                                     </button>
@@ -1578,23 +1707,23 @@ export default function DashboardPage() {
                 </section>
               )}
 
-              <section className="relative overflow-hidden rounded-3xl bg-blue-600 p-5 text-white shadow-lg">
+              <section id="upcoming-visit" className="relative overflow-hidden rounded-[1.75rem] bg-blue-600 p-5 text-white shadow-lg">
                 <div className="relative z-10">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-xs font-medium uppercase tracking-[0.11em] opacity-85">Upcoming Visit</span>
                     <Clock3 size={16} className="opacity-80" />
                   </div>
-                  <h3 className="text-[1.45rem] font-bold leading-tight">{appointments?.next_appointment?.location ?? "Polyclinic Visit"}</h3>
+                  <h3 className="text-[1.2rem] font-bold leading-tight">{appointments?.next_appointment?.location ?? "Polyclinic Visit"}</h3>
                   <p className="mt-1 text-sm opacity-90">{appointments?.next_appointment ? formatDateTime(appointments.next_appointment.datetime) : appointmentText}</p>
                   <div className="mt-4 flex items-baseline gap-1">
-                    <span className="text-5xl font-bold leading-none">{appointments?.days_remaining ?? "-"}</span>
+                    <span className="text-4xl font-bold leading-none">{appointments?.days_remaining ?? "-"}</span>
                     <span className="text-sm opacity-85">days to go</span>
                   </div>
                 </div>
                 <div className="absolute -bottom-4 -right-4 h-24 w-24 rounded-full bg-white/10 blur-2xl" />
               </section>
 
-              <section className="rounded-[2rem] border border-slate-200 bg-white px-6 py-6 shadow-[0_8px_30px_rgba(15,23,42,0.06)]">
+              <section id="diet-suggestions" className="rounded-[1.75rem] border border-slate-200 bg-white px-6 py-6 shadow-[0_8px_30px_rgba(15,23,42,0.06)]">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50">
                     <Utensils className="text-emerald-500" size={24} strokeWidth={2.2} />
@@ -2285,7 +2414,8 @@ export default function DashboardPage() {
                       <div
                         key={item.medication_id}
                         className="item-row"
-                        style={{ flexDirection: "column", alignItems: "stretch", gap: 6,
+                        style={{
+                          flexDirection: "column", alignItems: "stretch", gap: 6,
                           borderLeft: item.needs_refill ? "3px solid #f87171" : item.is_low ? "3px solid #fbbf24" : item.tracking_enabled ? "3px solid #34d399" : undefined,
                           paddingLeft: item.tracking_enabled || item.needs_refill || item.is_low ? 8 : undefined,
                         }}
@@ -2632,56 +2762,6 @@ export default function DashboardPage() {
           ) : null}
         </section>
 
-        <nav className="tc-bottom-nav fixed bottom-0 left-1/2 z-40 flex w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl -translate-x-1/2 items-center justify-between border-t border-slate-200 bg-white px-5 py-2">
-          <button
-            type="button"
-            className={`flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "home" ? "bg-blue-50 text-blue-600" : "text-slate-400 hover:text-blue-500 hover:bg-slate-50"}`}
-            onClick={() => setActiveTab("home")}
-          >
-            <BottomNavIcon tab="home" active={activeTab === "home"} />
-            <span className={`text-[11px] ${activeTab === "home" ? "font-semibold" : "font-normal"}`}>Home</span>
-          </button>
-          <button
-            type="button"
-            className={`flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "chat" ? "bg-blue-50 text-blue-600" : "text-slate-400 hover:text-blue-500 hover:bg-slate-50"}`}
-            onClick={() => setActiveTab("chat")}
-          >
-            <span className="relative">
-              <BottomNavIcon tab="chat" active={activeTab === "chat"} />
-              {unreadCount > 0 ? (
-                <span className="absolute -right-2 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                  !
-                </span>
-              ) : null}
-            </span>
-            <span className={`text-[11px] ${activeTab === "chat" ? "font-semibold" : "font-normal"}`}>Chat</span>
-          </button>
-          <button
-            type="button"
-            className={`flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "events" ? "bg-blue-50 text-blue-600" : "text-slate-400 hover:text-blue-500 hover:bg-slate-50"}`}
-            onClick={() => setActiveTab("events")}
-          >
-            <BottomNavIcon tab="events" active={activeTab === "events"} />
-            <span className={`text-[11px] ${activeTab === "events" ? "font-semibold" : "font-normal"}`}>Events</span>
-          </button>
-          <button
-            type="button"
-            className={`flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "health" ? "bg-blue-50 text-blue-600" : "text-slate-400 hover:text-blue-500 hover:bg-slate-50"}`}
-            onClick={() => setActiveTab("health")}
-          >
-            <BottomNavIcon tab="health" active={activeTab === "health"} />
-            <span className={`text-[11px] ${activeTab === "health" ? "font-semibold" : "font-normal"}`}>Health</span>
-          </button>
-          <button
-            type="button"
-            className={`flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "profile" ? "bg-blue-50 text-blue-600" : "text-slate-400 hover:text-blue-500 hover:bg-slate-50"}`}
-            onClick={() => setActiveTab("profile")}
-          >
-            <BottomNavIcon tab="profile" active={activeTab === "profile"} />
-            <span className={`text-[11px] ${activeTab === "profile" ? "font-semibold" : "font-normal"}`}>Profile</span>
-          </button>
-        </nav>
-
         {joinConfirmEvent ? (
           <div className="medication-modal-backdrop" role="presentation">
             <section
@@ -2769,6 +2849,58 @@ export default function DashboardPage() {
             </section>
           </div>
         ) : null}
+      </div>
+
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-0 pb-[max(env(safe-area-inset-bottom),0px)]">
+        <nav className="tc-bottom-nav pointer-events-auto flex w-full max-w-md items-center justify-between border-t border-slate-200 bg-white px-2 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.10)]">
+          <button
+            type="button"
+            className={`flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "home" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
+            onClick={() => setActiveTab("home")}
+          >
+            <BottomNavIcon tab="home" active={activeTab === "home"} />
+            <span className={`text-[11px] ${activeTab === "home" ? "font-semibold" : "font-normal"}`}>Home</span>
+          </button>
+          <button
+            type="button"
+            className={`flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "chat" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
+            onClick={() => setActiveTab("chat")}
+          >
+            <span className="relative">
+              <BottomNavIcon tab="chat" active={activeTab === "chat"} />
+              {unreadCount > 0 ? (
+                <span className="absolute -right-2 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                  !
+                </span>
+              ) : null}
+            </span>
+            <span className={`text-[11px] ${activeTab === "chat" ? "font-semibold" : "font-normal"}`}>Chat</span>
+          </button>
+          <button
+            type="button"
+            className={`flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "events" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
+            onClick={() => setActiveTab("events")}
+          >
+            <BottomNavIcon tab="events" active={activeTab === "events"} />
+            <span className={`text-[11px] ${activeTab === "events" ? "font-semibold" : "font-normal"}`}>Events</span>
+          </button>
+          <button
+            type="button"
+            className={`flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "health" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
+            onClick={() => setActiveTab("health")}
+          >
+            <BottomNavIcon tab="health" active={activeTab === "health"} />
+            <span className={`text-[11px] ${activeTab === "health" ? "font-semibold" : "font-normal"}`}>Health</span>
+          </button>
+          <button
+            type="button"
+            className={`flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "profile" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
+            onClick={() => setActiveTab("profile")}
+          >
+            <BottomNavIcon tab="profile" active={activeTab === "profile"} />
+            <span className={`text-[11px] ${activeTab === "profile" ? "font-semibold" : "font-normal"}`}>Profile</span>
+          </button>
+        </nav>
       </div>
     </main>
   );
