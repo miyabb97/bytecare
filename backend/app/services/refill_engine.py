@@ -121,9 +121,9 @@ def _generate_singlish_body(patient_name: str, low_meds: List[Dict[str, Any]]) -
         dose_word = "dose" if remaining == 1 else "doses"
         day_word = "day" if days == 1.0 else "days"
         if m["needs_refill"]:
-            lines.append(f"⚠️  {m['name']} — only {remaining} {dose_word} left (~{days} {day_word}). Urgent!")
+            lines.append(f"{m['name']} — only {remaining} {dose_word} left (~{days} {day_word}). Urgent!")
         else:
-            lines.append(f"💊 {m['name']} — {remaining} {dose_word} left (~{days} {day_word})")
+            lines.append(f"{m['name']} — {remaining} {dose_word} left (~{days} {day_word})")
     return "\n".join(lines) + "\n\nPlease arrange a refill soon to avoid missing doses."
 
 
@@ -150,7 +150,7 @@ def check_and_notify_refills(user_id: str) -> Dict[str, Any]:
                 ChatMessage.user_id == user_id,
                 ChatMessage.role == "system",
                 ChatMessage.is_read == 0,
-                ChatMessage.content.like("💊 Refill Reminder%"),
+                ChatMessage.content.like("%Refill Reminder%"),
             )
             .first()
         )
@@ -164,7 +164,7 @@ def check_and_notify_refills(user_id: str) -> Dict[str, Any]:
 
         # Build the refill alert message body — try MeRaLiON Singlish first
         body = _generate_singlish_body(patient_name, low_meds)
-        message = f"💊 Refill Reminder for {patient_name}:\n\n{body}"
+        message = f"Refill Reminder for {patient_name}:\n\n{body}"
 
         if existing:
             existing.content = message

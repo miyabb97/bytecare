@@ -35,6 +35,27 @@ export type NextActionResponse = {
 export type FoodResponse = {
   condition: string;
   recommendations: string[];
+  medications_taken_today?: string[];
+  food_query?: string | null;
+  interaction_warning?: boolean;
+  warning_message?: string;
+  recommended_foods?: string[];
+  avoid_foods?: string[];
+  reasoning?: string[];
+  explanation?: string;
+};
+
+export type NutritionScanResult = {
+  detected_food: string;
+  ocr_text: string;
+  ingredients: string[];
+  source: "extracted_text" | "groq_vision" | "local_ocr" | "fallback" | string;
+  fallback_reason?: string | null;
+};
+
+export type NutritionScanResponse = {
+  scan_result: NutritionScanResult;
+  nutrition_result: FoodResponse;
 };
 
 export type AppointmentResponse = {
@@ -218,6 +239,19 @@ export const api = {
   getNextAction: (userId: string) => apiRequest<NextActionResponse>(`/users/${userId}/next-action`),
   getFoodRecommendations: (userId: string) =>
     apiRequest<FoodResponse>(`/users/${userId}/food-recommendations`),
+  postNutritionScanImage: async (userId: string, imageFile: File): Promise<NutritionScanResponse> => {
+    const formData = new FormData();
+    formData.append("image", imageFile);
+    const response = await fetch(`${API_BASE}/users/${userId}/nutrition/scan`, {
+      method: "POST",
+      body: formData,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.detail || `HTTP ${response.status}`);
+    }
+    return payload as NutritionScanResponse;
+  },
   getAppointments: (userId: string) =>
     apiRequest<AppointmentResponse>(`/users/${userId}/appointments`),
   getDoseEvents: (userId: string, days: number = 7) =>

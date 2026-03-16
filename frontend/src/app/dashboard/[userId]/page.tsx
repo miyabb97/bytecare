@@ -56,6 +56,7 @@ import {
   type MedicationListResponse,
   type MEEScoreResponse,
   type NextActionResponse,
+  type NutritionScanResult,
   type RefillStatusItem,
   type ReportSummaryResponse,
   type TCMResponse,
@@ -355,6 +356,9 @@ export default function DashboardPage() {
   const [drift, setDrift] = useState<DriftResponse | null>(null);
   const [nextAction, setNextAction] = useState<NextActionResponse | null>(null);
   const [food, setFood] = useState<FoodResponse | null>(null);
+  const [nutritionScanResult, setNutritionScanResult] = useState<NutritionScanResult | null>(null);
+  const [nutritionCheckLoading, setNutritionCheckLoading] = useState(false);
+  const [nutritionCheckError, setNutritionCheckError] = useState<string | null>(null);
   const [appointments, setAppointments] = useState<AppointmentResponse | null>(null);
   const [community, setCommunity] = useState<CommunityResponse | null>(null);
   const [myCommunityEvents, setMyCommunityEvents] = useState<CommunityMyEventsResponse | null>(null);
@@ -386,6 +390,7 @@ export default function DashboardPage() {
   const [chatTranslating, setChatTranslating] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const prevChatLang = useRef(chatLang);
+  const nutritionImageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -748,6 +753,39 @@ export default function DashboardPage() {
     () => formatAppointment(appointments?.next_appointment ?? null, appointments?.days_remaining ?? null),
     [appointments]
   );
+  const nutritionRecommendations = useMemo(
+    () => (food?.recommended_foods ?? food?.recommendations ?? []),
+    [food]
+  );
+
+  const handleNutritionScan = useCallback(async (selectedFile?: File | null) => {
+    if (!userId) return;
+    const fileToScan = selectedFile ?? null;
+    if (!fileToScan) {
+      setNutritionCheckError("Please upload a food image first.");
+      return;
+    }
+
+    setNutritionCheckLoading(true);
+    setNutritionCheckError(null);
+    try {
+      const result = await api.postNutritionScanImage(userId, fileToScan);
+      setNutritionScanResult(result.scan_result);
+      setFood(result.nutrition_result);
+    } catch (error) {
+      setNutritionCheckError(safeMessage(error));
+    } finally {
+      setNutritionCheckLoading(false);
+    }
+  }, [userId]);
+
+  const handleNutritionImageChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = "";
+    if (!file) return;
+
+    void handleNutritionScan(file);
+  }, [handleNutritionScan]);
 
   const recommendedEvents = community?.events ?? [];
   const homeEventsPreview = recommendedEvents.slice(0, 2);
@@ -1012,7 +1050,7 @@ export default function DashboardPage() {
       if (response.context?.reminder_mode === "timer" && response.context?.reminder_delay_seconds) {
         const delaySeconds = response.context.reminder_delay_seconds;
         setUserMentionedReminderSeconds(delaySeconds);
-        setAppReminderNotice(`⏰ Timer reminder set for ${formatTimerLabel(delaySeconds)}.`);
+        setAppReminderNotice(`Timer reminder set for ${formatTimerLabel(delaySeconds)}.`);
         if (appTimerRef.current) {
           window.clearTimeout(appTimerRef.current);
         }
@@ -1025,7 +1063,7 @@ export default function DashboardPage() {
           }));
 
           if (meds.length === 0) {
-            setAppReminderNotice("⏰ Time to take your medication now.");
+            setAppReminderNotice("Time to take your medication now.");
             return;
           }
 
@@ -1481,7 +1519,7 @@ export default function DashboardPage() {
       if (result.triggered && result.low_medications?.length > 0) {
         // Inject the system message into chat and navigate there
         const msgText = (result as any).message ??
-          `💊 Refill Reminder:\n${result.low_medications.join(", ")} running low. Please arrange a refill soon.`;
+          `Refill Reminder:\n${result.low_medications.join(", ")} running low. Please arrange a refill soon.`;
         setChatMessages((prev) => {
           const withoutRefill = prev.filter((m) => !(m.sender === "system" && m.text.includes("Refill")));
           return [{
@@ -1553,11 +1591,11 @@ export default function DashboardPage() {
       return next;
     });
     if (responseStatus === "taken") {
-      setAppReminderNotice("✅ You marked timer reminder as Taken.");
+      setAppReminderNotice("You marked timer reminder as Taken.");
     } else if (responseStatus === "skipped") {
-      setAppReminderNotice("📝 You marked timer reminder as Skip.");
+      setAppReminderNotice("You marked timer reminder as Skip.");
     } else if (responseStatus === "snoozed") {
-      setAppReminderNotice(`⏳ You marked timer reminder as Not yet (${SNOOZE_MINUTES} min).`);
+      setAppReminderNotice(`You marked timer reminder as Not yet (${SNOOZE_MINUTES} min).`);
     }
     setTimerReminderGroup(null);
     void loadDashboard();
@@ -1571,7 +1609,7 @@ export default function DashboardPage() {
             <section className="card">
               <h2 className="auth-title">Invalid patient selection</h2>
               <p className="muted">No user id was provided in the dashboard route.</p>
-              <button type="button" onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}>🚪 Sign Out</button>
+              <button type="button" onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}>Sign Out</button>
             </section>
           </section>
         </div>
@@ -1806,9 +1844,9 @@ export default function DashboardPage() {
                             <p className="truncate text-sm font-semibold text-slate-800">{slot.med.name}</p>
                             <p className="text-xs text-slate-500">{slot.timeLabel} &middot; {slot.med.dose_text}</p>
                             {userMentionedReminderSeconds ? (
-                              <p className="mt-0.5 text-xs font-medium text-blue-500">⏰ Reminder in {formatTimerLabel(userMentionedReminderSeconds)}</p>
+                              <p className="mt-0.5 text-xs font-medium text-blue-500">Reminder in {formatTimerLabel(userMentionedReminderSeconds)}</p>
                             ) : slot.med.reminder_offset_minutes ? (
-                              <p className="mt-0.5 text-xs font-medium text-blue-500">⏰ Reminder {slot.med.reminder_offset_minutes} min before</p>
+                              <p className="mt-0.5 text-xs font-medium text-blue-500">Reminder {slot.med.reminder_offset_minutes} min before</p>
                             ) : null}
                           </div>
                           {effectiveStatus ? (
@@ -1931,21 +1969,77 @@ export default function DashboardPage() {
                     Diet Suggestions
                   </h3>
                 </div>
-                <ul className="space-y-2">
-                  {(food?.recommendations ?? []).slice(0, 3).map((item) => {
+                <ul className="mt-6 space-y-5 pb-6">
+                  {nutritionRecommendations.slice(0, 3).map((item) => {
                     const needsChange = isDietChangeSuggestion(item);
                     return (
-                      <li
-                        key={item}
-                        className={`flex items-center gap-3 text-sm ${needsChange ? "font-medium text-red-500" : "text-slate-700"}`}
-                      >
-                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${needsChange ? "bg-red-500" : "bg-emerald-500"}`} />
-                        {item}
+                      <li key={item} className="flex items-center gap-4 text-[1rem] text-slate-700 sm:text-[1.05rem]">
+                        <span className={`h-3.5 w-3.5 shrink-0 rounded-full ${needsChange ? "bg-red-500" : "bg-emerald-500"}`} />
+                        <span className={needsChange ? "text-red-500" : "text-slate-700"}>{item}</span>
                       </li>
                     );
                   })}
-                  {(food?.recommendations ?? []).length === 0 ? <li className="text-sm text-slate-500">No diet suggestions available.</li> : null}
+                  {nutritionRecommendations.length === 0 ? (
+                    <li className="text-sm text-slate-500">No diet suggestions available.</li>
+                  ) : null}
                 </ul>
+
+                <div className="border-t border-slate-100 pt-6">
+                  <input
+                    ref={nutritionImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={handleNutritionImageChange}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => nutritionImageInputRef.current?.click()}
+                    disabled={nutritionCheckLoading}
+                    className="flex w-full items-center justify-center gap-3 rounded-[1.35rem] bg-[#eef4ff] px-5 py-4 text-base font-semibold text-blue-600 transition hover:bg-[#e4edff] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Camera size={20} strokeWidth={2.2} />
+                    {nutritionCheckLoading ? "Scanning your meal..." : "Scan your meal"}
+                  </button>
+                  <p className="mt-2 text-center text-[11px] text-slate-400">
+                    On mobile, this can open the camera directly.
+                  </p>
+
+                  {nutritionScanResult?.detected_food ? (
+                    <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                      <p>
+                        <span className="font-semibold text-slate-800">Detected meal:</span>{" "}
+                        {nutritionScanResult.detected_food}
+                      </p>
+                      {nutritionScanResult.ingredients.length > 0 ? (
+                        <p className="mt-1 text-xs text-slate-500">
+                          Possible ingredients: {nutritionScanResult.ingredients.join(", ")}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {food?.interaction_warning && food.warning_message ? (
+                    <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                      {food.warning_message}
+                    </div>
+                  ) : null}
+                  {!food?.interaction_warning && food?.warning_message ? (
+                    <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                      {food.warning_message}
+                    </div>
+                  ) : null}
+
+                  {nutritionCheckError ? (
+                    <p className="mt-3 text-xs font-medium text-red-500">{nutritionCheckError}</p>
+                  ) : null}
+                  {nutritionScanResult?.source === "fallback" && nutritionScanResult.fallback_reason ? (
+                    <p className="mt-3 text-xs text-amber-600">
+                      We could not read this image clearly. Try a brighter photo, or type the food name instead.
+                    </p>
+                  ) : null}
+                </div>
               </section>
 
               <section className="space-y-4">
@@ -2038,7 +2132,7 @@ export default function DashboardPage() {
             <>
               <section>
                 <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-[1.5rem] font-bold leading-none text-slate-900">⭐ Recommended For You</h2>
+                  <h2 className="text-[1.5rem] font-bold leading-none text-slate-900">Recommended For You</h2>
                   <button
                     type="button"
                     className="tc-btn-link"
@@ -2164,8 +2258,8 @@ export default function DashboardPage() {
                         referrerPolicy="no-referrer"
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-                      <div className="absolute left-4 top-3 inline-flex items-center gap-1 rounded-md bg-emerald-500 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
-                        <span aria-hidden="true">✓</span> Joined
+                      <div className="absolute left-4 top-3 inline-flex items-center rounded-md bg-emerald-500 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
+                        Joined
                       </div>
                       <div className="absolute bottom-3 left-4 text-white">
                         <h4 className="text-[1.5rem] font-bold leading-tight">{joinedEvents[0].title}</h4>
@@ -3177,7 +3271,7 @@ export default function DashboardPage() {
         ) : null}
       </div>
 
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-0 pb-[max(env(safe-area-inset-bottom),0px)]">
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pb-[max(env(safe-area-inset-bottom),0px)]">
         <nav className="tc-bottom-nav pointer-events-auto flex w-full max-w-md items-center justify-between border-t border-slate-200 bg-white px-2 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.10)]">
           <button
             type="button"

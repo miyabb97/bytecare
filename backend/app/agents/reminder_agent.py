@@ -83,7 +83,7 @@ def schedule_quick_reminder(user_id: str, delay_seconds: int) -> Dict[str, Any]:
             user = db.query(User).filter_by(user_id=user_id).first()
             if not user:
                 return
-            text = f"⏰ Reminder: Time to take your medication now ({delay_seconds}s timer)."
+            text = f"Reminder: Time to take your medication now ({delay_seconds}s timer)."
             db.add(
                 ChatMessage(
                     message_id=str(uuid4()),
@@ -174,7 +174,7 @@ def check_and_fire_reminders(user_id: str) -> Dict[str, Any]:
             # Fire window: between (offset) and (offset - 2) minutes before dose
             if offset - 2 <= minutes_until <= offset:
                 reminder_text = (
-                    f"⏰ Reminder: It's almost time for your {med.name}! "
+                    f"Reminder: It's almost time for your {med.name}! "
                     f"Scheduled at {next_time.strftime('%I:%M %p')}. "
                     f"Please get ready ah."
                 )
@@ -185,7 +185,7 @@ def check_and_fire_reminders(user_id: str) -> Dict[str, Any]:
                     .filter(
                         ChatMessage.user_id == user_id,
                         ChatMessage.role == "system",
-                        ChatMessage.content.like(f"⏰ Reminder%{med.name}%"),
+                        ChatMessage.content.like(f"%Reminder:%{med.name}%"),
                         ChatMessage.created_at >= two_hours_ago,
                     )
                     .first()
