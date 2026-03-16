@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
+  Camera,
   CalendarDays,
   Clock3,
   Heart,
@@ -36,6 +37,7 @@ import {
   type MedicationListResponse,
   type MEEScoreResponse,
   type NextActionResponse,
+  type NutritionScanResult,
   type RefillStatusItem,
   type ReportSummaryResponse,
   type TCMResponse,
@@ -216,6 +218,9 @@ export default function DashboardPage() {
   const [drift, setDrift] = useState<DriftResponse | null>(null);
   const [nextAction, setNextAction] = useState<NextActionResponse | null>(null);
   const [food, setFood] = useState<FoodResponse | null>(null);
+  const [nutritionScanResult, setNutritionScanResult] = useState<NutritionScanResult | null>(null);
+  const [nutritionCheckLoading, setNutritionCheckLoading] = useState(false);
+  const [nutritionCheckError, setNutritionCheckError] = useState<string | null>(null);
   const [appointments, setAppointments] = useState<AppointmentResponse | null>(null);
   const [community, setCommunity] = useState<CommunityResponse | null>(null);
   const [myCommunityEvents, setMyCommunityEvents] = useState<CommunityMyEventsResponse | null>(null);
@@ -247,6 +252,7 @@ export default function DashboardPage() {
   const [chatTranslating, setChatTranslating] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const prevChatLang = useRef(chatLang);
+  const nutritionImageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -555,6 +561,39 @@ export default function DashboardPage() {
     () => formatAppointment(appointments?.next_appointment ?? null, appointments?.days_remaining ?? null),
     [appointments]
   );
+  const nutritionRecommendations = useMemo(
+    () => (food?.recommended_foods ?? food?.recommendations ?? []),
+    [food]
+  );
+
+  const handleNutritionScan = useCallback(async (selectedFile?: File | null) => {
+    if (!userId) return;
+    const fileToScan = selectedFile ?? null;
+    if (!fileToScan) {
+      setNutritionCheckError("Please upload a food image first.");
+      return;
+    }
+
+    setNutritionCheckLoading(true);
+    setNutritionCheckError(null);
+    try {
+      const result = await api.postNutritionScanImage(userId, fileToScan);
+      setNutritionScanResult(result.scan_result);
+      setFood(result.nutrition_result);
+    } catch (error) {
+      setNutritionCheckError(safeMessage(error));
+    } finally {
+      setNutritionCheckLoading(false);
+    }
+  }, [userId]);
+
+  const handleNutritionImageChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = "";
+    if (!file) return;
+
+    void handleNutritionScan(file);
+  }, [handleNutritionScan]);
 
   const recommendedEvents = community?.events ?? [];
   const homeEventsPreview = recommendedEvents.slice(0, 2);
@@ -1543,26 +1582,87 @@ export default function DashboardPage() {
                 <div className="absolute -bottom-4 -right-4 h-24 w-24 rounded-full bg-white/10 blur-2xl" />
               </section>
 
-              <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="mb-3 flex items-center gap-2">
-                  <Utensils className="text-emerald-500" size={18} />
-                  <h3 className="text-[1.3rem] font-bold leading-none text-slate-900">🥗 Diet Suggestions</h3>
+              <section className="rounded-[2rem] border border-slate-200 bg-white px-6 py-6 shadow-[0_8px_30px_rgba(15,23,42,0.06)]">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50">
+                    <Utensils className="text-emerald-500" size={24} strokeWidth={2.2} />
+                  </div>
+                  <h3 className="text-[1.08rem] font-semibold tracking-[-0.02em] text-slate-900 sm:text-[1.18rem]">
+                    Diet Suggestions
+                  </h3>
                 </div>
-                <ul className="space-y-2">
-                  {(food?.recommendations ?? []).slice(0, 3).map((item) => {
+
+                <ul className="mt-6 space-y-5 pb-6">
+                  {nutritionRecommendations.slice(0, 3).map((item) => {
                     const needsChange = isDietChangeSuggestion(item);
                     return (
-                      <li
-                        key={item}
-                        className={`flex items-center gap-3 text-sm ${needsChange ? "font-medium text-red-500" : "text-slate-700"}`}
-                      >
-                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${needsChange ? "bg-red-500" : "bg-emerald-500"}`} />
-                        {item}
+                      <li key={item} className="flex items-center gap-4 text-[1rem] text-slate-700 sm:text-[1.05rem]">
+                        <span className={`h-3.5 w-3.5 shrink-0 rounded-full ${needsChange ? "bg-red-500" : "bg-emerald-500"}`} />
+                        <span className={needsChange ? "text-red-500" : "text-slate-700"}>{item}</span>
                       </li>
                     );
                   })}
-                  {(food?.recommendations ?? []).length === 0 ? <li className="text-sm text-slate-500">No diet suggestions available.</li> : null}
+                  {nutritionRecommendations.length === 0 ? (
+                    <li className="text-sm text-slate-500">No diet suggestions available.</li>
+                  ) : null}
                 </ul>
+
+                <div className="border-t border-slate-100 pt-6">
+                  <input
+                    ref={nutritionImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={handleNutritionImageChange}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => nutritionImageInputRef.current?.click()}
+                    disabled={nutritionCheckLoading}
+                    className="flex w-full items-center justify-center gap-3 rounded-[1.35rem] bg-[#eef4ff] px-5 py-4 text-base font-semibold text-blue-600 transition hover:bg-[#e4edff] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Camera size={20} strokeWidth={2.2} />
+                    {nutritionCheckLoading ? "Scanning your meal..." : "Scan your meal"}
+                  </button>
+                  <p className="mt-2 text-center text-[11px] text-slate-400">
+                    On mobile, this can open the camera directly.
+                  </p>
+
+                  {nutritionScanResult?.detected_food ? (
+                    <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                      <p>
+                        <span className="font-semibold text-slate-800">Detected meal:</span>{" "}
+                        {nutritionScanResult.detected_food}
+                      </p>
+                      {nutritionScanResult.ingredients.length > 0 ? (
+                        <p className="mt-1 text-xs text-slate-500">
+                          Possible ingredients: {nutritionScanResult.ingredients.join(", ")}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {food?.interaction_warning && food.warning_message ? (
+                    <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                      {food.warning_message}
+                    </div>
+                  ) : null}
+                  {!food?.interaction_warning && food?.warning_message ? (
+                    <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                      {food.warning_message}
+                    </div>
+                  ) : null}
+
+                  {nutritionCheckError ? (
+                    <p className="mt-3 text-xs font-medium text-red-500">{nutritionCheckError}</p>
+                  ) : null}
+                  {nutritionScanResult?.source === "fallback" && nutritionScanResult.fallback_reason ? (
+                    <p className="mt-3 text-xs text-amber-600">
+                      We could not read this image clearly. Try a brighter photo, or type the food name instead.
+                    </p>
+                  ) : null}
+                </div>
               </section>
 
               <section className="space-y-4">

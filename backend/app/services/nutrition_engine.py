@@ -1,98 +1,120 @@
-"""Nutrition recommendation service."""
+"""Adaptive nutrition recommendation service.
+
+Core rule logic is deterministic and sourced from backend datasets.
+LLM usage is limited to patient-facing explanation only.
+"""
 
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Sequence, Set, Tuple
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
 
-from app.db import RUNTIME_DB, SessionLocal
-from app.models import Medication, User
-from app.services.meralion_client import MeralionClient, MeralionClientError
+from app.db import SessionLocal
+from app.models import DoseEvent, Medication, User
+from app.services.nutrition_explainer import generate_nutrition_explanation
+from app.services.nutrition_provider import load_food_profiles, load_med_food_interactions
 
 
 DIABETES_HINTS = {"diabetes", "insulin", "metformin", "humulin"}
-HYPERTENSION_HINTS = {"hypertension", "amlodipine", "valsartan", "hydrochlorothiazide", "losartan", "lisinopril"}
-
-
-# Singapore-local anchors. These guide the model but do not hard-limit output.
-SG_FOOD_CATALOG: List[Dict[str, Any]] = [
-    {
-        "id": "yong_tau_foo_clear",
-        "text": "Yong tau foo soup with more vegetables, avoid fried pieces and sweet sauce",
-        "tags": {"diabetes", "hypertension", "general"},
-    },
-    {
-        "id": "sliced_fish_soup",
-        "text": "Sliced fish soup with extra greens and half portion of rice",
-        "tags": {"diabetes", "hypertension", "general"},
-    },
-    {
-        "id": "thunder_tea_rice",
-        "text": "Thunder tea rice with extra vegetables and reduced rice",
-        "tags": {"diabetes", "hypertension"},
-    },
-    {
-        "id": "mixed_rice_2veg",
-        "text": "Economy rice with 2 vegetable dishes and steamed tofu or fish",
-        "tags": {"diabetes", "hypertension", "general"},
-    },
-    {
-        "id": "ban_mian_soup",
-        "text": "Ban mian soup with more leafy vegetables, less soup finishing",
-        "tags": {"hypertension", "general"},
-    },
-    {
-        "id": "chicken_rice_mod",
-        "text": "Chicken rice with skin removed, less rice and extra cucumber",
-        "tags": {"diabetes", "hypertension", "general"},
-    },
-    {
-        "id": "nasi_padang_grilled",
-        "text": "Nasi padang with grilled fish, say less gravy and add vegetables",
-        "tags": {"diabetes", "hypertension"},
-    },
-    {
-        "id": "bee_hoon_soup",
-        "text": "Fish bee hoon soup with evaporated milk reduced where possible",
-        "tags": {"diabetes", "hypertension"},
-    },
-    {
-        "id": "teh_kosong",
-        "text": "Choose kopi O kosong, teh kosong, or water instead of sweet drinks",
-        "tags": {"diabetes", "general"},
-    },
-    {
-        "id": "fruit_portion",
-        "text": "Pick whole fruit in small portions instead of fruit juice",
-        "tags": {"diabetes", "general"},
-    },
-]
-
-
-CONDITION_FALLBACK_POOL: Dict[str, List[str]] = {
-    "diabetes": [
-        "Choose lower-glycemic carbs like brown rice, wholegrain noodles, or smaller rice portions",
-        "Reduce sugary drinks and bubble tea; choose less sweet or unsweetened options",
-        "Pair carbs with protein and vegetables to reduce blood sugar spikes",
-    ],
-    "hypertension": [
-        "Ask for less salt, less gravy, and no added sauces when ordering",
-        "Choose steamed, soup, or grilled items more often than fried foods",
-        "Limit processed meats and high-sodium sides like fish cake or luncheon meat",
-    ],
+HYPERTENSION_HINTS = {
+    "hypertension",
+    "amlodipine",
+    "valsartan",
+    "hydrochlorothiazide",
+    "losartan",
+    "lisinopril",
 }
 
-GENERAL_FALLBACK_POOL = [
-    "Use the quarter-quarter-half plate method when choosing hawker meals",
-    "Add one extra vegetable item to your meal most days",
-    "Drink water regularly through the day, especially with meals",
+TAKEN_EVENT_TYPES = {"tap_confirm", "pillbox_open", "voice_confirm"}
+
+CONDITION_RULES: Dict[str, Dict[str, Any]] = {
+    "diabetes": {
+        "prefer_tags": {"low_sugar", "high_fiber", "low_glycemic"},
+        "avoid_foods": ["sugary drinks", "bubble tea", "sweet desserts"],
+        "reasoning": "diabetes profile favors lower sugar and steadier carbohydrate choices",
+    },
+    "hypertension": {
+        "prefer_tags": {"low_sodium", "potassium_friendly"},
+        "avoid_foods": ["high sodium soups", "processed meats", "extra gravy"],
+        "reasoning": "hypertension profile favors lower sodium meals",
+    },
+}
+
+LOCAL_RECOMMENDATION_CATALOG: List[Dict[str, Any]] = [
+    {
+        "text": "Steamed fish with brown rice and extra leafy vegetables",
+        "tags": {"low_sodium", "low_sugar", "high_fiber", "low_glycemic"},
+    },
+    {
+        "text": "Yong tau foo soup with more vegetables and less sauce",
+        "tags": {"low_sodium", "high_fiber", "low_glycemic"},
+    },
+    {
+        "text": "Thunder tea rice with reduced rice and more greens",
+        "tags": {"low_sodium", "high_fiber", "low_glycemic"},
+    },
+    {
+        "text": "Sliced fish soup and ask for less salt",
+        "tags": {"low_sodium", "lean_protein"},
+    },
+    {
+        "text": "Economy rice with two vegetable dishes and tofu",
+        "tags": {"high_fiber", "low_glycemic", "low_sodium"},
+    },
+    {
+        "text": "Chapati with dhal and mixed vegetables",
+        "tags": {"high_fiber", "low_glycemic"},
+    },
+    {
+        "text": "Unsweetened kopi O kosong or plain water instead of sweet drinks",
+        "tags": {"low_sugar"},
+    },
+    {
+        "text": "Fruit in small portions instead of fruit juice",
+        "tags": {"low_sugar", "high_fiber"},
+    },
 ]
+
+
+def _normalize_text(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value).lower()).strip()
+
+
+def _stable_hash_int(value: str) -> int:
+    return int(hashlib.sha256(value.encode("utf-8")).hexdigest(), 16)
+
+
+def _local_timezone(timezone_name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("Asia/Singapore")
+
+
+def _local_day_key(timezone_name: str) -> str:
+    tz = _local_timezone(timezone_name)
+    return datetime.now(tz).strftime("%Y-%m-%d")
+
+
+def _parse_event_datetime(raw_ts: str, timezone_name: str) -> datetime | None:
+    text = str(raw_ts or "").strip()
+    if not text:
+        return None
+
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+    tz = _local_timezone(timezone_name)
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=tz)
+    return dt.astimezone(tz)
 
 
 def _normalize_conditions(raw_conditions: Sequence[str], inferred_conditions: Sequence[str]) -> List[str]:
@@ -114,9 +136,8 @@ def _normalize_conditions(raw_conditions: Sequence[str], inferred_conditions: Se
     return sorted(normalized)
 
 
-def _infer_conditions_from_medications(user_id: str) -> List[str]:
-    with SessionLocal() as db:
-        meds = [m.name.lower() for m in db.query(Medication).filter_by(user_id=user_id).all()]
+def _infer_conditions_from_medications(medication_names: Sequence[str]) -> List[str]:
+    meds = [_normalize_text(name) for name in medication_names]
     inferred: List[str] = []
 
     if any(any(hint in med for hint in DIABETES_HINTS) for med in meds):
@@ -128,216 +149,391 @@ def _infer_conditions_from_medications(user_id: str) -> List[str]:
     return inferred
 
 
-def _local_day_key(timezone_name: str) -> str:
-    try:
-        tz = ZoneInfo(timezone_name)
-    except ZoneInfoNotFoundError:
-        tz = ZoneInfo("Asia/Singapore")
-    return datetime.now(tz).strftime("%Y-%m-%d")
+def _is_taken_event(event: DoseEvent) -> bool:
+    if event.response_status == "taken":
+        return True
+    return event.event_type in TAKEN_EVENT_TYPES
 
 
-def _stable_hash_int(value: str) -> int:
-    return int(hashlib.sha256(value.encode("utf-8")).hexdigest(), 16)
-
-
-def _choose_local_anchors(conditions: Sequence[str], user_id: str, day_key: str, count: int = 3) -> List[str]:
-    condition_set = set(conditions)
-    if condition_set:
-        primary = [item for item in SG_FOOD_CATALOG if item["tags"] & condition_set]
-        backup = [item for item in SG_FOOD_CATALOG if "general" in item["tags"]]
-        candidates = primary + [item for item in backup if item["id"] not in {p["id"] for p in primary}]
-    else:
-        candidates = list(SG_FOOD_CATALOG)
-
-    ranked = sorted(
-        candidates,
-        key=lambda item: _stable_hash_int(f"{user_id}:{day_key}:{item['id']}"),
-    )
-    return [item["text"] for item in ranked[:count]]
-
-
-def _build_meralion_prompt(
-    *,
-    user_name: str,
-    user_age: int,
-    conditions: Sequence[str],
-    day_key: str,
-    anchors: Sequence[str],
-) -> str:
-    condition_text = ", ".join(conditions) if conditions else "general wellness"
-    anchor_text = "\n".join(f"- {item}" for item in anchors) if anchors else "- None"
-
-    return (
-        "You are ByteCare's Singapore diet assistant for seniors.\n"
-        "Task: create concise, practical daily diet suggestions for a patient.\n\n"
-        "Patient context:\n"
-        f"- name: {user_name}\n"
-        f"- age: {user_age}\n"
-        f"- conditions: {condition_text}\n"
-        f"- daily_key: {day_key}\n\n"
-        "Local Singapore anchor examples (guide only, do not limit to these):\n"
-        f"{anchor_text}\n\n"
-        "Rules:\n"
-        "1) Return strict JSON only, no markdown.\n"
-        '2) Output schema: {"recommendations": ["...", "...", "...", "...", "..."]}\n'
-        "3) Provide 4-5 recommendations.\n"
-        "4) Include at least 2 Singapore-local hawker/food court suggestions.\n"
-        "5) Include at least 1 behavior-change suggestion that starts with 'Reduce' or 'Avoid'.\n"
-        "6) Keep each suggestion to one short sentence, <= 18 words.\n"
-        "7) Safe boundaries: no diagnosis, no medication changes, no cure claims.\n"
-        "8) Vary choices day-to-day using daily_key.\n"
-        "9) You may propose suitable options outside the anchor list.\n"
-    )
-
-
-def _extract_json_blob(raw_text: str) -> Dict[str, Any]:
-    text = raw_text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
-        text = re.sub(r"\s*```$", "", text).strip()
-
-    try:
-        parsed = json.loads(text)
-        if isinstance(parsed, dict):
-            return parsed
-    except json.JSONDecodeError:
-        pass
-
-    start = text.find("{")
-    end = text.rfind("}")
-    if start >= 0 and end > start:
-        candidate = text[start : end + 1]
-        parsed = json.loads(candidate)
-        if isinstance(parsed, dict):
-            return parsed
-
-    raise ValueError("Invalid JSON response")
-
-
-def _normalize_recommendations(payload: Dict[str, Any]) -> List[str]:
-    raw = payload.get("recommendations")
-    if not isinstance(raw, list):
-        raise ValueError("Missing recommendations list")
-
-    cleaned: List[str] = []
-    seen: set[str] = set()
-    for item in raw:
-        value = ""
-        if isinstance(item, str):
-            value = item.strip()
-        elif isinstance(item, dict):
-            for key in ("text", "recommendation", "item"):
-                maybe = item.get(key)
-                if isinstance(maybe, str) and maybe.strip():
-                    value = maybe.strip()
-                    break
-        if not value:
+def _interaction_entries(interactions: Dict[str, Any]) -> List[Dict[str, Any]]:
+    entries: List[Dict[str, Any]] = []
+    for med_key, payload in interactions.items():
+        if not isinstance(payload, dict):
             continue
-        compact = " ".join(value.split())
-        key = compact.lower()
+
+        avoid = [str(item).strip() for item in payload.get("avoid", []) if str(item).strip()]
+        reason = str(payload.get("reason", "")).strip()
+        aliases_raw = payload.get("aliases", [])
+        aliases = [str(item).strip() for item in aliases_raw if str(item).strip()]
+        aliases.append(str(med_key).strip())
+
+        if str(med_key).endswith("s"):
+            aliases.append(str(med_key)[:-1])
+
+        deduped_aliases = sorted({_normalize_text(alias) for alias in aliases if _normalize_text(alias)})
+        if not avoid:
+            continue
+
+        entries.append(
+            {
+                "medication_key": str(med_key),
+                "aliases": deduped_aliases,
+                "avoid": avoid,
+                "reason": reason,
+            }
+        )
+    return entries
+
+
+def _match_medication_to_interactions(
+    medications_taken_today: Sequence[str], interactions: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    entries = _interaction_entries(interactions)
+    matches: List[Dict[str, Any]] = []
+
+    for medication_name in medications_taken_today:
+        med_norm = _normalize_text(medication_name)
+        if not med_norm:
+            continue
+
+        for entry in entries:
+            if any(alias and alias in med_norm for alias in entry["aliases"]):
+                matches.append(
+                    {
+                        "medication_name": medication_name,
+                        "medication_key": entry["medication_key"],
+                        "avoid": list(entry["avoid"]),
+                        "reason": entry["reason"],
+                    }
+                )
+
+    deduped: List[Dict[str, Any]] = []
+    seen: Set[Tuple[str, str]] = set()
+    for match in matches:
+        key = (_normalize_text(match["medication_name"]), _normalize_text(match["medication_key"]))
         if key in seen:
             continue
         seen.add(key)
-        cleaned.append(compact)
+        deduped.append(match)
 
-    if len(cleaned) < 3:
-        raise ValueError("Too few recommendations")
-
-    return cleaned[:5]
+    return deduped
 
 
-def _fallback_recommendations(
-    *,
-    conditions: Sequence[str],
-    anchors: Sequence[str],
-    user_id: str,
-    day_key: str,
-) -> List[str]:
-    pool: List[str] = list(anchors)
+def _food_profile_tags(food_name: str, food_profiles: Dict[str, Any]) -> Tuple[Set[str], List[str]]:
+    query_norm = _normalize_text(food_name)
+    if not query_norm:
+        return set(), []
 
-    for condition in conditions:
-        pool.extend(CONDITION_FALLBACK_POOL.get(condition, []))
-    pool.extend(GENERAL_FALLBACK_POOL)
+    tags: Set[str] = set()
+    matched_profiles: List[str] = []
 
-    # Deterministic daily rotation so list changes by day, not by refresh.
-    ranked = sorted(
-        pool,
-        key=lambda item: _stable_hash_int(f"{user_id}:{day_key}:{item}"),
+    for profile_food, payload in food_profiles.items():
+        profile_norm = _normalize_text(profile_food)
+        if not profile_norm:
+            continue
+
+        is_match = profile_norm in query_norm
+        if not is_match and len(query_norm) >= 5:
+            is_match = query_norm in profile_norm
+
+        if not is_match:
+            continue
+
+        profile_tags = payload.get("tags", []) if isinstance(payload, dict) else []
+        tags.update(_normalize_text(tag).replace(" ", "_") for tag in profile_tags)
+        matched_profiles.append(str(profile_food))
+
+    return tags, matched_profiles
+
+
+def _collect_avoid_food_tags(avoid_foods: Sequence[str], food_profiles: Dict[str, Any]) -> Set[str]:
+    collected: Set[str] = set()
+    for food in avoid_foods:
+        tags, _ = _food_profile_tags(food, food_profiles)
+        collected.update(tags)
+    return collected
+
+
+def _evaluate_food_query(
+    food_query: str | None,
+    candidate_foods: Sequence[str] | None,
+    interaction_matches: Sequence[Dict[str, Any]],
+    food_profiles: Dict[str, Any],
+) -> Tuple[bool, str, List[str]]:
+    checked_foods: List[str] = []
+    if food_query and str(food_query).strip():
+        checked_foods.append(str(food_query).strip())
+    for item in candidate_foods or []:
+        value = str(item).strip()
+        if not value:
+            continue
+        if value.lower() not in {x.lower() for x in checked_foods}:
+            checked_foods.append(value)
+
+    if not checked_foods:
+        return False, "", []
+
+    avoid_foods: List[str] = []
+    for match in interaction_matches:
+        avoid_foods.extend(match.get("avoid", []))
+
+    avoid_tags = _collect_avoid_food_tags(avoid_foods, food_profiles)
+    reasoning: List[str] = []
+    conflict_detected = False
+    first_conflict_input = ""
+    conflict_avoid_hits: List[str] = []
+
+    for query in checked_foods:
+        query_norm = _normalize_text(query)
+        if not query_norm:
+            continue
+        query_tags, matched_profiles = _food_profile_tags(query, food_profiles)
+
+        direct_conflicts: List[str] = []
+        for avoid in avoid_foods:
+            avoid_norm = _normalize_text(avoid)
+            if not avoid_norm:
+                continue
+            if avoid_norm in query_norm or query_norm in avoid_norm:
+                direct_conflicts.append(avoid)
+
+        tag_conflict = bool(query_tags & avoid_tags)
+        has_conflict = bool(direct_conflicts or tag_conflict)
+
+        if matched_profiles:
+            reasoning.append(f"{query} matched food profiles: {', '.join(matched_profiles[:3])}")
+
+        if direct_conflicts:
+            reasoning.append(f"{query} matched interaction avoid list: {', '.join(sorted(set(direct_conflicts))[:3])}")
+            conflict_avoid_hits.extend(direct_conflicts)
+        elif tag_conflict:
+            overlap = sorted(query_tags & avoid_tags)
+            reasoning.append(f"{query} shares risk tags with avoid list: {', '.join(overlap[:3])}")
+
+        if has_conflict and not conflict_detected:
+            conflict_detected = True
+            first_conflict_input = query
+
+    if not conflict_detected:
+        checked_text = ", ".join(checked_foods[:2])
+        return (
+            False,
+            f"No direct medication-food conflict detected for \"{checked_text}\" from the current interaction rule set.",
+            reasoning,
+        )
+
+    primary = interaction_matches[0] if interaction_matches else {}
+    medication_name = str(primary.get("medication_name", "your medication")).strip()
+    reason = str(primary.get("reason", "Possible medication-food interaction risk.")).strip()
+
+    unique_hits = sorted({item for item in conflict_avoid_hits if item})
+    if unique_hits:
+        avoid_text = ", ".join(unique_hits[:2])
+    else:
+        avoid_text = ", ".join((primary.get("avoid") or [])[:2]) or first_conflict_input
+
+    warning_message = (
+        f"Because you took {medication_name} today, avoid {avoid_text}. {reason}."
     )
 
-    selected: List[str] = []
-    selected_lower: set[str] = set()
-    for item in ranked:
-        lowered = item.lower()
-        if lowered in selected_lower:
+    return True, warning_message, reasoning
+
+
+def _condition_preferences(conditions: Sequence[str]) -> Tuple[Set[str], List[str], List[str]]:
+    prefer_tags: Set[str] = set()
+    avoid_foods: List[str] = []
+    reasoning: List[str] = []
+
+    for condition in conditions:
+        rule = CONDITION_RULES.get(condition)
+        if not rule:
             continue
-        selected.append(item)
-        selected_lower.add(lowered)
+        prefer_tags.update(rule.get("prefer_tags", set()))
+        avoid_foods.extend([str(item).strip() for item in rule.get("avoid_foods", []) if str(item).strip()])
+        detail = str(rule.get("reasoning", "")).strip()
+        if detail:
+            reasoning.append(detail)
+
+    return prefer_tags, avoid_foods, reasoning
+
+
+def _select_recommended_foods(
+    *,
+    user_id: str,
+    day_key: str,
+    prefer_tags: Set[str],
+    avoid_foods: Sequence[str],
+    food_profiles: Dict[str, Any],
+) -> List[str]:
+    avoid_norms = {_normalize_text(item) for item in avoid_foods if _normalize_text(item)}
+    avoid_tags = _collect_avoid_food_tags(avoid_foods, food_profiles)
+
+    candidates: List[Tuple[int, int, str]] = []
+    for item in LOCAL_RECOMMENDATION_CATALOG:
+        text = str(item.get("text", "")).strip()
+        if not text:
+            continue
+
+        text_norm = _normalize_text(text)
+        if any(avoid and avoid in text_norm for avoid in avoid_norms):
+            continue
+
+        tags = {_normalize_text(tag).replace(" ", "_") for tag in item.get("tags", set())}
+        if avoid_tags and tags & avoid_tags:
+            continue
+
+        overlap_score = len(tags & prefer_tags) if prefer_tags else len(tags & {"low_sugar", "low_sodium"})
+        stable_rank = _stable_hash_int(f"{user_id}:{day_key}:{text}")
+        candidates.append((overlap_score, stable_rank, text))
+
+    candidates.sort(key=lambda x: (-x[0], x[1]))
+
+    selected: List[str] = []
+    for _, _, text in candidates:
+        if text not in selected:
+            selected.append(text)
         if len(selected) >= 5:
             break
 
-    has_change_prompt = any(x.lower().startswith(("reduce", "avoid")) for x in selected)
-    if not has_change_prompt:
-        selected.append("Reduce sugary drinks and sweet desserts; choose water or unsweetened drinks")
+    if len(selected) < 3:
+        fallback = ["Steamed fish", "Vegetable soup", "Brown rice"]
+        for item in fallback:
+            if item not in selected:
+                selected.append(item)
+            if len(selected) >= 3:
+                break
 
-    return selected[:5]
+    return selected
 
 
-def _daily_nutrition_cache() -> Dict[str, Dict[str, Any]]:
-    return RUNTIME_DB.setdefault("nutrition_daily", {})
+def get_adaptive_nutrition_recommendation(
+    user_id: str,
+    food_query: str | None = None,
+    candidate_foods: Sequence[str] | None = None,
+) -> Dict[str, Any]:
+    """Return deterministic, context-aware nutrition recommendation for today."""
+    with SessionLocal() as db:
+        user = db.query(User).filter_by(user_id=user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        medications = db.query(Medication).filter_by(user_id=user_id).all()
+        dose_events = db.query(DoseEvent).filter_by(user_id=user_id).all()
+
+    timezone_name = user.timezone or "Asia/Singapore"
+    local_tz = _local_timezone(timezone_name)
+    local_today = datetime.now(local_tz).date()
+
+    medication_by_id = {med.medication_id: med.name for med in medications}
+
+    taken_medications_today: List[str] = []
+    seen_taken: Set[str] = set()
+    for event in dose_events:
+        if not _is_taken_event(event):
+            continue
+        event_dt = _parse_event_datetime(event.timestamp, timezone_name)
+        if not event_dt or event_dt.date() != local_today:
+            continue
+
+        medication_name = medication_by_id.get(event.medication_id)
+        if not medication_name:
+            continue
+
+        key = _normalize_text(medication_name)
+        if key in seen_taken:
+            continue
+        seen_taken.add(key)
+        taken_medications_today.append(medication_name)
+
+    all_medication_names = [med.name for med in medications]
+    inferred_conditions = _infer_conditions_from_medications(all_medication_names)
+    raw_conditions = [str(item) for item in (user.conditions or [])]
+    conditions = _normalize_conditions(raw_conditions, inferred_conditions)
+
+    med_food_interactions = load_med_food_interactions()
+    food_profiles = load_food_profiles()
+
+    interaction_matches = _match_medication_to_interactions(
+        medications_taken_today=taken_medications_today,
+        interactions=med_food_interactions,
+    )
+
+    interaction_avoid_foods: List[str] = []
+    for match in interaction_matches:
+        interaction_avoid_foods.extend(match.get("avoid", []))
+
+    prefer_tags, condition_avoid_foods, condition_reasoning = _condition_preferences(conditions)
+
+    combined_avoid_foods: List[str] = []
+    for item in interaction_avoid_foods + condition_avoid_foods:
+        value = str(item).strip()
+        if value and value.lower() not in {x.lower() for x in combined_avoid_foods}:
+            combined_avoid_foods.append(value)
+
+    interaction_warning, warning_message, food_query_reasoning = _evaluate_food_query(
+        food_query=food_query,
+        candidate_foods=candidate_foods,
+        interaction_matches=interaction_matches,
+        food_profiles=food_profiles,
+    )
+
+    day_key = _local_day_key(timezone_name)
+    recommended_foods = _select_recommended_foods(
+        user_id=user_id,
+        day_key=day_key,
+        prefer_tags=prefer_tags,
+        avoid_foods=combined_avoid_foods,
+        food_profiles=food_profiles,
+    )
+
+    reasoning: List[str] = []
+    if taken_medications_today:
+        for med_name in taken_medications_today:
+            reasoning.append(f"{med_name} detected in today's dose events")
+    else:
+        reasoning.append("No taken medication event detected for today")
+
+    for match in interaction_matches:
+        reason = str(match.get("reason", "")).strip()
+        med_name = str(match.get("medication_name", "medication")).strip()
+        if reason:
+            reasoning.append(f"{med_name} interaction rule applied: {reason}")
+
+    reasoning.extend(condition_reasoning)
+    reasoning.extend(food_query_reasoning)
+
+    condition_label = "_and_".join(conditions) if conditions else "general_wellness"
+
+    result: Dict[str, Any] = {
+        "medications_taken_today": taken_medications_today,
+        "food_query": food_query,
+        "interaction_warning": interaction_warning,
+        "warning_message": warning_message,
+        "recommended_foods": recommended_foods,
+        "avoid_foods": combined_avoid_foods,
+        "reasoning": reasoning,
+        # Backward-compatible fields for existing frontend/contracts.
+        "condition": condition_label,
+        "recommendations": recommended_foods,
+    }
+
+    result["explanation"] = generate_nutrition_explanation(result)
+    return result
 
 
 def recommend_food(user_id: str) -> Dict[str, Any]:
-    """Recommend food options with SG-local context and daily variation."""
-    with SessionLocal() as db:
-        user = db.query(User).filter_by(user_id=user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    """Backward-compatible entrypoint used by existing endpoints."""
+    return get_adaptive_nutrition_recommendation(user_id=user_id, food_query=None)
 
-    inferred = _infer_conditions_from_medications(user_id)
-    raw_conditions = [str(item) for item in (user.conditions or [])]
-    conditions = _normalize_conditions(raw_conditions, inferred)
-    condition_label = "_and_".join(conditions) if conditions else "general_wellness"
 
-    timezone_name = user.timezone or "Asia/Singapore"
-    day_key = _local_day_key(timezone_name)
-    cache_key = f"{user_id}:{day_key}:{condition_label}"
-
-    cache = _daily_nutrition_cache()
-    cached = cache.get(cache_key)
-    if isinstance(cached, dict):
-        return cached
-
-    anchors = _choose_local_anchors(conditions, user_id=user_id, day_key=day_key, count=3)
-    recommendations: List[str] = []
-
-    client = MeralionClient()
-    if client.enabled:
-        prompt = _build_meralion_prompt(
-            user_name=user.name,
-            user_age=user.age,
-            conditions=conditions,
-            day_key=day_key,
-            anchors=anchors,
-        )
-        try:
-            raw = client.chat(prompt, hyperparameters={"temperature": 0.45, "topP": 0.92})
-            parsed = _extract_json_blob(raw)
-            recommendations = _normalize_recommendations(parsed)
-        except (MeralionClientError, ValueError, json.JSONDecodeError):
-            recommendations = []
-
-    if not recommendations:
-        recommendations = _fallback_recommendations(
-            conditions=conditions,
-            anchors=anchors,
-            user_id=user_id,
-            day_key=day_key,
-        )
-
-    result = {
-        "condition": condition_label,
-        "recommendations": recommendations,
-    }
-    cache[cache_key] = result
-    return result
+def get_adaptive_nutrition_from_scan(
+    user_id: str,
+    detected_food: str | None,
+    ingredients: Sequence[str] | None,
+) -> Dict[str, Any]:
+    """Deterministic nutrition check using scan-derived food inputs."""
+    return get_adaptive_nutrition_recommendation(
+        user_id=user_id,
+        food_query=detected_food,
+        candidate_foods=ingredients,
+    )

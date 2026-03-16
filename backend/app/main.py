@@ -10,10 +10,14 @@ import random
 
 from dotenv import load_dotenv
 
-# Load .env from project root (one level up from backend/)
-_env_file = Path(__file__).resolve().parents[2] / ".env"
-if _env_file.exists():
-    load_dotenv(_env_file)
+# Load env with backend/.env as primary, root .env as fallback.
+_backend_env_file = Path(__file__).resolve().parents[1] / ".env"
+if _backend_env_file.exists():
+    load_dotenv(_backend_env_file)
+
+_root_env_file = Path(__file__).resolve().parents[2] / ".env"
+if _root_env_file.exists():
+    load_dotenv(_root_env_file, override=False)
 
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field

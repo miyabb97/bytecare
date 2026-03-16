@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from sqlalchemy import Column, Integer, String, Text
+from sqlalchemy import Column, Integer, String, Text, UniqueConstraint
 
 from app.db import Base
 
@@ -218,5 +218,27 @@ class ChatMessage(Base):
             "content": self.content,
             "language": self.language,
             "is_read": bool(self.is_read),
+            "created_at": self.created_at,
+        }
+
+
+class UserEvent(Base):
+    __tablename__ = "user_events"
+    __table_args__ = (
+        UniqueConstraint("user_id", "event_id", "status", name="uq_user_event_status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, nullable=False, index=True)
+    event_id = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=False, index=True)  # joined | saved
+    created_at = Column(String, nullable=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "event_id": self.event_id,
+            "status": self.status,
             "created_at": self.created_at,
         }

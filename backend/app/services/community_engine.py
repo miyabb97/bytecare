@@ -7,8 +7,8 @@ from typing import Any, Dict, List, Tuple
 
 from fastapi import HTTPException
 
-from app.db import RUNTIME_DB, SessionLocal
-from app.models import Medication, User
+from app.db import SessionLocal
+from app.models import Medication, User, UserEvent
 from app.services.appointment_engine import get_upcoming_appointments
 from app.services.drift_engine import detect_adherence_drift
 from app.services.event_provider import load_local_events
@@ -17,6 +17,8 @@ from app.services.event_provider import load_local_events
 _DIABETES_HINTS = {"diabetes", "insulin", "metformin", "humulin"}
 _HYPERTENSION_HINTS = {"hypertension", "amlodipine", "valsartan", "hydrochlorothiazide", "losartan", "lisinopril"}
 _MOBILITY_HINTS = {"mobility", "balance", "joint", "falls"}
+_EVENT_STATUS_JOINED = "joined"
+_EVENT_STATUS_SAVED = "saved"
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -113,12 +115,39 @@ def _recommended_event_payload(event: Dict[str, Any], reason: str) -> Dict[str, 
     }
 
 
-def _user_events_state(user_id: str) -> Dict[str, List[str]]:
-    store = RUNTIME_DB.setdefault("user_events", {})
-    state = store.setdefault(user_id, {"saved": [], "joined": []})
-    state.setdefault("saved", [])
-    state.setdefault("joined", [])
-    return state
+def _now_iso() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def _list_user_event_ids(user_id: str, status: str) -> List[str]:
+    with SessionLocal() as db:
+        rows = (
+            db.query(UserEvent)
+            .filter_by(user_id=user_id, status=status)
+            .order_by(UserEvent.created_at.asc(), UserEvent.id.asc())
+            .all()
+        )
+    return [row.event_id for row in rows]
+
+
+def _upsert_user_event(user_id: str, event_id: str, status: str) -> None:
+    with SessionLocal() as db:
+        existing = db.query(UserEvent).filter_by(user_id=user_id, event_id=event_id, status=status).first()
+        if existing:
+            return
+        db.add(UserEvent(
+            user_id=user_id,
+            event_id=event_id,
+            status=status,
+            created_at=_now_iso(),
+        ))
+        db.commit()
+
+
+def _delete_user_event(user_id: str, event_id: str, status: str) -> None:
+    with SessionLocal() as db:
+        db.query(UserEvent).filter_by(user_id=user_id, event_id=event_id, status=status).delete()
+        db.commit()
 
 
 def _events_by_id() -> Dict[str, Dict[str, Any]]:
@@ -209,60 +238,58 @@ def list_community_events(user_id: str) -> Dict[str, Any]:
 
 
 def join_community_event(user_id: str, event_id: str) -> Dict[str, Any]:
-    """Join an event for a user in runtime state."""
+    """Join an event for a user in persistent state."""
     _ensure_user_exists(user_id)
     event = _events_by_id().get(event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    state = _user_events_state(user_id)
-    if event_id not in state["joined"]:
-        state["joined"].append(event_id)
+    _upsert_user_event(user_id=user_id, event_id=event_id, status=_EVENT_STATUS_JOINED)
+    joined = _list_user_event_ids(user_id=user_id, status=_EVENT_STATUS_JOINED)
 
     return {
         "status": "joined",
         "event_id": event_id,
-        "joined": state["joined"],
+        "joined": joined,
     }
 
 
 def cancel_community_event(user_id: str, event_id: str) -> Dict[str, Any]:
     """Cancel a previously joined event for a user."""
     _ensure_user_exists(user_id)
-    state = _user_events_state(user_id)
-
-    state["joined"] = [eid for eid in state["joined"] if eid != event_id]
+    _delete_user_event(user_id=user_id, event_id=event_id, status=_EVENT_STATUS_JOINED)
+    joined = _list_user_event_ids(user_id=user_id, status=_EVENT_STATUS_JOINED)
 
     return {
         "status": "cancelled",
         "event_id": event_id,
-        "joined": state["joined"],
+        "joined": joined,
     }
 
 
 def save_community_event(user_id: str, event_id: str) -> Dict[str, Any]:
-    """Save an event for later in runtime state."""
+    """Save an event for later in persistent state."""
     _ensure_user_exists(user_id)
     event = _events_by_id().get(event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    state = _user_events_state(user_id)
-    if event_id not in state["saved"]:
-        state["saved"].append(event_id)
+    _upsert_user_event(user_id=user_id, event_id=event_id, status=_EVENT_STATUS_SAVED)
+    saved = _list_user_event_ids(user_id=user_id, status=_EVENT_STATUS_SAVED)
 
     return {
         "status": "saved",
         "event_id": event_id,
-        "saved": state["saved"],
+        "saved": saved,
     }
 
 
 def get_user_community_events(user_id: str) -> Dict[str, Any]:
-    """Fetch joined/saved events for a user from runtime state."""
+    """Fetch joined/saved events for a user from persistent state."""
     _ensure_user_exists(user_id)
-    state = _user_events_state(user_id)
     events_map = _events_by_id()
+    joined_ids = _list_user_event_ids(user_id=user_id, status=_EVENT_STATUS_JOINED)
+    saved_ids = _list_user_event_ids(user_id=user_id, status=_EVENT_STATUS_SAVED)
 
     def _resolve(ids: List[str]) -> List[Dict[str, Any]]:
         resolved: List[Dict[str, Any]] = []
@@ -285,6 +312,6 @@ def get_user_community_events(user_id: str) -> Dict[str, Any]:
         return resolved
 
     return {
-        "joined": _resolve(state["joined"]),
-        "saved": _resolve(state["saved"]),
+        "joined": _resolve(joined_ids),
+        "saved": _resolve(saved_ids),
     }
