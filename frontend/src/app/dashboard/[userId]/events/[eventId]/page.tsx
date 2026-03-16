@@ -211,8 +211,8 @@ export default function EventDetailsPage() {
                   {eventTagFor(event)}
                 </div>
                 {isJoined ? (
-                  <div className="absolute left-4 top-3 inline-flex items-center gap-1 rounded-md bg-emerald-500 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
-                    <span aria-hidden="true">✓</span> Joined
+                  <div className="absolute left-4 top-3 inline-flex items-center rounded-md bg-emerald-500 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
+                    Joined
                   </div>
                 ) : null}
                 <div className="absolute bottom-3 left-4 text-white">

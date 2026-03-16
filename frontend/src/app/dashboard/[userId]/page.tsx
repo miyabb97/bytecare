@@ -1263,7 +1263,7 @@ export default function DashboardPage() {
       if (result.triggered && result.low_medications?.length > 0) {
         // Inject the system message into chat and navigate there
         const msgText = (result as any).message ??
-          `💊 Refill Reminder:\n${result.low_medications.join(", ")} running low. Please arrange a refill soon.`;
+          `Refill Reminder:\n${result.low_medications.join(", ")} running low. Please arrange a refill soon.`;
         setChatMessages((prev) => {
           const withoutRefill = prev.filter((m) => !(m.sender === "system" && m.text.includes("Refill")));
           return [{
@@ -1319,7 +1319,7 @@ export default function DashboardPage() {
             <section className="card">
               <h2 className="auth-title">Invalid patient selection</h2>
               <p className="muted">No user id was provided in the dashboard route.</p>
-              <button type="button" onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}>🚪 Sign Out</button>
+              <button type="button" onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}>Sign Out</button>
             </section>
           </section>
         </div>
@@ -1340,7 +1340,7 @@ export default function DashboardPage() {
               >
                 <ArrowLeft size={22} />
               </button>
-              <h1 className="text-[2rem] font-bold leading-none tracking-tight text-slate-900">🎉 Jio Events</h1>
+              <h1 className="text-[2rem] font-bold leading-none tracking-tight text-slate-900">Jio Events</h1>
             </div>
             <p className="text-[0.77rem] text-slate-600">
               Discover nearby activities to stay healthy and connected.
@@ -1399,7 +1399,7 @@ export default function DashboardPage() {
 
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="mb-3 flex items-start justify-between gap-2">
-                  <h3 className="text-[1.38rem] font-bold leading-none text-slate-900">💊 Medication Adherence</h3>
+                  <h3 className="text-[1.38rem] font-bold leading-none text-slate-900">Medication Adherence</h3>
                   {meeScore ? (() => {
                     const riskLevel = meeScore.score < 50 ? "HIGH" : meeScore.score < 75 ? "MEDIUM" : "LOW";
                     return (
@@ -1468,7 +1468,7 @@ export default function DashboardPage() {
               {/* Today's Doses */}
               {todayDoseSlots.length > 0 && (
                 <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <h3 className="mb-3 text-[1.25rem] font-bold leading-none text-slate-900">📋 Today&apos;s Doses</h3>
+                  <h3 className="mb-3 text-[1.25rem] font-bold leading-none text-slate-900">Today&apos;s Doses</h3>
                   <div className="space-y-3">
                     {todayDoseSlots.map((slot) => {
                       const key = `${slot.med.medication_id}:${slot.scheduledFor}`;
@@ -1480,7 +1480,7 @@ export default function DashboardPage() {
                             <p className="truncate text-sm font-semibold text-slate-800">{slot.med.name}</p>
                             <p className="text-xs text-slate-500">{slot.timeLabel} &middot; {slot.med.dose_text}</p>
                             {slot.med.reminder_offset_minutes ? (
-                              <p className="mt-0.5 text-xs font-medium text-blue-500">⏰ Reminder {slot.med.reminder_offset_minutes} min before</p>
+                              <p className="mt-0.5 text-xs font-medium text-blue-500">Reminder {slot.med.reminder_offset_minutes} min before</p>
                             ) : null}
                           </div>
                           {slot.status ? (
@@ -1767,7 +1767,7 @@ export default function DashboardPage() {
             <>
               <section>
                 <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-[1.5rem] font-bold leading-none text-slate-900">⭐ Recommended For You</h2>
+                  <h2 className="text-[1.5rem] font-bold leading-none text-slate-900">Recommended For You</h2>
                   <button
                     type="button"
                     className="tc-btn-link"
@@ -1893,8 +1893,8 @@ export default function DashboardPage() {
                         referrerPolicy="no-referrer"
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-                      <div className="absolute left-4 top-3 inline-flex items-center gap-1 rounded-md bg-emerald-500 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
-                        <span aria-hidden="true">✓</span> Joined
+                      <div className="absolute left-4 top-3 inline-flex items-center rounded-md bg-emerald-500 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
+                        Joined
                       </div>
                       <div className="absolute bottom-3 left-4 text-white">
                         <h4 className="text-[1.5rem] font-bold leading-tight">{joinedEvents[0].title}</h4>
@@ -2002,7 +2002,7 @@ export default function DashboardPage() {
                             disabled={chatAudioLoading === message.id || chatAudioPlaying === message.id}
                             title={chatAudioPlaying === message.id ? "Playing..." : "Listen"}
                           >
-                            {chatAudioLoading === message.id ? <span className="audio-spinner" /> : chatAudioPlaying === message.id ? "🔊" : "▶"}
+                            {chatAudioLoading === message.id ? <span className="audio-spinner" /> : chatAudioPlaying === message.id ? "Playing" : "Listen"}
                           </button>
                         </div>
                       </div>
@@ -2024,9 +2024,9 @@ export default function DashboardPage() {
                           {chatAudioLoading === message.id ? (
                             <span className="audio-spinner" />
                           ) : chatAudioPlaying === message.id ? (
-                            "🔊"
+                            "Playing"
                           ) : (
-                            "▶"
+                            "Listen"
                           )}
                         </button>
                       </div>
@@ -2072,7 +2072,7 @@ export default function DashboardPage() {
                   disabled={chatLoading || isRecording}
                   title={isRecording ? "Listening..." : "Voice input"}
                 >
-                  {isRecording ? "⏺" : "🎤"}
+                  {isRecording ? "Rec" : "Mic"}
                 </button>
                 <button
                   type="button"
@@ -2080,7 +2080,7 @@ export default function DashboardPage() {
                   onClick={() => void handleSendChat()}
                   disabled={chatLoading || !chatDraft.trim()}
                 >
-                  {chatLoading ? "…" : "➤"}
+                  {chatLoading ? "..." : "Send"}
                 </button>
               </div>
               {chatError ? <p className="chat-error">{chatError}</p> : null}
@@ -2091,7 +2091,7 @@ export default function DashboardPage() {
           {activeTab === "health" ? (
             <>
               <section className="card">
-                <div className="card-title">🌿 TCM Safety Check</div>
+                <div className="card-title">TCM Safety Check</div>
                 <p className="muted">Check herb-drug interactions against your current medications.</p>
 
                 <div className="tcm-mode-picker">
@@ -2244,7 +2244,7 @@ export default function DashboardPage() {
                         disabled={tcmAudioLoading || tcmAudioPlaying || (tcmLang !== "en" && tcmTranslating)}
                         style={{ marginTop: 8 }}
                       >
-                        {tcmAudioLoading ? "Loading audio..." : tcmAudioPlaying ? "\uD83D\uDD0A Playing..." : tcmAudioUrl ? "\uD83D\uDD0A Press to Replay" : "\uD83D\uDD0A Listen"}
+                        {tcmAudioLoading ? "Loading audio..." : tcmAudioPlaying ? "Playing..." : tcmAudioUrl ? "Replay Audio" : "Listen"}
                       </button>
                     </div>
                   </div>
@@ -2254,14 +2254,14 @@ export default function DashboardPage() {
               {/* ── Medication Supply ── */}
               <section className="card">
                 <div className="card-row">
-                  <div className="card-title">💊 Medication Supply</div>
+                  <div className="card-title">Medication Supply</div>
                   <button
                     type="button"
                     className="icon-button"
                     disabled={refillCheckLoading}
                     onClick={() => void handleRefillCheck()}
                   >
-                    {refillCheckLoading ? "Checking..." : "🔔 Check"}
+                    {refillCheckLoading ? "Checking..." : "Check"}
                   </button>
                 </div>
                 <p className="muted" style={{ fontSize: "0.8rem", marginBottom: 8 }}>
@@ -2326,7 +2326,7 @@ export default function DashboardPage() {
                                 [item.medication_id]: item.doses_remaining !== null ? String(item.doses_remaining) : ""
                               }))}
                             >
-                              ✏️ {item.tracking_enabled ? "Correct count" : "Set current supply"}
+                              {item.tracking_enabled ? "Correct count" : "Set current supply"}
                             </button>
                           ) : (
                             <>
@@ -2372,7 +2372,7 @@ export default function DashboardPage() {
                                 } catch { /* ignore */ }
                               }}
                             >
-                              {refillOrdered[item.medication_id] ? "✅ Sent to Clinician" : "📦 Order Refill"}
+                              {refillOrdered[item.medication_id] ? "Sent to Clinician" : "Order Refill"}
                             </button>
                           ) : null}
                         </div>
@@ -2383,14 +2383,14 @@ export default function DashboardPage() {
                 {(refillStatus ?? []).some((s) => s.is_low) ? (
                   <div className="alert-box alert-warning" style={{ marginTop: 8 }}>
                     <p style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                      ⚠️ Running low lah! Tap &quot;🔔 Check&quot; to get a reminder in your chat, or &quot;📦 Order Refill&quot; to request a refill.
+                      Running low lah! Tap &quot;Check&quot; to get a reminder in your chat, or &quot;Order Refill&quot; to request a refill.
                     </p>
                   </div>
                 ) : null}
               </section>
 
               <section className="card">
-                <div className="card-title">📊 Clinician Summary</div>
+                <div className="card-title">Clinician Summary</div>
                 <button type="button" onClick={() => void handleLoadReportSummary()} disabled={reportLoading}>
                   {reportLoading ? "Loading..." : "Fetch Report Summary"}
                 </button>
@@ -2408,7 +2408,7 @@ export default function DashboardPage() {
 
               <section className="card">
                 <div className="card-row">
-                  <div className="card-title">💊 Medication Tracking</div>
+                  <div className="card-title">Medication Tracking</div>
                   <span className={`severity-pill severity-${drift?.severity ?? "green"}`}>
                     {drift?.severity ?? "green"}
                   </span>
@@ -2445,7 +2445,7 @@ export default function DashboardPage() {
               </section>
 
               <section className="card">
-                <div className="card-title">📅 Appointment Tracking</div>
+                <div className="card-title">Appointment Tracking</div>
                 {allAppts.length > 0 ? (
                   <div className="item-list">
                     {allAppts.map((appt) => (
@@ -2469,7 +2469,7 @@ export default function DashboardPage() {
               {/* --- Profile Section --- */}
               <section className="card">
                 <div className="card-row">
-                  <div className="card-title">👤 Patient Profile</div>
+                  <div className="card-title">Patient Profile</div>
                   {!editingProfile ? (
                     <button type="button" className="icon-button" onClick={startEditProfile}>Edit</button>
                   ) : null}
@@ -2500,13 +2500,13 @@ export default function DashboardPage() {
                   </div>
                 )}
                 {profileMsg ? <p className="status-ok">{profileMsg}</p> : null}
-                <button type="button" className="secondary-button" onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}>🚪 Sign Out</button>
+                <button type="button" className="secondary-button" onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}>Sign Out</button>
               </section>
 
               {/* --- Medications Section --- */}
               <section className="card">
                 <div className="card-row">
-                  <div className="card-title">💊 Medications</div>
+                  <div className="card-title">Medications</div>
                   {!carePlanReadOnly ? (
                     <button type="button" className="icon-button" onClick={() => { resetMedForm(); setShowMedForm(true); }}>+ Add</button>
                   ) : null}
@@ -2576,7 +2576,7 @@ export default function DashboardPage() {
               {/* --- Appointments Section --- */}
               <section className="card">
                 <div className="card-row">
-                  <div className="card-title">📅 Appointments</div>
+                  <div className="card-title">Appointments</div>
                   {!carePlanReadOnly ? (
                     <button type="button" className="icon-button" onClick={() => { resetApptForm(); setShowApptForm(true); }}>+ Add</button>
                   ) : null}

@@ -84,7 +84,7 @@ export default function SignInPage() {
 
         <section className="tab-body">
           <section className="card">
-            <h2 className="auth-title">🔐 Sign In</h2>
+            <h2 className="auth-title">Sign In</h2>
             <p className="muted">Log into your ByteCare account.</p>
 
             <div className="form-group">
@@ -133,9 +133,9 @@ export default function SignInPage() {
               <p className="muted" style={{ marginBottom: "0.5rem" }}>Quick login:</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
                 {[
-                  { label: "👵 Mdm Lim", email: "mdm.lim@demo.com", password: "demo123" },
-                  { label: "👩 Grace Lim", email: "grace.lim@demo.com", password: "demo123" },
-                  { label: "🩺 Dr Chan", email: "drchan@bytecare.com", password: "clinician123" },
+                  { label: "Mdm Lim", email: "mdm.lim@demo.com", password: "demo123" },
+                  { label: "Grace Lim", email: "grace.lim@demo.com", password: "demo123" },
+                  { label: "Dr Chan", email: "drchan@bytecare.com", password: "clinician123" },
                 ].map((demo) => (
                   <button
                     key={demo.email}

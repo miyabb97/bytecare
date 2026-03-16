@@ -56,7 +56,7 @@ export default function SignUpPage() {
 
         <section className="tab-body">
           <section className="card">
-            <h2 className="auth-title">📝 Sign Up</h2>
+            <h2 className="auth-title">Sign Up</h2>
             <p className="muted">Register as a patient, caregiver, or clinician.</p>
 
             <div className="form-group">
@@ -90,21 +90,21 @@ export default function SignUpPage() {
                   className={role === "patient" ? "role-btn role-btn-active" : "role-btn"}
                   onClick={() => setRole("patient")}
                 >
-                  🧑‍⚕️ Patient
+                  Patient
                 </button>
                 <button
                   type="button"
                   className={role === "caregiver" ? "role-btn role-btn-active" : "role-btn"}
                   onClick={() => setRole("caregiver")}
                 >
-                  🤝 Caregiver
+                  Caregiver
                 </button>
                 <button
                   type="button"
                   className={role === "clinician" ? "role-btn role-btn-active" : "role-btn"}
                   onClick={() => setRole("clinician")}
                 >
-                  🩺 Clinician
+                  Clinician
                 </button>
               </div>
 

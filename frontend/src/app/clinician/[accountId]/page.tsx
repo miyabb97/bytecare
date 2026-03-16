@@ -140,7 +140,7 @@ export default function ClinicianDashboardPage() {
             </div>
 
             <section className="mt-4 rounded-2xl border border-[#F0E1B7] bg-[#FFF8E8] p-3">
-              <p className="text-[16px] font-semibold text-[#9A6A20]">⚠ Drift Detected: Schedule Shift</p>
+              <p className="text-[16px] font-semibold text-[#9A6A20]">Drift Detected: Schedule Shift</p>
               <p className="mt-1 text-[14px] leading-5 text-[#A3722A]">
                 Patient has shifted doses by &gt;4 hours. Severity: Moderate. Morning Metformin consistently missed.
               </p>

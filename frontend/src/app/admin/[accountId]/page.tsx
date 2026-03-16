@@ -97,7 +97,7 @@ export default function AdminDashboard() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold text-slate-900">
-                {tab === "users" ? "👥 All Users" : tab === "logs" ? "📋 Intervention Logs" : tab === "profile" ? "⚙️ Profile" : "🏠 Admin Dashboard"}
+                {tab === "users" ? "All Users" : tab === "logs" ? "Intervention Logs" : tab === "profile" ? "Profile" : "Admin Dashboard"}
               </h1>
               <p className="text-sm text-slate-500">{account.name} (Admin)</p>
             </div>
@@ -113,7 +113,7 @@ export default function AdminDashboard() {
           {tab === "dashboard" && !loading && (
             <>
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <h3 className="text-lg font-bold text-slate-900">📊 System Overview</h3>
+                <h3 className="text-lg font-bold text-slate-900">System Overview</h3>
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <div className="rounded-2xl bg-blue-50 p-4 text-center">
                     <span className="text-3xl font-bold text-blue-600">{accounts.length}</span>
@@ -135,7 +135,7 @@ export default function AdminDashboard() {
               </section>
 
               <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <h3 className="mb-3 text-lg font-bold text-slate-900">🗂️ Roles Breakdown</h3>
+                <h3 className="mb-3 text-lg font-bold text-slate-900">Roles Breakdown</h3>
                 {Object.entries(roleCounts).map(([role, count]) => (
                   <div key={role} className="flex items-center justify-between py-1">
                     <span className="text-sm text-slate-700 capitalize">{role}</span>
@@ -149,7 +149,7 @@ export default function AdminDashboard() {
           {/* ──── Users Tab ──── */}
           {tab === "users" && !loading && (
             <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h3 className="mb-3 text-lg font-bold text-slate-900">👥 All Accounts ({accounts.length})</h3>
+              <h3 className="mb-3 text-lg font-bold text-slate-900">All Accounts ({accounts.length})</h3>
               <div className="space-y-2 md:grid md:grid-cols-2 md:gap-3 md:space-y-0 lg:grid-cols-3">
                 {accounts.map((a) => (
                   <div key={a.account_id} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
@@ -177,12 +177,12 @@ export default function AdminDashboard() {
             <>
               {interventions.length === 0 ? (
                 <div className="rounded-3xl border border-slate-200 bg-white p-6 text-center">
-                  <p className="text-lg text-slate-500">📭 No intervention logs</p>
+                  <p className="text-lg text-slate-500">No intervention logs</p>
                   <p className="mt-1 text-sm text-slate-400">System-wide intervention events will appear here.</p>
                 </div>
               ) : (
                 <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <h3 className="mb-3 text-lg font-bold text-slate-900">📝 Recent Interventions</h3>
+                  <h3 className="mb-3 text-lg font-bold text-slate-900">Recent Interventions</h3>
                   <div className="space-y-2">
                     {interventions.map((iv, idx) => (
                       <div key={idx} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
@@ -209,7 +209,7 @@ export default function AdminDashboard() {
           {/* ──── Profile Tab ──── */}
           {tab === "profile" && (
             <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h3 className="text-lg font-bold text-slate-900">👤 {account.name}</h3>
+              <h3 className="text-lg font-bold text-slate-900">{account.name}</h3>
               <p className="text-sm text-slate-500">{account.email}</p>
               <p className="mt-1 text-xs text-slate-400">Role: Admin</p>
               <button
@@ -217,7 +217,7 @@ export default function AdminDashboard() {
                 onClick={handleSignOut}
                 className="mt-6 w-full rounded-2xl bg-red-50 py-3 text-sm font-bold text-red-600 transition hover:bg-red-100"
               >
-                🚪 Sign Out
+                Sign Out
               </button>
             </section>
           )}
