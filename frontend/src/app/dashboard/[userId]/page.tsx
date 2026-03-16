@@ -1426,39 +1426,38 @@ export default function DashboardPage() {
                               )}
                             </div>
                           ) : (
-                            <div className="flex flex-wrap gap-1.5">
+                            <div className="relative" data-dose-dropdown>
                               <button
                                 type="button"
                                 disabled={isLoading}
-                                onClick={() => void handleQuickMark(slot, "taken")}
-                                className="rounded-xl bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-600 disabled:opacity-50"
+                                onClick={() => setOpenDropdownKey(openDropdownKey === key ? null : key)}
+                                className="flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500 transition active:scale-95"
                               >
-                                Taken
+                                Mark
+                                <span className="ml-0.5 opacity-60 text-[9px]">▾</span>
                               </button>
-                              <button
-                                type="button"
-                                disabled={isLoading}
-                                onClick={() => void handleQuickMark(slot, "missed")}
-                                className="rounded-xl bg-red-100 px-3 py-1.5 text-xs font-bold text-red-600 transition hover:bg-red-200 disabled:opacity-50"
-                              >
-                                Missed
-                              </button>
-                              <button
-                                type="button"
-                                disabled={isLoading}
-                                onClick={() => void handleQuickMark(slot, "late")}
-                                className="rounded-xl bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-600 transition hover:bg-amber-200 disabled:opacity-50"
-                              >
-                                Late
-                              </button>
-                              <button
-                                type="button"
-                                disabled={isLoading}
-                                onClick={() => void handleQuickMark(slot, "snoozed")}
-                                className="rounded-xl bg-blue-100 px-3 py-1.5 text-xs font-bold text-blue-600 transition hover:bg-blue-200 disabled:opacity-50"
-                              >
-                                Snooze
-                              </button>
+                              {openDropdownKey === key && (
+                                <div className="absolute right-0 top-full z-50 mt-1 min-w-[110px] overflow-hidden rounded-xl border border-slate-200 bg-gray-50 shadow-md">
+                                  {(["taken", "missed", "late", "skipped", "snoozed"] as ReminderResponseStatus[]).map((s) => (
+                                    <button
+                                      key={s}
+                                      type="button"
+                                      disabled={isLoading}
+                                      onClick={() => { setOpenDropdownKey(null); void handleQuickMark(slot, s); }}
+                                      style={{ background: "none", marginTop: 0, borderRadius: 0, padding: "0.5rem 1rem" }}
+                                      className={`block w-full text-left text-xs font-medium outline-none transition hover:bg-slate-200 ${
+                                        s === "taken" ? "text-emerald-700"
+                                        : s === "skipped" ? "text-slate-500"
+                                        : s === "snoozed" ? "text-blue-600"
+                                        : s === "late" ? "text-amber-700"
+                                        : "text-red-700"
+                                      }`}
+                                    >
+                                      Mark as {s.charAt(0).toUpperCase() + s.slice(1)}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>

@@ -129,10 +129,25 @@ export default function SignInPage() {
               </button>
             </div>
 
-            <div className="empty-state" style={{ marginTop: "1rem" }}>
-              <p className="muted">Default admin account for testing:</p>
-              <p className="muted"><strong>Email:</strong> admin@bytecare.com</p>
-              <p className="muted"><strong>Password:</strong> admin123</p>
+            <div style={{ marginTop: "1rem" }}>
+              <p className="muted" style={{ marginBottom: "0.5rem" }}>Quick login:</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                {[
+                  { label: "👵 Mdm Lim", email: "mdm.lim@demo.com", password: "demo123" },
+                  { label: "👩 Grace Lim", email: "grace.lim@demo.com", password: "demo123" },
+                  { label: "🩺 Dr Chan", email: "drchan@bytecare.com", password: "clinician123" },
+                ].map((demo) => (
+                  <button
+                    key={demo.email}
+                    type="button"
+                    className="secondary-button"
+                    style={{ textAlign: "left", padding: "0.4rem 0.75rem", fontSize: "0.8rem" }}
+                    onClick={() => { setEmail(demo.email); setPassword(demo.password); }}
+                  >
+                    {demo.label} <span className="muted" style={{ fontSize: "0.75rem" }}>{demo.email}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </section>
         </section>
