@@ -2462,9 +2462,20 @@ export default function DashboardPage() {
                   >
                     {message.sender === "system" ? (
                       <div className="mx-auto w-full max-w-[95%] rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                        <div className="mb-1 flex items-center gap-1.5 font-bold">
-                          <TriangleAlert className="h-4 w-4 shrink-0" />
-                          <span>ByteCare Alert</span>
+                        <div className="mb-1 flex items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1.5 font-bold">
+                            <TriangleAlert className="h-4 w-4 shrink-0" />
+                            <span>ByteCare Alert</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setChatMessages((prev) => prev.filter((m) => m.id !== message.id))}
+                            className="tc-icon-btn"
+                            style={{ width: "auto", margin: 0, padding: 0, opacity: 0.5 }}
+                            aria-label="Dismiss alert"
+                          >
+                            <XCircle size={15} />
+                          </button>
                         </div>
                         <p style={{ whiteSpace: "pre-line" }}>{message.text}</p>
                         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -2569,7 +2580,20 @@ export default function DashboardPage() {
                   {chatLoading ? <span className="audio-spinner" /> : <SendHorizonal size={18} strokeWidth={2.1} />}
                 </button>
               </div>
-              {chatError ? <p className="chat-error">{chatError}</p> : null}
+              {chatError ? (
+                <p className="chat-error" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+                  <span>{chatError}</span>
+                  <button
+                    type="button"
+                    onClick={() => setChatError(null)}
+                    className="tc-icon-btn"
+                    style={{ width: "auto", margin: 0, padding: 0, flexShrink: 0, opacity: 0.6 }}
+                    aria-label="Dismiss error"
+                  >
+                    <XCircle size={15} />
+                  </button>
+                </p>
+              ) : null}
             </section>
           ) : null}
 
