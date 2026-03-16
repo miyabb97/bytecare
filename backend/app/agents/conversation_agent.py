@@ -36,6 +36,19 @@ _MISSED_DOSE_RE = re.compile(
     r"forget to take|miss my)\b",
     re.IGNORECASE,
 )
+_MEDICATION_EDUCATION_RE = re.compile(
+    r"\b(why (do|should|am|would|must) i (take|use|need)\b|"
+    r"what (is|are) (this|these|my|the) (medicine|medication|pill|drug|tablet)s? (for|used for)\b|"
+    r"what (happens?|will happen) if (i )?(skip|miss|don.?t take|stop|forget)\b|"
+    r"why (is|are) (this|these|my) (medicine|medication|pill|drug|tablet)s? important\b|"
+    r"what does (this|my) (medicine|medication|pill|drug|tablet) (do|help)\b|"
+    r"how does (this|my) (medicine|medication|pill|drug|tablet) (work|help|treat)\b|"
+    r"what is \w+ (for|used for|prescribed for)\b|"
+    r"why (take|use|need) (this|my) (medicine|medication)\b|"
+    r"explain (this|my)? ?(medicine|medication)\b|"
+    r"tell me (about|more about) (this|my)? ?(medicine|medication)\b)",
+    re.IGNORECASE,
+)
 _MEDICATION_QUERY_RE = re.compile(
     r"\b(medication|medicine|pill|dose|dosage|side effect|interact|"
     r"refill|prescription|drug)\b",
@@ -57,6 +70,11 @@ def _detect_intent(message: str) -> str:
         return "medical_advice_request"
     if _REMINDER_RE.search(message):
         return "set_reminder"
+    # Medication education checked before missed_medication so that questions like
+    # "what happens if I skip my medicine" are routed to the education agent, not
+    # treated as a missed-dose report.
+    if _MEDICATION_EDUCATION_RE.search(message):
+        return "medication_education"
     if _MISSED_DOSE_RE.search(message):
         return "missed_medication"
     if _EMOTIONAL_RE.search(message):
@@ -119,6 +137,11 @@ _INTENT_GUIDANCE: Dict[str, str] = {
     "missed_medication": (
         "The patient missed a dose. Be supportive and non-judgmental. "
         "Gently remind them to take it now if not too close to the next dose."
+    ),
+    "medication_education": (
+        "The patient is asking why they take a medicine or what it does. "
+        "Explain simply and warmly. Never advise changing doses or stopping. "
+        "Redirect medical decisions to their doctor."
     ),
     "medication_query": (
         "Answer the patient's medication question using the context. "
@@ -296,6 +319,13 @@ def generate_agent_response(user_id: str, message: str) -> Dict[str, Any]:
             "reminder_mode": None,
             "reminder_delay_seconds": None,
         }
+
+    # Route medication education questions to the dedicated Medication Education Agent.
+    # This keeps all other intent paths (reminders, missed doses, emotional support, etc.)
+    # completely unchanged.
+    if intent == "medication_education":
+        from app.agents.medication_education_agent import generate_education_reply
+        return generate_education_reply(user_id, message, user, medications)
 
     # Determine suggested_action
     suggested_action = "none"
