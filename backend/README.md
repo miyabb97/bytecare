@@ -25,5 +25,20 @@ uvicorn app.main:app --reload
   - `schemas.py` - Pydantic validation schemas
   - `crud.py` - CRUD operations
   - `services/` - Business logic services
+  - `planner_service.py` - Day Planner aggregation logic
   - `routers/` - API endpoint routers
   - `tests/` - Test suite
+
+## Day Planner API
+
+GET `/api/v1/planner/today?user_id={id}&date={YYYY-MM-DD}`
+
+Returns a normalized timeline for the specified user and date combining:
+
+- Medication schedule items
+- Appointments
+- Community events
+- Wellness prompts (meal/walk/sleep)
+
+Response includes `items` (sorted by start_time) with fields: `id`, `type`, `title`, `subtitle`, `start_time`, `end_time`, `source`, `priority`, `status`, optional `cta_label` and `cta_route`.
+

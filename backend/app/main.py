@@ -34,6 +34,8 @@ from app.models import (
     MesScore,
     Simulation,
     User,
+    MedicationTimingDeviation,
+    MedicationBehaviorPattern,
 )
 from app.routers.agent import router as agent_router
 from app.routers.appointments import router as appointments_router
@@ -533,6 +535,34 @@ def caregiver_get_patients(account_id: str, db: Session = Depends(get_db)):
     return {"items": items}
 
 
+@app.get("/api/v1/caregiver/{account_id}/patients/{patient_user_id}/briefing")
+def caregiver_get_briefing(account_id: str, patient_user_id: str):
+    """Return an AI-generated caregiver action briefing for a linked patient."""
+    from app.services.caregiver_briefing import generate_caregiver_briefing
+    try:
+        return generate_caregiver_briefing(account_id, patient_user_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/v1/caregiver/{account_id}/patients/{patient_user_id}/medications/{med_id}/recommendations")
+def caregiver_med_recommendations(account_id: str, patient_user_id: str, med_id: str):
+    """Return focused, agentic next-step recommendations for a medication."""
+    from app.services.caregiver_briefing import generate_med_recommendations
+    try:
+        return generate_med_recommendations(account_id, patient_user_id, med_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.get("/api/v1/caregiver/{account_id}/patients/{patient_user_id}")
 def caregiver_get_patient_detail(account_id: str, patient_user_id: str, db: Session = Depends(get_db)):
     """Get full patient detail for a caregiver's linked patient."""
@@ -767,6 +797,84 @@ def record_medication_intake(user_id: str, payload: IntakeResponseCreate, db: Se
         created_events.append(dose_event.to_dict())
 
     db.commit()
+
+    # Detect timing deviations for taken doses
+    if payload.response_status == "taken":
+        # fetch user for timezone if needed
+        user = get_user_or_404(db, user_id)
+        # expected windows
+        routine_windows = {
+            "morning": ("05:00", "11:00"),
+            "afternoon": ("11:00", "17:00"),
+            "evening": ("17:00", "23:00"),
+        }
+
+        for medication, created in zip(medications, created_events):
+            routine = getattr(medication, "routine_type", "morning") or "morning"
+            expected_start, expected_end = routine_windows.get(routine, ("05:00", "11:00"))
+            try:
+                actual_dt = datetime.fromisoformat(timestamp)
+            except Exception:
+                actual_dt = datetime.utcnow()
+
+            # construct expected datetimes on same day
+            ymd = actual_dt.date()
+            sh, sm = map(int, expected_start.split(":"))
+            eh, em = map(int, expected_end.split(":"))
+            expected_start_dt = datetime.combine(ymd, datetime.min.time()).replace(hour=sh, minute=sm)
+            expected_end_dt = datetime.combine(ymd, datetime.min.time()).replace(hour=eh, minute=em)
+
+            # check if within expected window
+            if expected_start_dt <= actual_dt <= expected_end_dt:
+                continue
+
+            # compute deviation minutes
+            if actual_dt < expected_start_dt:
+                deviation_minutes = int((expected_start_dt - actual_dt).total_seconds() / 60)
+            else:
+                deviation_minutes = int((actual_dt - expected_end_dt).total_seconds() / 60)
+
+            # severity classification
+            if deviation_minutes <= 60:
+                severity = "minor"
+            elif deviation_minutes <= 180:
+                severity = "moderate"
+            else:
+                severity = "major"
+
+            # record deviation
+            dev = MedicationTimingDeviation(
+                patient_id=user_id,
+                medication_id=medication.medication_id,
+                routine_type=routine,
+                expected_start_time=expected_start,
+                expected_end_time=expected_end,
+                actual_taken_time=timestamp,
+                deviation_minutes=deviation_minutes,
+                severity=severity,
+                created_at=now_iso(),
+            )
+            db.add(dev)
+
+            # gentle patient notification via chat assistant
+            try:
+                msg = ChatMessage(
+                    message_id=str(uuid4()),
+                    user_id=user_id,
+                    role="assistant",
+                    content=(
+                        f"It looks like your {routine} medication ({medication.name}) was taken later than usual. "
+                        "If this happens often, it may affect how the medicine works."
+                    ),
+                    language=user.language_preference or "en",
+                    is_read=0,
+                    created_at=now_iso(),
+                )
+                db.add(msg)
+            except Exception:
+                pass
+
+        db.commit()
 
     if payload.response_status in {"taken", "skipped", "missed", "late"}:
         recompute_mes_for_user(db, user_id, days=14)

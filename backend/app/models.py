@@ -57,6 +57,7 @@ class Medication(Base):
     name = Column(String, nullable=False)
     dose_text = Column(String, default="")
     schedule_json = Column(Text, nullable=False)
+    routine_type = Column(String, default="morning")
     time_window_minutes = Column(Integer, default=120)
     criticality = Column(String, default="medium")
     total_supply = Column(Integer, default=0)   # 0 = not tracked
@@ -76,6 +77,7 @@ class Medication(Base):
             "schedule": self.schedule,
             "time_window_minutes": self.time_window_minutes,
             "criticality": self.criticality,
+            "routine_type": self.routine_type,
             "total_supply": self.total_supply or 0,
             "reminder_offset_minutes": self.reminder_offset_minutes,
             "created_at": self.created_at,
@@ -243,4 +245,60 @@ class UserEvent(Base):
             "event_id": self.event_id,
             "status": self.status,
             "created_at": self.created_at,
+        }
+
+
+class MedicationTimingDeviation(Base):
+    __tablename__ = "medication_timing_deviations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    patient_id = Column(String, nullable=False, index=True)
+    medication_id = Column(String, nullable=False, index=True)
+    routine_type = Column(String, nullable=True)
+    expected_start_time = Column(String, nullable=False)  # HH:MM
+    expected_end_time = Column(String, nullable=False)    # HH:MM
+    actual_taken_time = Column(String, nullable=False)     # ISO datetime
+    deviation_minutes = Column(Integer, nullable=False)
+    severity = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "patient_id": self.patient_id,
+            "medication_id": self.medication_id,
+            "routine_type": self.routine_type,
+            "expected_start_time": self.expected_start_time,
+            "expected_end_time": self.expected_end_time,
+            "actual_taken_time": self.actual_taken_time,
+            "deviation_minutes": self.deviation_minutes,
+            "severity": self.severity,
+            "created_at": self.created_at,
+        }
+
+
+class MedicationBehaviorPattern(Base):
+    __tablename__ = "medication_behavior_patterns"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    patient_id = Column(String, nullable=False, index=True)
+    medication_id = Column(String, nullable=False, index=True)
+    routine_type = Column(String, nullable=True)
+    learned_time = Column(String, nullable=True)  # HH:MM learned/mean time
+    average_deviation_minutes = Column(Integer, default=0)
+    late_dose_count = Column(Integer, default=0)
+    missed_dose_count = Column(Integer, default=0)
+    last_updated = Column(String, nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "patient_id": self.patient_id,
+            "medication_id": self.medication_id,
+            "routine_type": self.routine_type,
+            "learned_time": self.learned_time,
+            "average_deviation_minutes": self.average_deviation_minutes,
+            "late_dose_count": self.late_dose_count,
+            "missed_dose_count": self.missed_dose_count,
+            "last_updated": self.last_updated,
         }

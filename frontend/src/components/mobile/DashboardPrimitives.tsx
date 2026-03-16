@@ -101,11 +101,12 @@ export function AlertCard({
   );
 }
 
-export function ActionTile({ icon, label }: { icon: ReactNode; label: string }) {
+export function ActionTile({ icon, label, onClick }: { icon: ReactNode; label: string; onClick?: () => void }) {
   return (
     <button
       type="button"
-      className="mt-0 flex h-[92px] w-full flex-1 flex-col items-center justify-center rounded-2xl border border-[#E9EEF7] bg-white p-0 text-center shadow-[0_1px_2px_rgba(16,24,40,0.04)]"
+      onClick={onClick}
+      className="mt-0 flex h-[92px] w-full flex-1 flex-col items-center justify-center rounded-2xl border border-[#E9EEF7] bg-white p-0 text-center shadow-[0_1px_2px_rgba(16,24,40,0.04)] active:scale-95"
     >
       <div className="mb-2 text-[#3B6EF5]">{icon}</div>
       <span className="text-[12px] font-semibold text-[#344054]">{label}</span>

@@ -749,6 +749,8 @@ export default function DashboardPage() {
     return () => window.clearInterval(id);
   }, [userId, activeTab]);
 
+
+
   const appointmentText = useMemo(
     () => formatAppointment(appointments?.next_appointment ?? null, appointments?.days_remaining ?? null),
     [appointments]

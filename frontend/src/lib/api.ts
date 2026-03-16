@@ -512,6 +512,11 @@ export const api = {
   caregiverGetPatientDetail: (accountId: string, patientUserId: string) =>
     apiRequest<CaregiverPatientDetail>(`/caregiver/${accountId}/patients/${patientUserId}`),
 
+  caregiverGetBriefing: (accountId: string, patientUserId: string) =>
+    apiRequest<CaregiverBriefing>(`/caregiver/${accountId}/patients/${patientUserId}/briefing`),
+  caregiverGetMedRecommendations: (accountId: string, patientUserId: string, medId: string) =>
+    apiRequest<MedRecommendationResponse>(`/caregiver/${accountId}/patients/${patientUserId}/medications/${medId}/recommendations`),
+
   // --- Admin endpoints ---
   adminGetAccounts: () =>
     apiRequest<AdminAccountListResponse>("/admin/accounts"),
@@ -714,8 +719,28 @@ export type UnreadCountResponse = {
   unread_count: number;
 };
 
+export type CaregiverBriefing = {
+  patient_name: string;
+  risk: { level: string; score?: number; reason?: string } | string;
+  adherence_pct: number;
+  missed?: number;
+  today_summary?: string;
+  monitoring?: string[];
+  escalations?: string[];
+  actions: Array<{ text: string; reason?: string; confidence?: number }> | string[];
+  source: "llm" | "fallback";
+  confidence?: number;
+};
+
+export type MedRecommendationResponse = {
+  medication_id: string;
+  medication_name: string;
+  recommendations: string[];
+  confidence?: number | null;
+  source: string;
+};
+
 export type CaregiverPatientSummary = {
-  user_id: string;
   name: string;
   age: number;
   conditions: string[];

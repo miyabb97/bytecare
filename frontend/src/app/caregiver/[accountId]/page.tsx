@@ -5,15 +5,16 @@ import { useRouter } from "next/navigation";
 import {
   Bell,
   Calendar,
-  ChevronRight,
+  Heart,
   MessageSquare,
   Phone,
   Pill,
-  PlusCircle,
   Siren,
+  Sparkles,
+  Users,
 } from "lucide-react";
 
-import type { Account } from "../../../lib/api";
+import { api, type Account, type CaregiverBriefing, type CaregiverPatientDetail, type CaregiverPatientSummary } from "../../../lib/api";
 import {
   ActionTile,
   AlertCard,
@@ -24,42 +25,156 @@ import {
   SectionTitle,
   TabBar,
 } from "../../../components/mobile/DashboardPrimitives";
+ 
 
 function loadAccount(router: ReturnType<typeof useRouter>, setAccount: (value: Account) => void) {
   const raw = sessionStorage.getItem("bytecare_account") || localStorage.getItem("bytecare_account");
-  if (!raw) {
-    router.replace("/auth/signin");
-    return;
-  }
+  if (!raw) { router.replace("/auth/signin"); return; }
   try {
     const parsed = JSON.parse(raw) as Account;
-    if (parsed.role !== "caregiver") {
-      router.replace("/auth/signin");
-      return;
-    }
+    if (parsed.role !== "caregiver") { router.replace("/auth/signin"); return; }
     setAccount(parsed);
-  } catch {
-    router.replace("/auth/signin");
+  } catch { router.replace("/auth/signin"); }
+}
+
+function calcAdherence(detail: CaregiverPatientDetail) {
+  const events = detail.dose_events;
+  const taken = events.filter(e => e.response_status === "taken").length;
+  const missed = events.filter(e => e.response_status === "missed").length;
+  const late = events.filter(e => e.response_status === "late").length;
+  const total = taken + missed + late;
+  const pct = total > 0 ? Math.round((taken / total) * 100) : 100;
+  return { taken, missed, late, pct };
+}
+
+function getRisk(pct: number): { label: string; tone: "red" | "yellow" | "success"; badge: string } {
+  if (pct < 70) return { label: "High Risk", tone: "red", badge: "HIGH RISK" };
+  if (pct < 85) return { label: "Needs Follow-up", tone: "yellow", badge: "NEEDS FOLLOW-UP" };
+  return { label: "On Track", tone: "success", badge: "ON TRACK" };
+}
+
+function getMissedMedNames(detail: CaregiverPatientDetail): string[] {
+  const ids = [...new Set(
+    detail.dose_events
+      .filter(e => e.response_status === "missed")
+      .map(e => e.medication_id)
+  )];
+  return ids.map(id => detail.medications.find(m => m.medication_id === id)?.name).filter(Boolean) as string[];
+}
+
+function getNextAppointment(detail: CaregiverPatientDetail) {
+  const now = new Date().toISOString();
+  return detail.appointments
+    .filter(a => a.datetime > now)
+    .sort((a, b) => a.datetime.localeCompare(b.datetime))[0] ?? null;
+}
+
+function getEncouragementSuggestions(pct: number, missed: number): string[] {
+  if (missed === 0) return [
+    "Praise the patient for their consistency this week",
+    "Encourage a morning walk to maintain daily wellbeing",
+    "A brief check-in call helps maintain trust and connection",
+  ];
+  if (pct < 70) return [
+    "Call the patient — missed doses may signal difficulty",
+    "Offer to help organise medications at home",
+    "Suggest a visit to assess the patient's daily routine",
+    "Remind them gently: regular doses protect their health",
+  ];
+  return [
+    "Send a warm reminder about any missed doses",
+    "Encourage the patient to attend a community social event",
+    "Ask if they need help with appointment logistics",
+  ];
+}
+
+function formatShortDate(iso?: string | null) {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString("en-SG", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+  } catch (e) {
+    return iso as any;
   }
 }
 
-export default function CaregiverDashboardPage() {
+function computeMedStats(detail: CaregiverPatientDetail, medId: string) {
+  const events = detail.dose_events.filter(e => e.medication_id === medId);
+  const taken = events.filter(e => e.response_status === "taken").length;
+  const missed = events.filter(e => e.response_status === "missed").length;
+  const late = events.filter(e => e.response_status === "late").length;
+  const lastTaken = events
+    .filter(e => e.response_status === "taken")
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0];
+  return { taken, missed, late, lastTaken: lastTaken ? lastTaken.timestamp : null, totalEvents: events.length };
+}
+
+export default function CaregiverDashboardPage({ params }: { params: { accountId: string } }) {
   const router = useRouter();
+  const { accountId } = params;
   const [account, setAccount] = useState<Account | null>(null);
+  const [patients, setPatients] = useState<CaregiverPatientSummary[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<CaregiverPatientDetail | null>(null);
+  const [briefing, setBriefing] = useState<CaregiverBriefing | null>(null);
+  const [refillStatus, setRefillStatus] = useState<any[] | null>(null);
+  const [requestedMedIds, setRequestedMedIds] = useState<string[]>([]);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [medViewMode, setMedViewMode] = useState<"consequences" | "history">("consequences");
+  const [medRecommendations, setMedRecommendations] = useState<Record<string, { recommendations: string[]; confidence?: number | null; loading?: boolean }>>({});
+  const [briefingLoading, setBriefingLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { loadAccount(router, setAccount); }, [router]);
 
   useEffect(() => {
-    loadAccount(router, setAccount);
-  }, [router]);
+    if (!account) return;
+    api.caregiverGetPatients(accountId)
+      .then(res => {
+        setPatients(res.items);
+        if (res.items.length > 0) setSelectedId(res.items[0].user_id);
+        else setLoading(false);
+      })
+      .catch(err => { setError(String(err?.message ?? err)); setLoading(false); });
+  }, [account, accountId]);
 
-  const tabs = useMemo(
-    () => [
-      { key: "dashboard", label: "Dashboard", icon: <Pill size={18} strokeWidth={2.1} /> },
-      { key: "patients", label: "Patients", icon: <Siren size={18} strokeWidth={2.1} /> },
-      { key: "messages", label: "Messages", icon: <MessageSquare size={18} strokeWidth={2.1} /> },
-      { key: "settings", label: "Settings", icon: <Calendar size={18} strokeWidth={2.1} /> },
-    ],
-    []
-  );
+  useEffect(() => {
+    if (!selectedId) return;
+    setLoading(true);
+    setError(null);
+    setBriefing(null);
+    api.caregiverGetPatientDetail(accountId, selectedId)
+      .then(d => { setDetail(d); setLoading(false); })
+      .catch(err => { setError(String(err?.message ?? err)); setLoading(false); });
+  }, [selectedId, accountId]);
+
+  // Load AI briefing after detail is ready
+  useEffect(() => {
+    if (!selectedId || !detail) return;
+    setBriefingLoading(true);
+    api.caregiverGetBriefing(accountId, selectedId)
+      .then(b => { setBriefing(b); setBriefingLoading(false); })
+      .catch(() => setBriefingLoading(false));
+
+    // Load refill status for medications
+    api.getRefillStatus(selectedId)
+      .then(r => { setRefillStatus(r.items); })
+      .catch(() => setRefillStatus(null));
+  }, [selectedId, accountId, detail]);
+
+  const stats = useMemo(() => detail ? calcAdherence(detail) : null, [detail]);
+  const risk = useMemo(() => stats ? getRisk(stats.pct) : null, [stats]);
+  const missedMeds = useMemo(() => detail ? getMissedMedNames(detail) : [], [detail]);
+  const nextAppt = useMemo(() => detail ? getNextAppointment(detail) : null, [detail]);
+  const fallbackSuggestions = useMemo(() => stats ? getEncouragementSuggestions(stats.pct, stats.missed) : [], [stats]);
+
+  const tabs = useMemo(() => [
+    { key: "dashboard", label: "Dashboard", icon: <Heart size={18} strokeWidth={2.1} /> },
+    { key: "patients", label: "Patients", icon: <Users size={18} strokeWidth={2.1} /> },
+    { key: "messages", label: "Messages", icon: <MessageSquare size={18} strokeWidth={2.1} /> },
+  ], []);
 
   if (!account) return null;
 
@@ -67,169 +182,537 @@ export default function CaregiverDashboardPage() {
     <main className="flex min-h-screen justify-center bg-white">
       <div className="relative min-h-screen w-full max-w-md bg-[#F8FAFC] pb-24">
         <Header
-          title="ByteCare - Caregiver"
+          title="Caregiver"
           left={
             <div className="grid h-11 w-11 place-items-center rounded-xl border border-[#C9D9FF] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.06)]">
-              <PlusCircle size={19} className="text-[#3B6EF5]" />
+              <Heart size={19} className="text-[#3B6EF5]" />
             </div>
           }
           right={
-            <>
-              <button type="button" className="relative grid h-11 w-11 place-items-center rounded-full bg-[#3B6EF5] text-white shadow-[0_4px_10px_rgba(59,110,245,0.24)]">
-                <Bell size={19} />
-                <span className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full border border-white bg-[#EF5A5A]" />
-              </button>
-            </>
+            <button type="button" className="relative grid h-11 w-11 place-items-center rounded-full bg-[#3B6EF5] text-white shadow-[0_4px_10px_rgba(59,110,245,0.24)]">
+              <Bell size={19} />
+            </button>
           }
         />
 
         <section className="space-y-5 px-3 pb-8 pt-4">
-          <section className="overflow-hidden rounded-2xl border border-[#D7E2F3] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-            <div className="relative h-[190px] bg-[#235B6A]">
-              <div className="absolute right-3 top-3">
-                <BadgePill label="SEVERITY: RED" tone="red" />
+
+          {/* Patient selector — only shown when caregiver has multiple patients */}
+          {patients.length > 1 && (
+            <section className="space-y-2">
+              <SectionTitle title="My Patients" />
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {patients.map(p => (
+                  <button
+                    key={p.user_id}
+                    type="button"
+                    onClick={() => setSelectedId(p.user_id)}
+                    className={`shrink-0 rounded-2xl border px-4 py-2 text-[13px] font-semibold transition-colors ${
+                      selectedId === p.user_id
+                        ? "border-[#3B6EF5] bg-[#3B6EF5] text-white"
+                        : "border-[#E9EEF7] bg-white text-[#344054]"
+                    }`}
+                  >
+                    {p.name}
+                  </button>
+                ))}
               </div>
-              <div className="absolute bottom-[-24px] right-6 h-[150px] w-[130px] rounded-t-[120px] bg-[#F6EBD9]" />
-              <div className="absolute bottom-0 right-8 h-[98px] w-[98px] rounded-full bg-[#EED7BD]" />
+            </section>
+          )}
+
+          {loading && (
+            <div className="flex items-center justify-center py-16 text-[14px] text-[#98A2B3]">
+              Loading patient data…
             </div>
+          )}
 
-            <div className="space-y-3 border-t border-[#E9EEF7] px-4 py-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h2 className="text-[34px] font-bold leading-none text-[#1F2A37]">Mr. Tan Guan</h2>
-                  <p className="mt-1 text-[13px] font-semibold tracking-[0.02em] text-[#EF5A5A]">STATUS: DECLINING</p>
-                </div>
-                <p className="rounded-full bg-[#F2F4F7] px-2 py-1 text-[11px] font-semibold text-[#98A2B3]">ID: 4492-BC</p>
-              </div>
-
-              <button
-                type="button"
-                className="w-full rounded-xl bg-[#3B6EF5] py-3 text-[15px] font-semibold text-white shadow-[0_4px_10px_rgba(59,110,245,0.24)]"
-              >
-                View Full Medical Profile
-              </button>
+          {error && (
+            <div className="rounded-2xl border border-[#FFD8D8] bg-[#FFF1F1] p-4 text-[13px] text-[#EF5A5A]">
+              {error}
             </div>
-          </section>
+          )}
 
-          <section className="space-y-2">
-            <SectionTitle title="Medication Adherence" />
-            <ChartCard>
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-[12px] font-medium text-[#98A2B3]">MES Score Trend</p>
-                  <p className="mt-1 text-[44px] font-bold leading-none text-[#1F2A37]">82%</p>
+          {!loading && !error && detail && stats && risk && (
+            <>
+              {/* Patient identity card */}
+              <section className="overflow-hidden rounded-2xl border border-[#D7E2F3] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+                <div className="relative h-[90px] bg-[#235B6A] px-4 pt-4">
+                  <BadgePill label={risk.badge} tone={risk.tone} />
                 </div>
-                <p className="mt-2 text-right text-[13px] font-semibold text-[#EF5A5A]">↓ 5.2%<br /><span className="text-[11px] font-medium text-[#98A2B3]">vs last 7 days</span></p>
-              </div>
+                <div className="space-y-2 border-t border-[#E9EEF7] px-4 py-4">
+                  <h2 className="text-[28px] font-bold leading-none text-[#1F2A37]">{detail.patient.name}</h2>
+                  <p className="text-[13px] text-[#667085]">
+                    Age {detail.patient.age}
+                    {(detail.patient as { conditions?: string[] }).conditions?.length
+                      ? ` · ${(detail.patient as { conditions?: string[] }).conditions!.join(", ")}`
+                      : ""}
+                  </p>
+                  <p className={`text-[13px] font-semibold ${
+                    risk.tone === "red" ? "text-[#EF5A5A]"
+                    : risk.tone === "yellow" ? "text-[#C18421]"
+                    : "text-[#15803D]"
+                  }`}>
+                    STATUS: {risk.label.toUpperCase()}
+                  </p>
+                  <p className="text-[12px] text-[#98A2B3]">
+                    {detail.medications.length} active medication{detail.medications.length !== 1 ? "s" : ""}
+                    {" · "}
+                    {detail.appointments.length} appointment{detail.appointments.length !== 1 ? "s" : ""}
+                  </p>
+                </div>
+              </section>
 
-              <div className="mt-3">
-                <svg viewBox="0 0 320 120" className="h-[110px] w-full" preserveAspectRatio="none">
-                  <defs>
-                    <linearGradient id="caregiverLineFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#5D8BFF" stopOpacity="0.22" />
-                      <stop offset="100%" stopColor="#5D8BFF" stopOpacity="0" />
-                    </linearGradient>
-                  </defs>
-                  <path d="M10 86 C35 60, 60 52, 84 64 C102 73, 124 72, 145 52 C160 38, 176 34, 192 50 C208 67, 225 99, 244 113 C262 94, 282 84, 307 42" fill="none" stroke="#3B6EF5" strokeWidth="3" />
-                  <path d="M10 86 C35 60, 60 52, 84 64 C102 73, 124 72, 145 52 C160 38, 176 34, 192 50 C208 67, 225 99, 244 113 C262 94, 282 84, 307 42 L307 120 L10 120 Z" fill="url(#caregiverLineFill)" />
-                </svg>
-                <div className="mt-1 grid grid-cols-7 text-center text-[10px] font-semibold text-[#98A2B3]">
-                  <span>MON</span>
-                  <span>TUE</span>
-                  <span>WED</span>
-                  <span>THU</span>
-                  <span>FRI</span>
-                  <span>SAT</span>
-                  <span>SUN</span>
-                </div>
-              </div>
-
-              <div className="mt-4 grid grid-cols-3 border-t border-[#E9EEF7] pt-3 text-center">
-                <div>
-                  <p className="text-[24px] font-bold leading-none text-[#1F2A37]">2</p>
-                  <p className="mt-1 text-[11px] text-[#98A2B3]">Missed</p>
-                </div>
-                <div>
-                  <p className="text-[24px] font-bold leading-none text-[#1F2A37]">4</p>
-                  <p className="mt-1 text-[11px] text-[#98A2B3]">Late</p>
-                </div>
-                <div>
-                  <p className="text-[24px] font-bold leading-none text-[#1F2A37]">18</p>
-                  <p className="mt-1 text-[11px] text-[#98A2B3]">On-time</p>
-                </div>
-              </div>
-            </ChartCard>
-          </section>
-
-          <section className="space-y-2">
-            <SectionTitle title="Active Alerts" />
-            <AlertCard
-              tone="red"
-              title="Missed doses detected"
-              description="Statin & Beta-blocker doses missed in the last 24 hours."
-              action="Suggested: Send Reminder →"
-              icon={<Pill size={15} className="text-[#EF5A5A]" />}
-            />
-            <AlertCard
-              tone="yellow"
-              title="Drift detected"
-              description="Vocal patterns indicate increased anxiety and cognitive fatigue."
-              action="Suggested: Schedule Call →"
-              icon={<Siren size={15} className="text-[#E7A93B]" />}
-            />
-          </section>
-
-          <section className="space-y-2">
-            <SectionTitle title="Recent Chat History" />
-            <ChartCard>
-              <div className="space-y-3">
-                <div className="max-w-[86%] rounded-2xl bg-[#EEF2F7] px-3 py-2 text-[13px] text-[#475467]">
-                  Hi Mr. Tan, have you taken your morning medication?
-                  <p className="mt-1 text-[10px] text-[#98A2B3]">ByteCare AI • 08:30 AM</p>
-                </div>
-                <div className="ml-auto max-w-[86%] rounded-2xl bg-[#3B6EF5] px-3 py-2 text-[13px] text-white">
-                  I forgot. My head feels a bit heavy today.
-                  <p className="mt-1 text-right text-[10px] text-blue-100">Mr. Tan • 09:19 AM</p>
-                </div>
-              </div>
-              <button type="button" className="mt-4 w-full rounded-xl border border-[#D8E5FF] bg-[#F5F8FF] py-2 text-[13px] font-semibold text-[#3B6EF5]">
-                Open Full Conversation
-              </button>
-            </ChartCard>
-          </section>
-
-          <section className="space-y-2">
-            <SectionTitle title="Caregiver Actions" />
-            <QuickActionRow>
-              <ActionTile icon={<Siren size={18} />} label="Send Reminder" />
-              <ActionTile icon={<Phone size={18} />} label="Call Patient" />
-              <ActionTile icon={<Calendar size={18} />} label="Schedule Appt" />
-            </QuickActionRow>
-          </section>
-
-          <section className="space-y-2">
-            <SectionTitle title="Support Suggestions" />
-            <section className="overflow-hidden rounded-2xl border border-[#E9EEF7] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-              {[
-                { title: "Morning Garden Walk", subtitle: "Light physical activity" },
-                { title: "Silver Community Tea", subtitle: "Social interaction (High rec.)" },
-                { title: "Cognitive Puzzle App", subtitle: "Memory improvement session" },
-              ].map((item, index) => (
-                <div key={item.title} className={`flex items-center justify-between px-4 py-3 ${index > 0 ? "border-t border-[#E9EEF7]" : ""}`}>
-                  <div className="flex items-center gap-3">
-                    <div className="grid h-9 w-9 place-items-center rounded-lg bg-[#F2F4F7]">
-                      <Siren size={14} className="text-[#667085]" />
+              {/* Medication adherence — read-only, no prescribing */}
+              <section className="space-y-2">
+                <SectionTitle title="Medication Adherence (Last 7 Days)" />
+                <ChartCard>
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-[12px] font-medium text-[#98A2B3]">Adherence Rate</p>
+                      <p className="mt-1 text-[44px] font-bold leading-none text-[#1F2A37]">{stats.pct}%</p>
+                    </div>
+                    <BadgePill label={risk.badge} tone={risk.tone} />
+                  </div>
+                  <div className="mt-4 grid grid-cols-3 border-t border-[#E9EEF7] pt-3 text-center">
+                    <div>
+                      <p className="text-[24px] font-bold leading-none text-[#EF5A5A]">{stats.missed}</p>
+                      <p className="mt-1 text-[11px] text-[#98A2B3]">Missed</p>
                     </div>
                     <div>
-                      <p className="text-[14px] font-semibold text-[#1F2A37]">{item.title}</p>
-                      <p className="text-[12px] text-[#98A2B3]">{item.subtitle}</p>
+                      <p className="text-[24px] font-bold leading-none text-[#E7A93B]">{stats.late}</p>
+                      <p className="mt-1 text-[11px] text-[#98A2B3]">Late</p>
+                    </div>
+                    <div>
+                      <p className="text-[24px] font-bold leading-none text-[#15803D]">{stats.taken}</p>
+                      <p className="mt-1 text-[11px] text-[#98A2B3]">On-time</p>
                     </div>
                   </div>
-                  <PlusCircle size={16} className="text-[#98A2B3]" />
+                  {detail.medications.length > 0 && (
+                    <div className="mt-4 border-t border-[#E9EEF7] pt-3">
+                      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-[#98A2B3]">Medications (view only)</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {detail.medications.map(m => {
+                          const status = refillStatus?.find(s => s.medication_id === m.medication_id);
+                          return (
+                            <div key={m.medication_id} className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1 rounded-lg bg-[#F2F4F7] px-2.5 py-1 text-[12px] font-medium text-[#344054]">
+                                <Pill size={10} className="text-[#667085]" />
+                                {m.name} · {m.dose_text}
+                              </span>
+                              {status && status.tracking_enabled && (
+                                <span className="text-[12px] text-[#98A2B3]">{status.doses_remaining} left (~{status.days_remaining ?? 'n/a'} days)</span>
+                              )}
+                              {status && status.needs_refill && (
+                                <div className="ml-2 inline-flex items-center">
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (!selectedId) return;
+                                      setActionLoading(m.medication_id);
+                                      try {
+                                        await api.requestRefill(selectedId, m.medication_id);
+                                        const r = await api.getRefillStatus(selectedId);
+                                        setRefillStatus(r.items);
+                                        setRequestedMedIds((s) => Array.from(new Set([...s, m.medication_id])));
+                                        setActionSuccess(m.medication_id);
+                                        setTimeout(() => setActionSuccess(null), 2500);
+                                      } catch (e) {
+                                        // ignore
+                                      } finally {
+                                        setActionLoading(null);
+                                      }
+                                    }}
+                                    disabled={actionLoading === m.medication_id}
+                                    className={`ml-2 inline-flex items-center rounded-2xl px-3 py-1 text-[13px] font-semibold text-white shadow-[0_1px_2px_rgba(16,24,40,0.04)] ${actionLoading === m.medication_id ? 'bg-[#172554] opacity-80' : 'bg-[#3B6EF5]'}`}
+                                  >
+                                    {actionLoading === m.medication_id ? 'Requesting…' : (requestedMedIds.includes(m.medication_id) || actionSuccess === m.medication_id) ? 'Requested' : 'Request Refill'}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </ChartCard>
+              </section>
+
+              {/* Missed dose alert + medication history (agentic) */}
+              <section className="space-y-2">
+                <SectionTitle title="Medication Consequences & History" />
+
+                {/* High-level consequence summary */}
+                <ChartCard>
+                  <div className="flex items-start gap-3">
+                    <div className="grid h-10 w-10 place-items-center rounded-lg bg-[#FFF1F1]">
+                      <Pill size={16} className="text-[#EF5A5A]" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[15px] font-semibold text-[#1F2A37]">{stats.missed} missed dose{stats.missed !== 1 ? 's' : ''} in past week</p>
+                      <p className="mt-1 text-[13px] text-[#667085]">Below are specific medication histories, likely consequences, and suggested near-term actions for the caregiver.</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 border-t border-[#E9EEF7] pt-3">
+                    <div className="mb-3 flex items-center justify-between">
+                      <div className="text-[13px] text-[#667085]">View:</div>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setMedViewMode('consequences')} className={`rounded-2xl px-2 py-1 text-[12px] font-semibold ${medViewMode === 'consequences' ? 'bg-[#3B6EF5] text-white' : 'bg-white text-[#344054] border border-[#E9EEF7]'}`}>Consequences</button>
+                        <button type="button" onClick={() => setMedViewMode('history')} className={`rounded-2xl px-2 py-1 text-[12px] font-semibold ${medViewMode === 'history' ? 'bg-[#3B6EF5] text-white' : 'bg-white text-[#344054] border border-[#E9EEF7]'}`}>History</button>
+                      </div>
+                    </div>
+                    {detail.medications.map((m, idx) => {
+                      const st = computeMedStats(detail, m.medication_id);
+                      const status = refillStatus?.find(s => s.medication_id === m.medication_id);
+                      const expectedPerDay = (m.schedule?.times?.length ?? 1);
+                      const expected7d = expectedPerDay * 7;
+                      const adherencePct = expected7d > 0 ? Math.round((st.taken / expected7d) * 100) : 100;
+                      const isHighRisk = /(warfarin|insulin|anticoag)/i.test(m.name);
+                      const urgent = (status && (status.doses_remaining === 0 || status.is_low)) || (isHighRisk && st.missed > 0) || adherencePct < 50;
+
+                      // consequence text
+                      let consequence = "";
+                      if (isHighRisk && st.missed > 0) {
+                        if (/insulin/i.test(m.name)) consequence = "Missed insulin can cause high blood sugar and dehydration; seek advice if unwell.";
+                        else if (/warfarin|anticoag/i.test(m.name)) consequence = "Missing anticoagulants increases clot/stroke risk — contact clinician promptly.";
+                        else consequence = "This is a high-risk medication — seek clinical advice if multiple doses missed.";
+                      } else if (st.missed > 0) {
+                        consequence = "Missed doses can reduce treatment effectiveness; encourage timely intake and monitor symptoms.";
+                      } else if (st.taken > expected7d) {
+                        consequence = "More doses than scheduled were recorded — check for duplicate intake or dosing confusion.";
+                      } else {
+                        consequence = "No immediate concerns — continue regular check-ins and monitor for changes.";
+                      }
+
+                      return (
+                        <div key={m.medication_id} className={`mb-3 ${idx > 0 ? 'pt-3 border-t border-[#E9EEF7]' : ''}`}>
+                          <div className="flex items-center justify-between">
+                            <div className="min-w-0">
+                              <p className="text-[14px] font-semibold text-[#1F2A37]">{m.name} · {m.dose_text}</p>
+                              <p className="mt-1 text-[12px] text-[#98A2B3]">Last taken: {formatShortDate(st.lastTaken)} · {st.taken} taken · {st.missed} missed · {st.late} late</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold ${urgent ? 'bg-[#FFF1F1] text-[#EF5A5A] border border-[#FFD8D8]' : 'bg-[#F2F4F7] text-[#667085] border border-[#E4E7EC]'}`}>{adherencePct}%</span>
+                              {status && status.tracking_enabled && (
+                                <span className={`text-[12px] font-medium ${status.doses_remaining === 0 ? 'text-[#EF5A5A]' : 'text-[#98A2B3]'}`}>{status.doses_remaining} left</span>
+                              )}
+                            </div>
+                          </div>
+                          {medViewMode === 'consequences' && (
+                            <>
+                              <div className="mt-2 text-[13px] text-[#344054]">• {consequence}</div>
+                              <div className="mt-2">
+                                {medRecommendations[m.medication_id]?.recommendations ? (
+                                  <div className="mt-2">
+                                    <p className="text-[12px] text-[#98A2B3]">Recommended next step:</p>
+                                    <div className="mt-1 text-[13px] text-[#344054]">• {medRecommendations[m.medication_id].recommendations[0]}</div>
+                                  </div>
+                                ) : (
+                                  <div className="mt-2">
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        if (!selectedId) return;
+                                        setMedRecommendations(prev => ({ ...prev, [m.medication_id]: { recommendations: [], loading: true } }));
+                                        try {
+                                          const res = await api.caregiverGetMedRecommendations(accountId, selectedId, m.medication_id);
+                                          setMedRecommendations(prev => ({ ...prev, [m.medication_id]: { recommendations: (res.recommendations || []).slice(0,1), confidence: res.confidence ?? null } }));
+                                        } catch (e) {
+                                          // Generate a deterministic local fallback so caregiver sees useful steps even offline
+                                          const localFallback: string[] = [];
+                                          if (isHighRisk) {
+                                            localFallback.push(`This is a high-risk medication. If multiple doses are missed or patient shows worrying symptoms, contact clinician immediately.`);
+                                            localFallback.push(`Check for signs like dizziness, bleeding, fainting or extreme thirst. Arrange clinician review if present.`);
+                                          } else if (st.missed > 0) {
+                                            localFallback.push(`Call ${detail.patient.name.split(' ')[0]} to check why ${m.name} was missed and whether they have it available.`);
+                                            localFallback.push(`Help them take the missed dose now only if it's within schedule; otherwise document and contact clinician.`);
+                                          } else {
+                                            localFallback.push(`Confirm ${m.name} supply and help set a reminder to take doses on time.`);
+                                            localFallback.push(`Check in tomorrow to ensure doses are taken as scheduled.`);
+                                          }
+                                          // always include a logistics step
+                                          localFallback.push(`If supply is low or zero, request a refill or assist with pharmacy order.`);
+                                          setMedRecommendations(prev => ({ ...prev, [m.medication_id]: { recommendations: localFallback.slice(0,1), confidence: null } }));
+                                        }
+                                      }}
+                                      className="mt-2 inline-flex items-center rounded-2xl bg-[#3B6EF5] px-3 py-1 text-[13px] font-semibold text-white"
+                                    >
+                                      Get recommended next steps
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                              {urgent && (
+                                <div className="mt-2">
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (!selectedId) return;
+                                      setActionLoading(m.medication_id);
+                                      try {
+                                        await api.requestRefill(selectedId, m.medication_id);
+                                        const r = await api.getRefillStatus(selectedId);
+                                        setRefillStatus(r.items);
+                                        setRequestedMedIds((s) => Array.from(new Set([...s, m.medication_id])));
+                                        setActionSuccess(m.medication_id);
+                                        setTimeout(() => setActionSuccess(null), 2500);
+                                      } catch (e) {
+                                        // ignore
+                                      } finally {
+                                        setActionLoading(null);
+                                      }
+                                    }}
+                                    className="mt-2 inline-flex items-center rounded-2xl bg-[#EF5A5A] px-3 py-1 text-[13px] font-semibold text-white"
+                                  >
+                                    {actionLoading === m.medication_id ? 'Requesting…' : 'Request urgent refill'}
+                                  </button>
+                                </div>
+                              )}
+                            </>
+                          )}
+                          {medViewMode === 'history' && (
+                            <div className="mt-2 text-[13px] text-[#344054]">
+                              <p className="mb-1 text-[12px] text-[#98A2B3]">Recent events (7d)</p>
+                              <ul className="list-disc pl-4">
+                                {detail.dose_events.filter(ev => ev.medication_id === m.medication_id).slice(0,7).map(ev => (
+                                  <li key={ev.event_id} className="text-[13px]">{formatShortDate(ev.timestamp)} — {ev.response_status}</li>
+                                ))}
+                                {detail.dose_events.filter(ev => ev.medication_id === m.medication_id).length === 0 && <li className="text-[13px] text-[#98A2B3]">No events in the last 7 days.</li>}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </ChartCard>
+              </section>
+
+              {/* Appointment reminder */}
+              <section className="space-y-2">
+                <SectionTitle title="Upcoming Appointment" />
+                <ChartCard>
+                  {nextAppt ? (
+                    <div className="flex items-start gap-3">
+                      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#EEF4FF]">
+                        <Calendar size={18} className="text-[#3B6EF5]" />
+                      </div>
+                      <div>
+                        <p className="text-[15px] font-semibold text-[#1F2A37]">
+                          {new Date(nextAppt.datetime).toLocaleDateString("en-SG", {
+                            weekday: "short", day: "numeric", month: "short", year: "numeric",
+                          })}
+                        </p>
+                        <p className="text-[13px] text-[#667085]">{nextAppt.location}</p>
+                        {nextAppt.notes && (
+                          <p className="mt-1 text-[12px] text-[#98A2B3]">{nextAppt.notes}</p>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[13px] text-[#98A2B3]">No upcoming appointments scheduled.</p>
+                  )}
+                </ChartCard>
+              </section>
+
+              {/* Caregiver support actions */}
+              <section className="space-y-2">
+                <SectionTitle title="Caregiver Actions" />
+                <QuickActionRow>
+                  <ActionTile
+                    icon={<Siren size={18} />}
+                    label={actionLoading === 'reminder' ? 'Sending…' : actionSuccess === 'reminder' ? 'Sent' : 'Send Reminder'}
+                    onClick={async () => {
+                      if (!selectedId || !detail || !account) return;
+                      // Prefill suggested message from AI briefing if available
+                      const suggested = briefing?.actions && briefing.actions.length > 0
+                        ? (typeof briefing.actions[0] === 'string' ? briefing.actions[0] : briefing.actions[0].text)
+                        : `Hi ${detail.patient.name}, this is ${account.name}. Have you taken your medication today?`;
+
+                      const message = window.prompt('Edit reminder message to send to patient:', suggested);
+                      if (message === null) return; // cancelled
+
+                      setActionLoading('reminder');
+                      try {
+                        // send as chat message (patient will receive notification)
+                        await api.postChat(selectedId, message);
+
+                        // Ask backend to generate a friendly voice-agent reply for the patient (no local playback)
+                        try {
+                          await api.postVoiceAgent(selectedId, message);
+                        } catch (err) {
+                          // ignore voice-agent errors
+                        }
+
+                        setActionSuccess('reminder');
+                        setTimeout(() => setActionSuccess(null), 2500);
+                      } catch (e) {
+                        // ignore
+                      } finally {
+                        setActionLoading(null);
+                      }
+                    }}
+                  />
+                  <ActionTile
+                    icon={<Phone size={18} />}
+                    label={actionLoading === 'call' ? 'Notifying…' : actionSuccess === 'call' ? 'Notified' : 'Call Patient'}
+                    onClick={async () => {
+                      if (!selectedId || !detail || !account) return;
+                      setActionLoading('call');
+                      try {
+                        const message = `${account.name} would like to call you. Are you available for a short call?`;
+                        await api.postChat(selectedId, message);
+                        setActionSuccess('call');
+                        setTimeout(() => setActionSuccess(null), 2500);
+                      } catch (e) {
+                        // ignore
+                      } finally {
+                        setActionLoading(null);
+                      }
+                    }}
+                  />
+                  <ActionTile
+                    icon={<Calendar size={18} />}
+                    label={actionLoading === 'visit' ? 'Requesting…' : actionSuccess === 'visit' ? 'Requested' : 'Book Visit'}
+                    onClick={async () => {
+                      if (!selectedId || !detail || !account) return;
+                      setActionLoading('visit');
+                      try {
+                        const message = `${account.name} would like to schedule a visit this week. Are you available?`;
+                        await api.postChat(selectedId, message);
+                        setActionSuccess('visit');
+                        setTimeout(() => setActionSuccess(null), 2500);
+                      } catch (e) {
+                        // ignore
+                      } finally {
+                        setActionLoading(null);
+                      }
+                    }}
+                  />
+                </QuickActionRow>
+              </section>
+
+              {/* AI Caregiver Briefing — What to do today */}
+              <section className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <SectionTitle title="What to do today" />
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#EEF4FF] px-2 py-0.5 text-[10px] font-bold text-[#3B6EF5]">
+                    <Sparkles size={9} />
+                    AI
+                  </span>
                 </div>
-              ))}
-            </section>
-          </section>
+
+                {briefingLoading && (
+                  <div className="flex items-center gap-2 rounded-2xl border border-[#E9EEF7] bg-white px-4 py-4 text-[13px] text-[#98A2B3]">
+                    <Sparkles size={14} className="animate-pulse text-[#3B6EF5]" />
+                    Generating personalised action plan…
+                  </div>
+                )}
+
+                {!briefingLoading && (briefing ?? fallbackSuggestions.length > 0) && (
+                  <section className="overflow-hidden rounded-2xl border border-[#D8E5FF] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+                    {/* Header row */}
+                    <div className="flex items-center justify-between border-b border-[#E9EEF7] px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <Sparkles size={14} className="text-[#3B6EF5]" />
+                        <span className="text-[13px] font-semibold text-[#1F2A37]">
+                          {briefing ? `For ${briefing.patient_name.split(" ")[0]} today` : "Suggested actions"}
+                        </span>
+                      </div>
+                      {briefing && (
+                        <span className="text-[10px] font-medium text-[#98A2B3]">
+                          {briefing.source === "llm" ? "AI-generated" : "smart suggestions"}
+                        </span>
+                      )}
+                    </div>
+                    {briefing?.today_summary && (
+                      <div className="px-4 py-3">
+                        <p className="text-[13px] text-[#475467]">{briefing.today_summary}</p>
+                      </div>
+                    )}
+
+                    {briefing?.monitoring && briefing.monitoring.length > 0 && (
+                      <div className="px-4 py-2 border-t border-[#E9EEF7]">
+                        <p className="text-[12px] font-semibold text-[#98A2B3]">Monitor</p>
+                        <ul className="mt-2 space-y-1">
+                          {briefing.monitoring.map((m, idx) => (
+                            <li key={idx} className="text-[13px] text-[#344054]">• {m}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {briefing?.escalations && briefing.escalations.length > 0 && (
+                      <div className="px-4 py-2 border-t border-[#E9EEF7]">
+                        <p className="text-[12px] font-semibold text-[#98A2B3]">Escalation Suggestions</p>
+                        <ul className="mt-2 space-y-1">
+                          {briefing.escalations.map((e, idx) => (
+                            <li key={idx} className="text-[13px] text-[#84454]">• {e}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Action bullets */}
+                    {(briefing?.actions ?? fallbackSuggestions).map((action: any, i: number) => {
+                      const text = typeof action === "string" ? action : action?.text || JSON.stringify(action);
+                      return (
+                        <div key={i} className={`flex items-start gap-3 px-4 py-3 ${i > 0 ? "border-t border-[#E9EEF7]" : ""}`}>
+                          <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#3B6EF5] text-[10px] font-bold text-white">
+                            {i + 1}
+                          </div>
+                          <div>
+                            <p className="text-[13px] leading-5 text-[#344054]">{text}</p>
+                            {typeof action === "object" && action?.reason && (
+                              <p className="mt-1 text-[11px] text-[#98A2B3]">Reason: {action.reason}</p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </section>
+                )}
+              </section>
+
+              {/* Recent system alerts from orchestrator */}
+              {detail.interventions.length > 0 && (
+                <section className="space-y-2">
+                  <SectionTitle title="Recent Alerts" />
+                  <section className="overflow-hidden rounded-2xl border border-[#E9EEF7] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+                    {detail.interventions.slice(0, 5).map((iv, i) => (
+                      <div key={iv.intervention_id ?? i} className={`flex items-start gap-3 px-4 py-3 ${i > 0 ? "border-t border-[#E9EEF7]" : ""}`}>
+                        <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#FFF8E8]">
+                          <Siren size={13} className="text-[#E7A93B]" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[13px] font-semibold capitalize text-[#344054]">
+                            {iv.action_type.replace(/_/g, " ")}
+                          </p>
+                          {iv.reason && (
+                            <p className="text-[12px] text-[#667085]">{iv.reason}</p>
+                          )}
+                          <p className="text-[11px] text-[#C0C8D6]">
+                            {new Date(iv.timestamp).toLocaleDateString("en-SG")}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </section>
+                </section>
+              )}
+            </>
+          )}
+
+          {!loading && patients.length === 0 && !error && (
+            <div className="rounded-2xl border border-[#E9EEF7] bg-white p-8 text-center">
+              <Users size={32} className="mx-auto mb-3 text-[#C0C8D6]" />
+              <p className="text-[14px] font-semibold text-[#344054]">No patients linked</p>
+              <p className="mt-1 text-[12px] text-[#98A2B3]">
+                Ask your administrator to link a patient to your account.
+              </p>
+            </div>
+          )}
+
         </section>
 
         <TabBar tabs={tabs} active="dashboard" />
