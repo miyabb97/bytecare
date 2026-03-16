@@ -40,6 +40,7 @@ from app.routers.drift import router as drift_router
 from app.routers.nutrition import router as nutrition_router
 from app.routers.orchestrator import router as orchestrator_router
 from app.routers.refill import router as refill_router
+from app.routers.reminders import router as reminders_router
 from app.routers.report import router as report_router
 from app.routers.tcm import router as tcm_router
 from app.routers.voice import router as voice_router
@@ -64,6 +65,11 @@ def on_startup():
     with _engine.connect() as conn:
         try:
             conn.execute(_text("ALTER TABLE medications ADD COLUMN total_supply INTEGER DEFAULT 0"))
+            conn.commit()
+        except Exception:
+            pass  # Column already exists — safe to ignore
+        try:
+            conn.execute(_text("ALTER TABLE medications ADD COLUMN reminder_offset_minutes INTEGER"))
             conn.commit()
         except Exception:
             pass  # Column already exists — safe to ignore
@@ -1004,6 +1010,7 @@ app.include_router(report_router, prefix="/api/v1")
 app.include_router(clinician_router, prefix="/api/v1")
 app.include_router(orchestrator_router, prefix="/api/v1")
 app.include_router(refill_router, prefix="/api/v1")
+app.include_router(reminders_router, prefix="/api/v1")
 
 
 # -------------------------

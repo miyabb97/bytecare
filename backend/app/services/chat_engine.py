@@ -61,38 +61,45 @@ def _build_prompt(user: Dict[str, Any], message: str, drift: Dict[str, Any], act
 
 
 def generate_patient_reply(user_id: str, message: str, language: str = "en") -> Dict[str, Any]:
-    """Generate a short patient-facing chat reply using context from deterministic engines."""
-    with SessionLocal() as db:
-        user_obj = db.query(User).filter_by(user_id=user_id).first()
-        if not user_obj:
-            raise HTTPException(status_code=404, detail="User not found")
-        user = user_obj.to_dict()
+    """Generate a short patient-facing chat reply using the Conversation Care Agent."""
+    # Route through the Conversation Care Agent for intent detection + reply generation
+    from app.agents.conversation_agent import generate_agent_response
+    agent_result = generate_agent_response(user_id, message)
+    reply = agent_result["reply"]
+    context_meta = {
+        "intent": agent_result["intent"],
+        "tone": agent_result["tone"],
+        "suggested_action": agent_result["suggested_action"],
+    }
 
-        med_names = [{"name": m.name, "dose": m.dose_text or "dose not specified"}
-                     for m in db.query(Medication).filter_by(user_id=user_id).all()]
-        appt_list = [
-            f"{a.datetime_str} at {a.location}" if a.location else a.datetime_str
-            for a in db.query(Appointment).filter_by(user_id=user_id).order_by(Appointment.datetime_str).limit(3).all()
-        ]
+    # If agent detected a reminder intent, persist the reminder preference
+    if agent_result["suggested_action"] == "set_reminder":
+        try:
+            from app.agents.reminder_agent import set_medication_reminder
+            set_medication_reminder(user_id, None, offset_minutes=10)
+        except Exception:
+            pass  # non-fatal — reply still delivered
 
-    drift = detect_adherence_drift(user_id)
-    action = determine_next_action(user_id)
+    # Also fetch drift/action for context response (kept for frontend compatibility)
+    try:
+        drift = detect_adherence_drift(user_id)
+        action = determine_next_action(user_id)
+    except Exception:
+        drift = {"drift_detected": False, "severity": "green"}
+        action = {"next_action": "none"}
 
     context = {
         "drift_detected": drift["drift_detected"],
         "severity": drift["severity"],
         "next_action": action["next_action"],
+        "suggested_action": agent_result["suggested_action"],
+        "intent": agent_result["intent"],
     }
 
-    client = MeralionClient()
-    if not client.enabled:
-        reply = _rule_based_reply(user.get("name", "Patient"), message, action["next_action"])
-    else:
-        prompt = _build_prompt(user, message, drift, action, med_names, appt_list, [])
-        try:
-            reply = client.chat(prompt, hyperparameters={"temperature": 0.3, "topP": 0.9})
-        except MeralionClientError:
-            reply = _rule_based_reply(user.get("name", "Patient"), message, action["next_action"])
+    # Check user exists (match original behaviour)
+    with SessionLocal() as db:
+        if not db.query(User).filter_by(user_id=user_id).first():
+            raise HTTPException(status_code=404, detail="User not found")
 
     # Translate if a non-English language is requested
     reply_en = reply
