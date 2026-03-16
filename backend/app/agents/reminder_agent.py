@@ -7,6 +7,8 @@ Responsibilities:
 """
 from __future__ import annotations
 
+import threading
+import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
@@ -65,6 +67,39 @@ def clear_medication_reminder(user_id: str, medication_id: str) -> Dict[str, Any
         med.reminder_offset_minutes = None
         db.commit()
         return {"success": True, "medication": med.name}
+
+
+def schedule_quick_reminder(user_id: str, delay_seconds: int) -> Dict[str, Any]:
+    """Schedule a one-time system reminder after N seconds.
+
+    This supports chat inputs like "remind me in 10 seconds" for quick testing.
+    """
+    delay_seconds = max(1, int(delay_seconds))
+
+    def _worker() -> None:
+        time.sleep(delay_seconds)
+        now_str = datetime.now().isoformat(timespec="seconds")
+        with SessionLocal() as db:
+            user = db.query(User).filter_by(user_id=user_id).first()
+            if not user:
+                return
+            text = f"⏰ Reminder: Time to take your medication now ({delay_seconds}s timer)."
+            db.add(
+                ChatMessage(
+                    message_id=str(uuid4()),
+                    user_id=user_id,
+                    role="system",
+                    content=text,
+                    language="en",
+                    is_read=0,
+                    created_at=now_str,
+                )
+            )
+            db.commit()
+
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+    return {"success": True, "delay_seconds": delay_seconds, "mode": "timer"}
 
 
 def _next_scheduled_time(schedule: Dict[str, Any]) -> Optional[datetime]:

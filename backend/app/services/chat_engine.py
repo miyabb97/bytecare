@@ -70,13 +70,20 @@ def generate_patient_reply(user_id: str, message: str, language: str = "en") -> 
         "intent": agent_result["intent"],
         "tone": agent_result["tone"],
         "suggested_action": agent_result["suggested_action"],
+        "reminder_mode": agent_result.get("reminder_mode"),
+        "reminder_delay_seconds": agent_result.get("reminder_delay_seconds"),
     }
 
     # If agent detected a reminder intent, persist the reminder preference
     if agent_result["suggested_action"] == "set_reminder":
         try:
-            from app.agents.reminder_agent import set_medication_reminder
-            set_medication_reminder(user_id, None, offset_minutes=10)
+            reminder_mode = agent_result.get("reminder_mode")
+            if reminder_mode == "timer" and agent_result.get("reminder_delay_seconds"):
+                from app.agents.reminder_agent import schedule_quick_reminder
+                schedule_quick_reminder(user_id, int(agent_result["reminder_delay_seconds"]))
+            else:
+                from app.agents.reminder_agent import set_medication_reminder
+                set_medication_reminder(user_id, None, offset_minutes=10)
         except Exception:
             pass  # non-fatal — reply still delivered
 
@@ -94,6 +101,8 @@ def generate_patient_reply(user_id: str, message: str, language: str = "en") -> 
         "next_action": action["next_action"],
         "suggested_action": agent_result["suggested_action"],
         "intent": agent_result["intent"],
+        "reminder_mode": agent_result.get("reminder_mode"),
+        "reminder_delay_seconds": agent_result.get("reminder_delay_seconds"),
     }
 
     # Check user exists (match original behaviour)

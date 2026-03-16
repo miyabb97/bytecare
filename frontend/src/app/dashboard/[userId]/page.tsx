@@ -5,7 +5,6 @@ import Image from "next/image";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
-  Camera,
   CalendarDays,
   Clock3,
   Heart,
@@ -42,7 +41,6 @@ import {
   type MedicationListResponse,
   type MEEScoreResponse,
   type NextActionResponse,
-  type NutritionScanResult,
   type RefillStatusItem,
   type ReportSummaryResponse,
   type TCMResponse,
@@ -70,6 +68,14 @@ type ReminderGroup = {
 };
 
 const SNOOZE_MINUTES = 5;
+
+function formatTimerLabel(seconds: number): string {
+  if (seconds < 60) return `${seconds} seconds`;
+  const minutes = Math.floor(seconds / 60);
+  const rem = seconds % 60;
+  if (rem === 0) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  return `${minutes}m ${rem}s`;
+}
 
 function safeMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -235,6 +241,13 @@ function formatScheduledLabel(scheduledFor: string): string {
   return scheduledFor.slice(11, 16);
 }
 
+function formatReminderStatusLabel(status: ReminderResponseStatus | string): string {
+  if (status === "snoozed") {
+    return "Take later";
+  }
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
 async function getMyCommunityEventsSafe(userId: string): Promise<CommunityMyEventsResponse> {
   const maybeFn = (api as { getMyCommunityEvents?: (id: string) => Promise<CommunityMyEventsResponse> })
     .getMyCommunityEvents;
@@ -276,9 +289,6 @@ export default function DashboardPage() {
   const [drift, setDrift] = useState<DriftResponse | null>(null);
   const [nextAction, setNextAction] = useState<NextActionResponse | null>(null);
   const [food, setFood] = useState<FoodResponse | null>(null);
-  const [nutritionScanResult, setNutritionScanResult] = useState<NutritionScanResult | null>(null);
-  const [nutritionCheckLoading, setNutritionCheckLoading] = useState(false);
-  const [nutritionCheckError, setNutritionCheckError] = useState<string | null>(null);
   const [appointments, setAppointments] = useState<AppointmentResponse | null>(null);
   const [community, setCommunity] = useState<CommunityResponse | null>(null);
   const [myCommunityEvents, setMyCommunityEvents] = useState<CommunityMyEventsResponse | null>(null);
@@ -310,7 +320,6 @@ export default function DashboardPage() {
   const [chatTranslating, setChatTranslating] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const prevChatLang = useRef(chatLang);
-  const nutritionImageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -361,6 +370,44 @@ export default function DashboardPage() {
         setUnreadCount(0);
       } catch { /* ignore */ }
     })();
+  }, [activeTab, userId]);
+
+  // While chat is open, poll for new system reminders (e.g. timer reminders)
+  useEffect(() => {
+    if (activeTab !== "chat" || !userId) return;
+
+    const syncSystemMessages = async () => {
+      try {
+        const res = await api.getChatMessages(userId);
+        const backendMsgs = res.items ?? [];
+        const systemMsgs = backendMsgs.filter((m) => m.role === "system");
+        if (systemMsgs.length === 0) return;
+
+        const latestSystem = [...systemMsgs].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )[0];
+
+        setChatMessages((prev) => {
+          const withoutSystem = prev.filter((m) => m.sender !== "system");
+          const existingTexts = new Set(prev.map((m) => m.text));
+          if (existingTexts.has(latestSystem.content)) return prev;
+
+          const alertMsg = {
+            id: Date.now(),
+            sender: "system" as const,
+            text: latestSystem.content,
+            originalText: latestSystem.content,
+            timestamp: new Date(latestSystem.created_at),
+          };
+          return [alertMsg, ...withoutSystem];
+        });
+      } catch {
+        // ignore polling errors
+      }
+    };
+
+    const intervalId = window.setInterval(syncSystemMessages, 5000);
+    return () => window.clearInterval(intervalId);
   }, [activeTab, userId]);
 
   useEffect(() => {
@@ -462,8 +509,22 @@ export default function DashboardPage() {
   const [apptMsg, setApptMsg] = useState<string | null>(null);
   const [doseEvents, setDoseEvents] = useState<DoseEventItem[]>([]);
   const [reminderGroup, setReminderGroup] = useState<ReminderGroup | null>(null);
+  const [timerReminderGroup, setTimerReminderGroup] = useState<ReminderGroup | null>(null);
   const [reminderBusy, setReminderBusy] = useState(false);
   const [reminderError, setReminderError] = useState<string | null>(null);
+  const [appReminderNotice, setAppReminderNotice] = useState<string | null>(null);
+  const [userMentionedReminderSeconds, setUserMentionedReminderSeconds] = useState<number | null>(null);
+  const [lastTimerResponse, setLastTimerResponse] = useState<ReminderResponseStatus | null>(null);
+  const [timerResponseByMedId, setTimerResponseByMedId] = useState<Map<string, ReminderResponseStatus>>(new Map());
+  const appTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (appTimerRef.current) {
+        window.clearTimeout(appTimerRef.current);
+      }
+    };
+  }, []);
 
   // --- Care plan lock state (clinician-managed) ---
   const [carePlanLocked, setCarePlanLocked] = useState(false);
@@ -621,39 +682,6 @@ export default function DashboardPage() {
     () => formatAppointment(appointments?.next_appointment ?? null, appointments?.days_remaining ?? null),
     [appointments]
   );
-  const nutritionRecommendations = useMemo(
-    () => (food?.recommended_foods ?? food?.recommendations ?? []),
-    [food]
-  );
-
-  const handleNutritionScan = useCallback(async (selectedFile?: File | null) => {
-    if (!userId) return;
-    const fileToScan = selectedFile ?? null;
-    if (!fileToScan) {
-      setNutritionCheckError("Please upload a food image first.");
-      return;
-    }
-
-    setNutritionCheckLoading(true);
-    setNutritionCheckError(null);
-    try {
-      const result = await api.postNutritionScanImage(userId, fileToScan);
-      setNutritionScanResult(result.scan_result);
-      setFood(result.nutrition_result);
-    } catch (error) {
-      setNutritionCheckError(safeMessage(error));
-    } finally {
-      setNutritionCheckLoading(false);
-    }
-  }, [userId]);
-
-  const handleNutritionImageChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] ?? null;
-    event.target.value = "";
-    if (!file) return;
-
-    void handleNutritionScan(file);
-  }, [handleNutritionScan]);
 
   const recommendedEvents = community?.events ?? [];
   const homeEventsPreview = recommendedEvents.slice(0, 2);
@@ -881,6 +909,39 @@ export default function DashboardPage() {
       const response = await api.postChat(userId, message, lang);
       setChatResult(response);
       setChatMessages((prev) => [...prev, { id: Date.now() + 1, sender: "bot", text: response.reply, originalText: response.reply_en || response.reply, timestamp: new Date(), lang: response.language || lang }]);
+
+      if (response.context?.reminder_mode === "timer" && response.context?.reminder_delay_seconds) {
+        const delaySeconds = response.context.reminder_delay_seconds;
+        setUserMentionedReminderSeconds(delaySeconds);
+        setAppReminderNotice(`⏰ Timer reminder set for ${formatTimerLabel(delaySeconds)}.`);
+        if (appTimerRef.current) {
+          window.clearTimeout(appTimerRef.current);
+        }
+        appTimerRef.current = window.setTimeout(() => {
+          setUserMentionedReminderSeconds(null);
+          const meds = (medications?.items ?? []).map((medication) => ({
+            medication_id: medication.medication_id,
+            name: medication.name,
+            dose_text: medication.dose_text,
+          }));
+
+          if (meds.length === 0) {
+            setAppReminderNotice("⏰ Time to take your medication now.");
+            return;
+          }
+
+          const now = new Date();
+          const scheduledFor = now.toISOString().slice(0, 19);
+          const label = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+          setTimerReminderGroup({
+            scheduled_for: scheduledFor,
+            scheduled_label: label,
+            medications: meds,
+          });
+          setAppReminderNotice(null);
+        }, delaySeconds * 1000);
+      }
+
       // Refresh medications to show the reminder badge if a reminder was just set
       if (response.context?.suggested_action === "set_reminder") {
         api.getMedications(userId).then((res) => {
@@ -1321,7 +1382,7 @@ export default function DashboardPage() {
       if (result.triggered && result.low_medications?.length > 0) {
         // Inject the system message into chat and navigate there
         const msgText = (result as any).message ??
-          `Refill Reminder:\n${result.low_medications.join(", ")} running low. Please arrange a refill soon.`;
+          `💊 Refill Reminder:\n${result.low_medications.join(", ")} running low. Please arrange a refill soon.`;
         setChatMessages((prev) => {
           const withoutRefill = prev.filter((m) => !(m.sender === "system" && m.text.includes("Refill")));
           return [{
@@ -1341,8 +1402,8 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleReminderResponse(responseStatus: ReminderResponseStatus) {
-    if (!userId || !reminderGroup) {
+  async function submitReminderResponse(group: ReminderGroup, responseStatus: ReminderResponseStatus) {
+    if (!userId) {
       return;
     }
 
@@ -1351,8 +1412,8 @@ export default function DashboardPage() {
 
     try {
       const response = await api.postMedicationIntake(userId, {
-        medication_ids: reminderGroup.medications.map((medication) => medication.medication_id),
-        scheduled_for: reminderGroup.scheduled_for,
+        medication_ids: group.medications.map((medication) => medication.medication_id),
+        scheduled_for: group.scheduled_for,
         response_status: responseStatus,
         source: "dashboard_popup"
       });
@@ -1369,6 +1430,40 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleReminderResponse(responseStatus: ReminderResponseStatus) {
+    if (!reminderGroup) {
+      return;
+    }
+    await submitReminderResponse(reminderGroup, responseStatus);
+    setReminderGroup(null);
+    void loadDashboard();
+  }
+
+  async function handleTimerReminderResponse(responseStatus: ReminderResponseStatus) {
+    if (!timerReminderGroup) {
+      return;
+    }
+    await submitReminderResponse(timerReminderGroup, responseStatus);
+    setLastTimerResponse(responseStatus);
+    // Update per-medication status so each dose row updates immediately
+    setTimerResponseByMedId((prev) => {
+      const next = new Map(prev);
+      for (const medication of timerReminderGroup.medications) {
+        next.set(medication.medication_id, responseStatus);
+      }
+      return next;
+    });
+    if (responseStatus === "taken") {
+      setAppReminderNotice("✅ You marked timer reminder as Taken.");
+    } else if (responseStatus === "skipped") {
+      setAppReminderNotice("📝 You marked timer reminder as Skip.");
+    } else if (responseStatus === "snoozed") {
+      setAppReminderNotice(`⏳ You marked timer reminder as Not yet (${SNOOZE_MINUTES} min).`);
+    }
+    setTimerReminderGroup(null);
+    void loadDashboard();
+  }
+
   if (!userId) {
     return (
       <main className="demo-shell">
@@ -1377,7 +1472,7 @@ export default function DashboardPage() {
             <section className="card">
               <h2 className="auth-title">Invalid patient selection</h2>
               <p className="muted">No user id was provided in the dashboard route.</p>
-              <button type="button" onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}>Sign Out</button>
+              <button type="button" onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}>🚪 Sign Out</button>
             </section>
           </section>
         </div>
@@ -1398,7 +1493,7 @@ export default function DashboardPage() {
               >
                 <ArrowLeft size={22} />
               </button>
-              <h1 className="text-[2rem] font-bold leading-none tracking-tight text-slate-900">Jio Events</h1>
+              <h1 className="text-[2rem] font-bold leading-none tracking-tight text-slate-900">🎉 Jio Events</h1>
             </div>
             <p className="text-[0.77rem] text-slate-600">
               Discover nearby activities to stay healthy and connected.
@@ -1501,7 +1596,7 @@ export default function DashboardPage() {
 
               <section className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="mb-3 flex items-start justify-between gap-2">
-                  <h3 className="text-[1.02rem] font-bold leading-none text-slate-900">Medication Adherence</h3>
+                  <h3 className="text-[1.38rem] font-bold leading-none text-slate-900">💊 Medication Adherence</h3>
                   {meeScore ? (() => {
                     const riskLevel = getRiskLevel(meeScore.score);
                     return (
@@ -1599,43 +1694,63 @@ export default function DashboardPage() {
 
               {/* Today's Doses */}
               {todayDoseSlots.length > 0 && (
-                <section id="today-doses" className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
-                  <h3 className="mb-3 text-[1.25rem] font-bold leading-none text-slate-900">Today&apos;s Doses</h3>
+                <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <h3 className="mb-3 text-[1.25rem] font-bold leading-none text-slate-900">📋 Today&apos;s Doses</h3>
+                  {userMentionedReminderSeconds ? (
+                    <p className="mb-3 text-xs font-medium text-blue-600">
+                      ⏰ Chat reminder timing: {formatTimerLabel(userMentionedReminderSeconds)}
+                    </p>
+                  ) : null}
+                  {lastTimerResponse ? (
+                    <p className={`mb-3 text-xs font-semibold ${
+                      lastTimerResponse === "taken"
+                        ? "text-emerald-600"
+                        : lastTimerResponse === "skipped"
+                          ? "text-orange-600"
+                          : "text-blue-600"
+                    }`}>
+                      Last timer response: {formatReminderStatusLabel(lastTimerResponse)}
+                    </p>
+                  ) : null}
                   <div className="space-y-3">
                     {todayDoseSlots.map((slot) => {
                       const key = `${slot.med.medication_id}:${slot.scheduledFor}`;
                       const isLoading = quickMarkLoading === key;
                       const undoInfo = undoEvents.get(key);
+                      const effectiveStatus = timerResponseByMedId.get(slot.med.medication_id) ?? slot.status;
                       return (
                         <div key={key} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-semibold text-slate-800">{slot.med.name}</p>
                             <p className="text-xs text-slate-500">{slot.timeLabel} &middot; {slot.med.dose_text}</p>
-                            {slot.med.reminder_offset_minutes ? (
-                              <p className="mt-0.5 text-xs font-medium text-blue-500">Reminder {slot.med.reminder_offset_minutes} min before</p>
+                            {userMentionedReminderSeconds ? (
+                              <p className="mt-0.5 text-xs font-medium text-blue-500">⏰ Reminder in {formatTimerLabel(userMentionedReminderSeconds)}</p>
+                            ) : slot.med.reminder_offset_minutes ? (
+                              <p className="mt-0.5 text-xs font-medium text-blue-500">⏰ Reminder {slot.med.reminder_offset_minutes} min before</p>
                             ) : null}
                           </div>
-                          {slot.status ? (
+                          {effectiveStatus ? (
                             <div className="flex items-center gap-1.5">
                               <div className="relative" data-dose-dropdown>
                                 <button
                                   type="button"
                                   disabled={isLoading}
                                   onClick={() => setOpenDropdownKey(openDropdownKey === key ? null : key)}
-                                  className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold transition active:scale-95 ${slot.status === "taken" ? "bg-emerald-100 text-emerald-600"
-                                      : slot.status === "skipped" ? "bg-orange-50 text-orange-600"
-                                        : slot.status === "snoozed" ? "bg-blue-100 text-blue-600"
-                                          : slot.status === "late" ? "bg-amber-100 text-amber-600"
-                                            : "bg-red-100 text-red-600"
-                                    }`}
+                                  className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold transition active:scale-95 ${
+                                    effectiveStatus === "taken" ? "bg-emerald-100 text-emerald-600"
+                                    : effectiveStatus === "skipped" ? "bg-orange-50 text-orange-600"
+                                    : effectiveStatus === "snoozed" ? "bg-blue-100 text-blue-600"
+                                    : effectiveStatus === "late" ? "bg-amber-100 text-amber-600"
+                                    : "bg-red-100 text-red-600"
+                                  }`}
                                 >
-                                  {slot.status.charAt(0).toUpperCase() + slot.status.slice(1)}
+                                  {formatReminderStatusLabel(effectiveStatus)}
                                   <span className="ml-0.5 opacity-60 text-[9px]">▾</span>
                                 </button>
                                 {openDropdownKey === key && (
                                   <div className="absolute right-0 top-full z-50 mt-1 min-w-[110px] overflow-hidden rounded-xl border border-slate-200 bg-gray-50 shadow-md">
                                     {(["taken", "missed", "late", "skipped"] as ReminderResponseStatus[])
-                                      .filter((s) => s !== slot.status)
+                                      .filter((s) => s !== effectiveStatus)
                                       .map((s) => (
                                         <button
                                           key={s}
@@ -1649,7 +1764,7 @@ export default function DashboardPage() {
                                                   : "text-red-700"
                                             }`}
                                         >
-                                          Mark as {s.charAt(0).toUpperCase() + s.slice(1)}
+                                          Mark as {formatReminderStatusLabel(s)}
                                         </button>
                                       ))}
                                   </div>
@@ -1693,7 +1808,7 @@ export default function DashboardPage() {
                                                 : "text-red-700"
                                         }`}
                                     >
-                                      Mark as {s.charAt(0).toUpperCase() + s.slice(1)}
+                                      Mark as {formatReminderStatusLabel(s)}
                                     </button>
                                   ))}
                                 </div>
@@ -1732,78 +1847,21 @@ export default function DashboardPage() {
                     Diet Suggestions
                   </h3>
                 </div>
-
-                <ul className="mt-6 space-y-5 pb-6">
-                  {nutritionRecommendations.slice(0, 3).map((item) => {
+                <ul className="space-y-2">
+                  {(food?.recommendations ?? []).slice(0, 3).map((item) => {
                     const needsChange = isDietChangeSuggestion(item);
                     return (
-                      <li key={item} className="flex items-center gap-4 text-[1rem] text-slate-700 sm:text-[1.05rem]">
-                        <span className={`h-3.5 w-3.5 shrink-0 rounded-full ${needsChange ? "bg-red-500" : "bg-emerald-500"}`} />
-                        <span className={needsChange ? "text-red-500" : "text-slate-700"}>{item}</span>
+                      <li
+                        key={item}
+                        className={`flex items-center gap-3 text-sm ${needsChange ? "font-medium text-red-500" : "text-slate-700"}`}
+                      >
+                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${needsChange ? "bg-red-500" : "bg-emerald-500"}`} />
+                        {item}
                       </li>
                     );
                   })}
-                  {nutritionRecommendations.length === 0 ? (
-                    <li className="text-sm text-slate-500">No diet suggestions available.</li>
-                  ) : null}
+                  {(food?.recommendations ?? []).length === 0 ? <li className="text-sm text-slate-500">No diet suggestions available.</li> : null}
                 </ul>
-
-                <div className="border-t border-slate-100 pt-6">
-                  <input
-                    ref={nutritionImageInputRef}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    onChange={handleNutritionImageChange}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => nutritionImageInputRef.current?.click()}
-                    disabled={nutritionCheckLoading}
-                    className="flex w-full items-center justify-center gap-3 rounded-[1.35rem] bg-[#eef4ff] px-5 py-4 text-base font-semibold text-blue-600 transition hover:bg-[#e4edff] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <Camera size={20} strokeWidth={2.2} />
-                    {nutritionCheckLoading ? "Scanning your meal..." : "Scan your meal"}
-                  </button>
-                  <p className="mt-2 text-center text-[11px] text-slate-400">
-                    On mobile, this can open the camera directly.
-                  </p>
-
-                  {nutritionScanResult?.detected_food ? (
-                    <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                      <p>
-                        <span className="font-semibold text-slate-800">Detected meal:</span>{" "}
-                        {nutritionScanResult.detected_food}
-                      </p>
-                      {nutritionScanResult.ingredients.length > 0 ? (
-                        <p className="mt-1 text-xs text-slate-500">
-                          Possible ingredients: {nutritionScanResult.ingredients.join(", ")}
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : null}
-
-                  {food?.interaction_warning && food.warning_message ? (
-                    <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                      {food.warning_message}
-                    </div>
-                  ) : null}
-                  {!food?.interaction_warning && food?.warning_message ? (
-                    <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                      {food.warning_message}
-                    </div>
-                  ) : null}
-
-                  {nutritionCheckError ? (
-                    <p className="mt-3 text-xs font-medium text-red-500">{nutritionCheckError}</p>
-                  ) : null}
-                  {nutritionScanResult?.source === "fallback" && nutritionScanResult.fallback_reason ? (
-                    <p className="mt-3 text-xs text-amber-600">
-                      We could not read this image clearly. Try a brighter photo, or type the food name instead.
-                    </p>
-                  ) : null}
-                </div>
               </section>
 
               <section className="space-y-4">
@@ -1896,7 +1954,7 @@ export default function DashboardPage() {
             <>
               <section>
                 <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-[1.5rem] font-bold leading-none text-slate-900">Recommended For You</h2>
+                  <h2 className="text-[1.5rem] font-bold leading-none text-slate-900">⭐ Recommended For You</h2>
                   <button
                     type="button"
                     className="tc-btn-link"
@@ -2022,8 +2080,8 @@ export default function DashboardPage() {
                         referrerPolicy="no-referrer"
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-                      <div className="absolute left-4 top-3 inline-flex items-center rounded-md bg-emerald-500 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
-                        Joined
+                      <div className="absolute left-4 top-3 inline-flex items-center gap-1 rounded-md bg-emerald-500 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
+                        <span aria-hidden="true">✓</span> Joined
                       </div>
                       <div className="absolute bottom-3 left-4 text-white">
                         <h4 className="text-[1.5rem] font-bold leading-tight">{joinedEvents[0].title}</h4>
@@ -2131,7 +2189,7 @@ export default function DashboardPage() {
                             disabled={chatAudioLoading === message.id || chatAudioPlaying === message.id}
                             title={chatAudioPlaying === message.id ? "Playing..." : "Listen"}
                           >
-                            {chatAudioLoading === message.id ? <span className="audio-spinner" /> : chatAudioPlaying === message.id ? "Playing" : "Listen"}
+                            {chatAudioLoading === message.id ? <span className="audio-spinner" /> : chatAudioPlaying === message.id ? "🔊" : "▶"}
                           </button>
                         </div>
                       </div>
@@ -2153,9 +2211,9 @@ export default function DashboardPage() {
                           {chatAudioLoading === message.id ? (
                             <span className="audio-spinner" />
                           ) : chatAudioPlaying === message.id ? (
-                            "Playing"
+                            "🔊"
                           ) : (
-                            "Listen"
+                            "▶"
                           )}
                         </button>
                       </div>
@@ -2201,7 +2259,7 @@ export default function DashboardPage() {
                   disabled={chatLoading || isRecording}
                   title={isRecording ? "Listening..." : "Voice input"}
                 >
-                  {isRecording ? "Rec" : "Mic"}
+                  {isRecording ? "⏺" : "🎤"}
                 </button>
                 <button
                   type="button"
@@ -2209,7 +2267,7 @@ export default function DashboardPage() {
                   onClick={() => void handleSendChat()}
                   disabled={chatLoading || !chatDraft.trim()}
                 >
-                  {chatLoading ? "..." : "Send"}
+                  {chatLoading ? "…" : "➤"}
                 </button>
               </div>
               {chatError ? <p className="chat-error">{chatError}</p> : null}
@@ -2220,7 +2278,7 @@ export default function DashboardPage() {
           {activeTab === "health" ? (
             <>
               <section className="card">
-                <div className="card-title">TCM Safety Check</div>
+                <div className="card-title">🌿 TCM Safety Check</div>
                 <p className="muted">Check herb-drug interactions against your current medications.</p>
 
                 <div className="tcm-mode-picker">
@@ -2373,7 +2431,7 @@ export default function DashboardPage() {
                         disabled={tcmAudioLoading || tcmAudioPlaying || (tcmLang !== "en" && tcmTranslating)}
                         style={{ marginTop: 8 }}
                       >
-                        {tcmAudioLoading ? "Loading audio..." : tcmAudioPlaying ? "Playing..." : tcmAudioUrl ? "Replay Audio" : "Listen"}
+                        {tcmAudioLoading ? "Loading audio..." : tcmAudioPlaying ? "\uD83D\uDD0A Playing..." : tcmAudioUrl ? "\uD83D\uDD0A Press to Replay" : "\uD83D\uDD0A Listen"}
                       </button>
                     </div>
                   </div>
@@ -2383,14 +2441,14 @@ export default function DashboardPage() {
               {/* ── Medication Supply ── */}
               <section className="card">
                 <div className="card-row">
-                  <div className="card-title">Medication Supply</div>
+                  <div className="card-title">💊 Medication Supply</div>
                   <button
                     type="button"
                     className="icon-button"
                     disabled={refillCheckLoading}
                     onClick={() => void handleRefillCheck()}
                   >
-                    {refillCheckLoading ? "Checking..." : "Check"}
+                    {refillCheckLoading ? "Checking..." : "🔔 Check"}
                   </button>
                 </div>
                 <p className="muted" style={{ fontSize: "0.8rem", marginBottom: 8 }}>
@@ -2456,7 +2514,7 @@ export default function DashboardPage() {
                                 [item.medication_id]: item.doses_remaining !== null ? String(item.doses_remaining) : ""
                               }))}
                             >
-                              {item.tracking_enabled ? "Correct count" : "Set current supply"}
+                              ✏️ {item.tracking_enabled ? "Correct count" : "Set current supply"}
                             </button>
                           ) : (
                             <>
@@ -2502,7 +2560,7 @@ export default function DashboardPage() {
                                 } catch { /* ignore */ }
                               }}
                             >
-                              {refillOrdered[item.medication_id] ? "Sent to Clinician" : "Order Refill"}
+                              {refillOrdered[item.medication_id] ? "✅ Sent to Clinician" : "📦 Order Refill"}
                             </button>
                           ) : null}
                         </div>
@@ -2513,14 +2571,14 @@ export default function DashboardPage() {
                 {(refillStatus ?? []).some((s) => s.is_low) ? (
                   <div className="alert-box alert-warning" style={{ marginTop: 8 }}>
                     <p style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                      Running low lah! Tap &quot;Check&quot; to get a reminder in your chat, or &quot;Order Refill&quot; to request a refill.
+                      ⚠️ Running low lah! Tap &quot;🔔 Check&quot; to get a reminder in your chat, or &quot;📦 Order Refill&quot; to request a refill.
                     </p>
                   </div>
                 ) : null}
               </section>
 
               <section className="card">
-                <div className="card-title">Clinician Summary</div>
+                <div className="card-title">📊 Clinician Summary</div>
                 <button type="button" onClick={() => void handleLoadReportSummary()} disabled={reportLoading}>
                   {reportLoading ? "Loading..." : "Fetch Report Summary"}
                 </button>
@@ -2538,7 +2596,7 @@ export default function DashboardPage() {
 
               <section className="card">
                 <div className="card-row">
-                  <div className="card-title">Medication Tracking</div>
+                  <div className="card-title">💊 Medication Tracking</div>
                   <span className={`severity-pill severity-${drift?.severity ?? "green"}`}>
                     {drift?.severity ?? "green"}
                   </span>
@@ -2575,7 +2633,7 @@ export default function DashboardPage() {
               </section>
 
               <section className="card">
-                <div className="card-title">Appointment Tracking</div>
+                <div className="card-title">📅 Appointment Tracking</div>
                 {allAppts.length > 0 ? (
                   <div className="item-list">
                     {allAppts.map((appt) => (
@@ -2599,7 +2657,7 @@ export default function DashboardPage() {
               {/* --- Profile Section --- */}
               <section className="card">
                 <div className="card-row">
-                  <div className="card-title">Patient Profile</div>
+                  <div className="card-title">👤 Patient Profile</div>
                   {!editingProfile ? (
                     <button type="button" className="icon-button" onClick={startEditProfile}>Edit</button>
                   ) : null}
@@ -2630,13 +2688,13 @@ export default function DashboardPage() {
                   </div>
                 )}
                 {profileMsg ? <p className="status-ok">{profileMsg}</p> : null}
-                <button type="button" className="secondary-button" onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}>Sign Out</button>
+                <button type="button" className="secondary-button" onClick={() => { sessionStorage.removeItem("bytecare_account"); localStorage.removeItem("bytecare_account"); router.replace("/auth/signin"); }}>🚪 Sign Out</button>
               </section>
 
               {/* --- Medications Section --- */}
               <section className="card">
                 <div className="card-row">
-                  <div className="card-title">Medications</div>
+                  <div className="card-title">💊 Medications</div>
                   {!carePlanReadOnly ? (
                     <button type="button" className="icon-button" onClick={() => { resetMedForm(); setShowMedForm(true); }}>+ Add</button>
                   ) : null}
@@ -2706,7 +2764,7 @@ export default function DashboardPage() {
               {/* --- Appointments Section --- */}
               <section className="card">
                 <div className="card-row">
-                  <div className="card-title">Appointments</div>
+                  <div className="card-title">📅 Appointments</div>
                   {!carePlanReadOnly ? (
                     <button type="button" className="icon-button" onClick={() => { resetApptForm(); setShowApptForm(true); }}>+ Add</button>
                   ) : null}
@@ -2807,7 +2865,7 @@ export default function DashboardPage() {
               <p className="modal-kicker">Medication reminder</p>
               <h2 id="medication-reminder-title">Have you taken your medication?</h2>
               <p className="muted">
-                Scheduled for {reminderGroup.scheduled_label}. This reminder stays active until you respond.
+                Scheduled for {reminderGroup.scheduled_label}. You can choose Taken, Skip, or Take later.
               </p>
 
               <div className="medication-modal-list">
@@ -2828,7 +2886,7 @@ export default function DashboardPage() {
                   onClick={() => void handleReminderResponse("snoozed")}
                   disabled={reminderBusy}
                 >
-                  {reminderBusy ? "Saving..." : `Snooze ${SNOOZE_MINUTES} min`}
+                  {reminderBusy ? "Saving..." : `Take later (${SNOOZE_MINUTES} min)`}
                 </button>
                 <button
                   type="button"
@@ -2844,6 +2902,72 @@ export default function DashboardPage() {
                   disabled={reminderBusy}
                 >
                   {reminderBusy ? "Saving..." : "Taken"}
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {appReminderNotice ? (
+          <div className="medication-modal-backdrop" role="presentation">
+            <section className="medication-modal" role="dialog" aria-modal="true" aria-labelledby="app-reminder-notice-title">
+              <p className="modal-kicker">Reminder</p>
+              <h2 id="app-reminder-notice-title">{appReminderNotice}</h2>
+              <div className="medication-modal-actions">
+                <button type="button" onClick={() => setAppReminderNotice(null)}>OK</button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {timerReminderGroup ? (
+          <div className="medication-modal-backdrop" role="presentation">
+            <section
+              className="medication-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="timer-reminder-title"
+            >
+              <p className="modal-kicker">Timer reminder</p>
+              <h2 id="timer-reminder-title">It&apos;s time now. Have you taken your medication?</h2>
+              <p className="muted">
+                Reminder for {timerReminderGroup.scheduled_label}. Please confirm your status.
+              </p>
+
+              <div className="medication-modal-list">
+                {timerReminderGroup.medications.map((medication) => (
+                  <div key={medication.medication_id} className="medication-modal-item">
+                    <strong>{medication.name}</strong>
+                    <span>{medication.dose_text || "Dose not specified"}</span>
+                  </div>
+                ))}
+              </div>
+
+              {reminderError ? <p className="status-error modal-status">{reminderError}</p> : null}
+
+              <div className="medication-modal-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => void handleTimerReminderResponse("snoozed")}
+                  disabled={reminderBusy}
+                >
+                  {reminderBusy ? "Saving..." : `Not yet (${SNOOZE_MINUTES} min)`}
+                </button>
+                <button
+                  type="button"
+                  className="skip-button"
+                  onClick={() => void handleTimerReminderResponse("skipped")}
+                  disabled={reminderBusy}
+                >
+                  {reminderBusy ? "Saving..." : "No / Skip"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleTimerReminderResponse("taken")}
+                  disabled={reminderBusy}
+                >
+                  {reminderBusy ? "Saving..." : "Yes / Taken"}
                 </button>
               </div>
             </section>

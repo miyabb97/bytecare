@@ -47,6 +47,9 @@ _EMOTIONAL_RE = re.compile(
     re.IGNORECASE,
 )
 
+_SECONDS_RE = re.compile(r"\b(\d{1,4})\s*(seconds?|secs?|sec|s)\b", re.IGNORECASE)
+_MINUTES_RE = re.compile(r"\b(\d{1,4})\s*(minutes?|mins?|min|m)\b", re.IGNORECASE)
+
 
 def _detect_intent(message: str) -> str:
     """Classify patient message intent using keyword rules (order matters)."""
@@ -69,6 +72,39 @@ def _detect_tone(intent: str) -> str:
     if intent in ("missed_medication", "medical_advice_request"):
         return "reassuring"
     return "supportive"
+
+
+def _extract_reminder_delay_seconds(message: str) -> Optional[int]:
+    """Extract explicit reminder duration from message, in seconds.
+
+    Supports inputs like:
+      - "10 seconds", "30 sec", "45s"
+      - "2 minutes", "5 min", "1m"
+    """
+    seconds_match = _SECONDS_RE.search(message)
+    if seconds_match:
+        try:
+            return max(1, int(seconds_match.group(1)))
+        except ValueError:
+            return None
+
+    minutes_match = _MINUTES_RE.search(message)
+    if minutes_match:
+        try:
+            minutes = max(1, int(minutes_match.group(1)))
+            return minutes * 60
+        except ValueError:
+            return None
+
+    bare_number = re.search(r"\b(\d{1,3})\b", message)
+    if bare_number and any(k in message.lower() for k in ["remind", "reminder", "later"]):
+        try:
+            number = int(bare_number.group(1))
+            if 1 <= number <= 59:
+                return number
+        except ValueError:
+            return None
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +177,7 @@ def _template_reply(
     intent: str,
     next_action: str,
     medications: List[Dict[str, Any]],
+    reminder_delay_seconds: Optional[int] = None,
 ) -> str:
     if intent == "medical_advice_request":
         return (
@@ -150,6 +187,15 @@ def _template_reply(
         )
     if intent == "set_reminder":
         med_name = medications[0]["name"] if medications else "your medication"
+        if reminder_delay_seconds:
+            if reminder_delay_seconds < 60:
+                delay_text = f"{reminder_delay_seconds} seconds"
+            else:
+                delay_text = f"{reminder_delay_seconds // 60} minutes"
+            return (
+                f"Sure {name}! I will remind you in {delay_text}. "
+                "I’ll send you a reminder message shortly lah."
+            )
         return (
             f"Sure {name}! I'll set a reminder for {med_name} so you don't miss it. "
             "You'll get a notification before it's time lah."
@@ -238,6 +284,7 @@ def generate_agent_response(user_id: str, message: str) -> Dict[str, Any]:
 
     intent = _detect_intent(message)
     tone = _detect_tone(intent)
+    reminder_delay_seconds = _extract_reminder_delay_seconds(message) if intent == "set_reminder" else None
 
     # Hard safety gate — never use LLM for medical advice
     if intent == "medical_advice_request":
@@ -246,12 +293,16 @@ def generate_agent_response(user_id: str, message: str) -> Dict[str, Any]:
             "tone": "reassuring",
             "suggested_action": "none",
             "intent": intent,
+            "reminder_mode": None,
+            "reminder_delay_seconds": None,
         }
 
     # Determine suggested_action
     suggested_action = "none"
+    reminder_mode: Optional[str] = None
     if intent == "set_reminder":
         suggested_action = "set_reminder"
+        reminder_mode = "timer" if reminder_delay_seconds else "medication_schedule"
 
     # Fetch drift + next action for prompt/template context
     try:
@@ -285,6 +336,7 @@ def generate_agent_response(user_id: str, message: str) -> Dict[str, Any]:
             intent,
             action.get("next_action", "none"),
             medications,
+            reminder_delay_seconds,
         )
 
     return {
@@ -292,4 +344,6 @@ def generate_agent_response(user_id: str, message: str) -> Dict[str, Any]:
         "tone": tone,
         "suggested_action": suggested_action,
         "intent": intent,
+        "reminder_mode": reminder_mode,
+        "reminder_delay_seconds": reminder_delay_seconds,
     }
