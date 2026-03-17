@@ -78,7 +78,7 @@ npm run dev
 Frontend will run at: http://localhost:3000
 
 The frontend communicates with the FastAPI backend.
-
+wh
 ## Seeding Demo Data
 
 To populate the system with demo data:

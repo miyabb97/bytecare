@@ -6,5 +6,7 @@
     "missed_doses": 6,
     "late_doses": 7,
     "avg_mes": 55.57
-  }
+  },
+  "risk_level": "MEDIUM",
+  "drift_type": "late_doses"
 }

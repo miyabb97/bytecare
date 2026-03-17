@@ -131,7 +131,11 @@ export function SummaryCard({ title, icon, children }: { title: string; icon?: R
 }
 
 export function ChartCard({ children }: { children: ReactNode }) {
-  return <section className="rounded-2xl border border-[#E9EEF7] bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">{children}</section>;
+  return (
+    <section className="rounded-2xl border border-[#E6F0FF] bg-white p-5 shadow-[0_6px_18px_rgba(16,24,40,0.06)]">
+      {children}
+    </section>
+  );
 }
 
 export function PatientCard({ children }: { children: ReactNode }) {
