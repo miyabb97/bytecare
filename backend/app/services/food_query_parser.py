@@ -13,7 +13,9 @@ _FOOD_INTENT_RE = re.compile(
     r"\b(can i eat|can eat|eat this|drink this|is .* okay for me|"
     r"what should i eat|what can i eat|what to eat|"
     r"feel like|healthier alternatives|healthy alternatives|"
-    r"dinner|lunch|breakfast|supper|meal|food|drink|after taking my medicine|"
+    r"suggest\w*\s+(a\s+)?(healthier|lighter|safer|lower.sugar|lower.salt|dinner|lunch|breakfast|food|snack|meal|alternative|option)\w*|"
+    r"show\s+(healthier|lighter|safer|lower.sugar|lower.salt)\s*\w*|"
+    r"dinner|lunch|breakfast|supper|meal|food|drink|snack|after taking my medicine|"
     r"after my medicine|after taking medicine)\b|"
     r"(可以吃|能吃|可以喝|能喝|晚餐|午餐|早餐|食物|饮料|飲料|吃什么|喝什么|這個可以吃嗎|这个可以吃吗)"
     r")",

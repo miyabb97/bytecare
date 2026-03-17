@@ -104,22 +104,22 @@ def _build_food_quick_replies(parsed_food: Dict[str, Any], nutrition_result: Dic
 
     if food_query:
         if "diabetes" in conditions:
-            return ["Suggest healthier snacks", "Show lower-sugar choices", "Check another food"]
+            return ["Suggest healthier snacks", "Show lower-sugar choices"]
         if "hypertension" in conditions:
-            return ["Suggest lower-salt options", "What can I eat today?", "Check another food"]
+            return ["Suggest lower-salt options", "What can I eat today?"]
         if recommendation_level in {"avoid", "caution"}:
-            return ["Suggest safer alternatives", "What can I eat today?", "Check another food"]
-        return ["Suggest a lighter option", "What can I eat today?", "Check another food"]
+            return ["Suggest safer alternatives", "What can I eat today?"]
+        return ["Suggest a lighter option", "What can I eat today?"]
 
     if "diabetes" in conditions:
-        return ["Suggest dinner ideas", "Show lower-sugar choices", "Check another food"]
+        return ["Suggest dinner ideas", "Show lower-sugar choices"]
     if "hypertension" in conditions:
-        return ["Suggest dinner ideas", "Show lower-salt choices", "Check another food"]
-    return ["Suggest dinner ideas", "Show healthier alternatives", "Check another food"]
+        return ["Suggest dinner ideas", "Show lower-salt choices"]
+    return ["Suggest dinner ideas", "Show healthier alternatives"]
 
 
 def _build_general_quick_replies(intent: str) -> List[str]:
-    """Build quick reply suggestions. Only used for food-related intents."""
+    """Build quick reply suggestions for non-food intents based on context."""
     return []
 
 
@@ -175,11 +175,13 @@ def build_safe_patient_reply(intent: str, context: Dict[str, Any], recommendatio
     elif recommendation_level in {"avoid", "caution"} and food_query:
         alternatives = f"If you still feel like having something similar, a smaller portion or a lighter version may be better than the usual one."
 
-    quick_replies = _build_food_quick_replies(context, recommendation)
-    if quick_replies:
-        follow_up = f"Would you like me to {quick_replies[0].lower()}, or shall I {quick_replies[-1].lower()}?"
+    conditions_set = {_normalize_text(item) for item in conditions}
+    if "diabetes" in conditions_set:
+        follow_up = "Would you like me to suggest lower-sugar options that are better for you?"
+    elif "hypertension" in conditions_set:
+        follow_up = "Would you like me to suggest lower-salt options that are better for you?"
     else:
-        follow_up = "Would you like me to suggest a safer option for today?"
+        follow_up = "Would you like me to suggest something that fits your health better?"
 
     sentences = [acknowledge, guidance]
     if alternatives:
@@ -196,11 +198,42 @@ def _build_food_chat_reply(message: str, parsed_food: Dict[str, Any], nutrition_
     )
 
 
-def _localize_food_chat_reply(message: str, parsed_food: Dict[str, Any], nutrition_result: Dict[str, Any]) -> str:
+def _localize_food_chat_reply(
+    message: str,
+    parsed_food: Dict[str, Any],
+    nutrition_result: Dict[str, Any],
+    user_id: str = "",
+) -> str:
     fallback = _build_food_chat_reply(message, parsed_food, nutrition_result)
     client = MeralionClient()
     if not client.enabled:
         return fallback
+
+    # Fetch user profile and recent chat history for personalised, context-aware replies
+    user_context: Dict[str, Any] = {}
+    recent_history: List[Dict[str, str]] = []
+    if user_id:
+        with SessionLocal() as db:
+            user_obj = db.query(User).filter_by(user_id=user_id).first()
+            if user_obj:
+                u = user_obj.to_dict()
+                user_context = {
+                    "name": u.get("name", "Patient"),
+                    "age": u.get("age"),
+                    "conditions": u.get("conditions") or [],
+                }
+            recent_msgs = (
+                db.query(ChatMessage)
+                .filter_by(user_id=user_id)
+                .filter(ChatMessage.role.in_(["user", "assistant"]))
+                .order_by(ChatMessage.created_at.desc())
+                .limit(6)
+                .all()
+            )
+            recent_history = [
+                {"role": m.role, "content": m.content}
+                for m in reversed(recent_msgs)
+            ]
 
     facts = {
         "original_message": message,
@@ -214,20 +247,34 @@ def _localize_food_chat_reply(message: str, parsed_food: Dict[str, Any], nutriti
         "base_reply": fallback,
         "medications_taken_today": nutrition_result.get("medications_taken_today") or [],
         "reasoning": nutrition_result.get("reasoning") or [],
+        "patient": user_context,
     }
+
+    # Build conversation history section
+    history_text = ""
+    if recent_history:
+        history_lines = []
+        for entry in recent_history:
+            role_label = "Patient" if entry["role"] == "user" else "ByteCare"
+            history_lines.append(f"  {role_label}: {entry['content']}")
+        history_text = "\nRecent conversation:\n" + "\n".join(history_lines) + "\n"
 
     prompt = (
         "You are ByteCare, replying to an elderly patient in Singapore who asked a food question.\n"
-        "Rewrite the deterministic nutrition result into a short, safe, supportive chat reply.\n\n"
+        "Generate a personalised, context-aware chat reply using the nutrition facts and patient profile below.\n\n"
         "Rules:\n"
         "1. Use only the facts provided.\n"
         "2. Do not invent food-drug interactions or medical advice.\n"
         "3. Keep it to 4 short sentences or fewer.\n"
-        "4. Follow this order when appropriate: acknowledge the question, give safe guidance, offer better alternatives, ask one simple follow-up.\n"
-        "5. Do not sound overly permissive. Avoid phrases like 'no worries' or 'yes, can eat'. Use careful wording like 'better to be careful', 'a small portion may be better', or 'you may want to limit'.\n"
-        "6. Make it sound local and natural for Singapore English; light Singlish is okay.\n"
-        "7. Keep it concise, warm, and readable for an older patient.\n"
-        "8. Return plain text only.\n\n"
+        "4. Answer the patient's specific question directly, personalised to their conditions and recent conversation context.\n"
+        "5. Suggest specific food alternatives that suit the patient's health conditions (e.g. lower-sugar for diabetes, lower-salt for hypertension).\n"
+        "6. Do not sound overly permissive. Avoid phrases like 'no worries' or 'yes, can eat'. Use careful wording like 'better to be careful', 'a small portion may be better', or 'you may want to limit'.\n"
+        "7. Make it sound local and natural for Singapore English; light Singlish is okay.\n"
+        "8. Keep it concise, warm, and readable for an older patient.\n"
+        "9. Return plain text only.\n"
+        "10. Do NOT mention or reference any app tabs, pages, or features (no 'Recipes tab', 'Health page', 'meal plans', etc.). The app has no recipes or meal idea section. Just give the food advice directly in your reply.\n"
+        "11. Do NOT repeat answers already given in the recent conversation. Build on the context instead.\n"
+        f"{history_text}\n"
         f"FACTS_JSON:\n{json.dumps(facts, ensure_ascii=True)}"
     )
 
@@ -259,7 +306,7 @@ def generate_patient_reply(user_id: str, message: str, language: str = "en") -> 
             user_id=user_id,
             food_query=parsed_food.get("food_query"),
         )
-        reply = _localize_food_chat_reply(message, parsed_food, nutrition_result)
+        reply = _localize_food_chat_reply(message, parsed_food, nutrition_result, user_id=user_id)
         quick_replies = _build_food_quick_replies(parsed_food, nutrition_result)
         context = {
             "drift_detected": drift["drift_detected"],

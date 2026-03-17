@@ -389,8 +389,8 @@ export default function DashboardPage() {
     {
       id: 1,
       sender: "bot",
-      text: "Hello, I am here to support your medication routine today.",
-      originalText: "Hello, I am here to support your medication routine today.",
+      text: "Hello! I am ByteCare, your health companion. I can help with your medications, appointments, food advice, events, and more. How can I help you today?",
+      originalText: "Hello! I am ByteCare, your health companion. I can help with your medications, appointments, food advice, events, and more. How can I help you today?",
       timestamp: new Date(),
     }
   ]);
@@ -399,6 +399,7 @@ export default function DashboardPage() {
   const [chatLang, setChatLang] = useState<"en" | "zh" | "yue" | "ms" | "ta" | "hi">("en");
   const [isRecording, setIsRecording] = useState(false);
   const [showQuickFoodQuestions, setShowQuickFoodQuestions] = useState(true);
+  const [translatedFoodQuestions, setTranslatedFoodQuestions] = useState<string[]>(QUICK_FOOD_QUESTIONS);
   const [chatAudioLoading, setChatAudioLoading] = useState<number | null>(null);
   const [chatAudioPlaying, setChatAudioPlaying] = useState<number | null>(null);
   const [chatTranslating, setChatTranslating] = useState(false);
@@ -556,6 +557,23 @@ export default function DashboardPage() {
           })
         );
         setChatMessages(updated);
+
+        // Translate quick food questions
+        if (chatLang === "en") {
+          setTranslatedFoodQuestions(QUICK_FOOD_QUESTIONS);
+        } else {
+          const translatedQuestions = await Promise.all(
+            QUICK_FOOD_QUESTIONS.map(async (q) => {
+              try {
+                const res = await api.postTranslate(q, chatLang);
+                return res.translated_text;
+              } catch {
+                return q;
+              }
+            })
+          );
+          setTranslatedFoodQuestions(translatedQuestions);
+        }
       } finally {
         setChatTranslating(false);
       }
@@ -2691,16 +2709,16 @@ export default function DashboardPage() {
                 </button>
                 {showQuickFoodQuestions ? (
                   <div className="mt-2.5 flex flex-wrap gap-2">
-                    {QUICK_FOOD_QUESTIONS.map((question) => (
+                    {QUICK_FOOD_QUESTIONS.map((question, idx) => (
                       <button
                         key={question}
                         type="button"
                         className="tc-list-row-btn rounded-full border border-blue-100 bg-blue-50 px-3 py-2 text-left text-xs font-medium text-blue-700 transition hover:border-blue-200 hover:bg-blue-100"
                         style={{ width: "auto", margin: 0 }}
                         disabled={chatLoading}
-                        onClick={() => void handleSendChat(question)}
+                        onClick={() => void handleSendChat(translatedFoodQuestions[idx] || question)}
                       >
-                        {question}
+                        {translatedFoodQuestions[idx] || question}
                       </button>
                     ))}
                   </div>
