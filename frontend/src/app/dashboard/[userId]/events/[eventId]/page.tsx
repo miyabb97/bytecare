@@ -181,7 +181,7 @@ export default function EventDetailsPage() {
 
   return (
     <main className="flex min-h-screen justify-center bg-slate-100">
-      <div className="min-h-screen w-full max-w-md bg-slate-50 pb-24 md:border-x md:border-slate-200 md:shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+      <div className="flex min-h-screen w-full max-w-md flex-col bg-slate-50 md:border-x md:border-slate-200 md:shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
         <header className="app-header">
           <div className="header-left">
             <Image
@@ -339,7 +339,7 @@ export default function EventDetailsPage() {
           </div>
         ) : null}
 
-        <nav className="tc-bottom-nav fixed bottom-0 left-1/2 z-40 flex w-full max-w-md -translate-x-1/2 items-center justify-between border-t border-slate-200 bg-white px-5 py-2">
+        <nav className="tc-bottom-nav mt-auto sticky bottom-0 z-40 flex w-full items-center justify-between border-t border-slate-200 bg-white px-5 py-2">
           <button
             type="button"
             className="flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 text-slate-400 transition hover:text-blue-500 hover:bg-slate-50"

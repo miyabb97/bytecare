@@ -149,15 +149,15 @@ export default function PlannerPage() {
     setLoading(true);
     setError(null);
     try {
-      const [prof, meds, evts, adaptive] = await Promise.all([
+      const [prof, meds, myEvts, adaptive] = await Promise.all([
         api.getUser(userId),
         api.getMedications(userId),
-        api.getCommunityEvents(userId),
+        api.getMyCommunityEvents(userId).catch(() => ({ joined: [], saved: [] })),
         api.getAdaptiveTiming(userId).catch(() => ({ user_id: userId, items: [] })),
       ]);
       setUserProfile(prof);
       setMedications(meds.items ?? []);
-      setEvents(evts.events ?? []);
+      setEvents(myEvts.joined ?? []);
       setAdaptiveTiming(adaptive.items ?? []);
     } catch (e) {
       setError(safeMessage(e));
