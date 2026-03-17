@@ -146,11 +146,13 @@ export function TabBar({
   tabs,
   active,
   containerRef,
+  variant = "default",
   onTabChange,
 }: {
   tabs: Array<{ key: string; label: string; icon: ReactNode }>;
   active: string;
   containerRef?: RefObject<HTMLElement | null>;
+  variant?: "default" | "patient";
   onTabChange?: (key: string) => void;
 }) {
   const [bounds, setBounds] = useState<{ left: number; width: number } | null>(null);
@@ -190,10 +192,16 @@ export function TabBar({
 
   return (
     <div
-      className="fixed bottom-0 z-30"
+      className={`${variant === "patient" ? "pointer-events-none fixed bottom-0 z-50 pb-[max(env(safe-area-inset-bottom),0px)]" : "fixed bottom-0 z-30"}`}
       style={bounds ? { left: `${bounds.left}px`, width: `${bounds.width}px` } : { left: 0, right: 0 }}
     >
-      <nav className="flex w-full border-t border-[#E9EEF7] bg-white px-3 pb-3 pt-2">
+      <nav
+        className={`flex w-full border-t border-[#E9EEF7] bg-white ${
+          variant === "patient"
+            ? "pointer-events-auto items-center justify-between px-6 pb-6 pt-2"
+            : "px-3 pb-3 pt-2"
+        }`}
+      >
         {tabs.map((tab) => {
           const isActive = tab.key === active;
           return (
@@ -201,10 +209,20 @@ export function TabBar({
               key={tab.key}
               type="button"
               onClick={() => onTabChange?.(tab.key)}
-              className={`mt-0 flex flex-1 flex-col items-center gap-1 rounded-xl px-2 py-2 ${isActive ? "bg-[#3B6EF5]" : "bg-transparent"}`}
+              style={{
+                background: "transparent",
+                marginTop: 0,
+                borderRadius: variant === "patient" ? "0.75rem" : "0.75rem",
+                width: "auto",
+              }}
+              className={`mt-0 flex flex-1 flex-col items-center gap-1 ${
+                variant === "patient"
+                  ? `rounded-xl px-3 py-1.5 transition ${isActive ? "text-[#3B6EF5]" : "text-[#98A2B3] hover:text-[#3B6EF5]"}`
+                  : `rounded-xl px-2 py-2 ${isActive ? "bg-[#3B6EF5]" : "bg-transparent"}`
+              }`}
             >
-              <span className={isActive ? "text-white" : "text-[#98A2B3]"}>{tab.icon}</span>
-              <span className={`text-[11px] font-semibold ${isActive ? "text-white" : "text-[#98A2B3]"}`}>{tab.label}</span>
+              <span className={variant === "patient" ? "" : isActive ? "text-white" : "text-[#98A2B3]"}>{tab.icon}</span>
+              <span className={`text-[11px] ${variant === "patient" ? (isActive ? "font-semibold" : "font-normal") : "font-semibold"} ${variant === "patient" ? "" : isActive ? "text-white" : "text-[#98A2B3]"}`}>{tab.label}</span>
             </button>
           );
         })}

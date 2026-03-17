@@ -3566,18 +3566,20 @@ export default function DashboardPage() {
           <nav className="tc-bottom-nav pointer-events-auto flex w-full items-center justify-between border-t border-slate-200 bg-white px-6 pb-6 pt-2">
           <button
             type="button"
-            className={`flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "home" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
+            className="group flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition"
             onClick={() => setActiveTab("home")}
           >
-            <BottomNavIcon tab="home" active={activeTab === "home"} />
-            <span className={`text-[11px] ${activeTab === "home" ? "font-semibold" : "font-normal"}`}>Home</span>
+            <span className={activeTab === "home" ? "text-blue-500" : "text-slate-400 group-hover:text-blue-500"}>
+              <BottomNavIcon tab="home" active={activeTab === "home"} />
+            </span>
+            <span className={`text-[11px] ${activeTab === "home" ? "font-medium text-blue-500" : "font-normal text-slate-400 group-hover:text-blue-500"}`}>Home</span>
           </button>
           <button
             type="button"
-            className={`flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "chat" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
+            className="group flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition"
             onClick={() => setActiveTab("chat")}
           >
-            <span className="relative">
+            <span className={`relative ${activeTab === "chat" ? "text-blue-500" : "text-slate-400 group-hover:text-blue-500"}`}>
               <BottomNavIcon tab="chat" active={activeTab === "chat"} />
               {unreadCount > 0 ? (
                 <span className="absolute -right-2 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
@@ -3585,31 +3587,37 @@ export default function DashboardPage() {
                 </span>
               ) : null}
             </span>
-            <span className={`text-[11px] ${activeTab === "chat" ? "font-semibold" : "font-normal"}`}>Chat</span>
+            <span className={`text-[11px] ${activeTab === "chat" ? "font-medium text-blue-500" : "font-normal text-slate-400 group-hover:text-blue-500"}`}>Chat</span>
           </button>
           <button
             type="button"
-            className={`flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "events" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
+            className="group flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition"
             onClick={() => setActiveTab("events")}
           >
-            <BottomNavIcon tab="events" active={activeTab === "events"} />
-            <span className={`text-[11px] ${activeTab === "events" ? "font-semibold" : "font-normal"}`}>Events</span>
+            <span className={activeTab === "events" ? "text-blue-500" : "text-slate-400 group-hover:text-blue-500"}>
+              <BottomNavIcon tab="events" active={activeTab === "events"} />
+            </span>
+            <span className={`text-[11px] ${activeTab === "events" ? "font-medium text-blue-500" : "font-normal text-slate-400 group-hover:text-blue-500"}`}>Events</span>
           </button>
           <button
             type="button"
-            className={`flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "health" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
+            className="group flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition"
             onClick={() => setActiveTab("health")}
           >
-            <BottomNavIcon tab="health" active={activeTab === "health"} />
-            <span className={`text-[11px] ${activeTab === "health" ? "font-semibold" : "font-normal"}`}>Health</span>
+            <span className={activeTab === "health" ? "text-blue-500" : "text-slate-400 group-hover:text-blue-500"}>
+              <BottomNavIcon tab="health" active={activeTab === "health"} />
+            </span>
+            <span className={`text-[11px] ${activeTab === "health" ? "font-medium text-blue-500" : "font-normal text-slate-400 group-hover:text-blue-500"}`}>Health</span>
           </button>
           <button
             type="button"
-            className={`flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "profile" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}
+            className="group flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition"
             onClick={() => setActiveTab("profile")}
           >
-            <BottomNavIcon tab="profile" active={activeTab === "profile"} />
-            <span className={`text-[11px] ${activeTab === "profile" ? "font-semibold" : "font-normal"}`}>Profile</span>
+            <span className={activeTab === "profile" ? "text-blue-500" : "text-slate-400 group-hover:text-blue-500"}>
+              <BottomNavIcon tab="profile" active={activeTab === "profile"} />
+            </span>
+            <span className={`text-[11px] ${activeTab === "profile" ? "font-medium text-blue-500" : "font-normal text-slate-400 group-hover:text-blue-500"}`}>Profile</span>
           </button>
           </nav>
         </div>

@@ -9,7 +9,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "ByteCare Patient",
+  title: "ByteCare",
   description: "Patient dashboard wired to ByteCare FastAPI backend"
 };
 
