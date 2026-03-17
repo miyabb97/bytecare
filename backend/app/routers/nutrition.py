@@ -37,6 +37,7 @@ def _is_upload_like(value: Any) -> bool:
 def _compact_nutrition_result(result: Dict[str, Any]) -> Dict[str, Any]:
     recommended = list(result.get("recommended_foods") or result.get("recommendations") or [])
     return {
+        "recommendation_level": str(result.get("recommendation_level") or ""),
         "interaction_warning": bool(result.get("interaction_warning")),
         "warning_message": str(result.get("warning_message") or ""),
         "recommended_foods": recommended,

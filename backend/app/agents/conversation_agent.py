@@ -132,26 +132,26 @@ def _extract_reminder_delay_seconds(message: str) -> Optional[int]:
 _INTENT_GUIDANCE: Dict[str, str] = {
     "set_reminder": (
         "The patient wants a medication reminder set. "
-        "Confirm warmly that you will set a reminder for their next dose."
+        "Confirm warmly that you will set a reminder for their next dose, then mention the next simple step."
     ),
     "missed_medication": (
         "The patient missed a dose. Be supportive and non-judgmental. "
-        "Gently remind them to take it now if not too close to the next dose."
+        "Gently remind them to take it now if not too close to the next dose, and offer one simple next step."
     ),
     "medication_education": (
         "The patient is asking why they take a medicine or what it does. "
         "Explain simply and warmly. Never advise changing doses or stopping. "
-        "Redirect medical decisions to their doctor."
+        "Redirect medical decisions to their doctor, and end with one simple helpful follow-up."
     ),
     "medication_query": (
         "Answer the patient's medication question using the context. "
-        "Do NOT suggest changing doses or diagnosis."
+        "Do NOT suggest changing doses or diagnosis. Offer one simple next step or follow-up."
     ),
     "emotional_support": (
         "The patient is feeling down. Be warm, empathetic, and encouraging. "
-        "Remind them their care team is here."
+        "Remind them their care team is here, and offer one gentle next step."
     ),
-    "general_chat": "Respond warmly and supportively to the patient's message.",
+    "general_chat": "Respond warmly and supportively to the patient's message, and include one simple next step when helpful.",
 }
 
 
@@ -176,9 +176,11 @@ def _build_agent_prompt(
         "Answer the patient's message directly and warmly using the context below.\n\n"
         "Safety rules (must follow strictly):\n"
         "1. Do NOT diagnose conditions or suggest changing medication doses.\n"
-        "2. Keep your response to 2-3 short, clear sentences (max 60 words).\n"
-        "3. Use simple words suitable for elderly users.\n"
-        "4. Light Singlish tone is okay (lah, leh, lor).\n\n"
+        "2. Do NOT use overly permissive phrases like 'no worries, just eat it' for health-related situations.\n"
+        "3. Keep your response to 4 short, clear sentences or fewer (max 65 words).\n"
+        "4. When appropriate, follow this structure: acknowledge, give safe guidance, offer one next step or simple follow-up.\n"
+        "5. Use simple words suitable for elderly users.\n"
+        "6. Light Singlish tone is okay (lah, leh, lor).\n\n"
         f"Intent guidance: {guidance}\n\n"
         f"Patient: {user.get('name', 'Patient')}, age {user.get('age')}\n"
         f"Conditions: {', '.join(user.get('conditions') or []) or 'none'}\n"
@@ -187,7 +189,7 @@ def _build_agent_prompt(
         f"Adherence: drift={drift.get('drift_detected')}, severity={drift.get('severity')}\n"
         f"Suggested action: {action.get('next_action')}\n\n"
         f"Patient message: {message}\n"
-        "Reply (warm, 2-3 sentences):"
+        "Reply (warm, up to 4 short sentences):"
     )
 
 
@@ -204,9 +206,9 @@ def _template_reply(
 ) -> str:
     if intent == "medical_advice_request":
         return (
-            f"{name}, I understand you have questions about your health. "
-            "Please consult your doctor or caregiver for medical advice — "
-            "they know your situation best lah."
+            f"{name}, thanks for checking. "
+            "It is better to speak to your doctor, pharmacist, or caregiver for medical advice because they know your situation best. "
+            "If you want, I can help you note down the question for your next visit."
         )
     if intent == "set_reminder":
         med_name = medications[0]["name"] if medications else "your medication"
@@ -226,36 +228,41 @@ def _template_reply(
     if intent == "missed_medication":
         if next_action == "caregiver_alert":
             return (
-                f"{name}, I noticed you've been missing doses — "
-                "your caregiver has been notified and will check in soon."
+                f"{name}, thanks for telling me. "
+                "Your caregiver has been notified and will check in soon. "
+                "If you want, I can still help you set the next reminder."
             )
         return (
-            f"{name}, that's okay, it happens sometimes. "
-            "Please take your medication now if it's not too close to your next dose lah."
+            f"{name}, thanks for letting me know. "
+            "If it is not too close to your next dose, please take your medication now. "
+            "If you want, I can help set a reminder so it is easier later."
         )
     if intent == "emotional_support":
         return (
-            f"{name}, I hear you. It's okay to feel that way. "
-            "Remember, you're not alone — your care team is always here to support you."
+            f"{name}, I hear you. "
+            "It is okay to take things one step at a time, and your care team is here to support you. "
+            "Would you like me to help with a reminder or the next step for today?"
         )
     if next_action == "caregiver_alert":
         return (
-            f"{name}, I'm here to help. "
-            "Your caregiver has also been notified to check in with you."
+            f"{name}, I am here to help. "
+            "Your caregiver has also been notified to check in with you. "
+            "Would you like me to help with the next reminder too?"
         )
     if next_action == "strong_reminder":
         return (
             f"{name}, please take your medication now and let me know once done. "
-            "You're doing your best lah."
+            "You are doing your best, and I can help set the next reminder if needed."
         )
     if next_action == "patient_nudge":
         return (
             f"{name}, a gentle reminder to follow your medication schedule today. "
-            "Keep it up!"
+            "If it helps, I can set a reminder for you too."
         )
     return (
-        f"Thank you for reaching out, {name}. "
-        "I'm here to support you. Take care and remember your medications ah."
+        f"Thanks for reaching out, {name}. "
+        "I am here to support you. "
+        "If you want, you can ask me about your medicines, food, or the next step for today."
     )
 
 

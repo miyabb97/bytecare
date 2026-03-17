@@ -1,0 +1,124 @@
+{
+  "laksa": {
+    "tags": [
+      "high_sodium",
+      "high_fat"
+    ],
+    "aliases": [
+      "laksa",
+      "curry laksa",
+      "laksa noodle"
+    ]
+  },
+  "nasi lemak": {
+    "tags": [
+      "high_fat",
+      "high_sodium"
+    ],
+    "aliases": [
+      "nasi lemak"
+    ]
+  },
+  "bubble tea": {
+    "tags": [
+      "high_sugar"
+    ],
+    "aliases": [
+      "bubble tea",
+      "boba",
+      "boba tea",
+      "milk tea"
+    ]
+  },
+  "chocolate": {
+    "tags": [
+      "high_sugar"
+    ],
+    "aliases": [
+      "chocolate",
+      "milk chocolate",
+      "dark chocolate",
+      "chocolate bar"
+    ]
+  },
+  "spinach": {
+    "tags": [
+      "high_vitamin_k"
+    ],
+    "aliases": [
+      "spinach",
+      "spinach soup",
+      "菠菜"
+    ]
+  },
+  "grapefruit": {
+    "tags": [
+      "citrus_interaction"
+    ],
+    "aliases": [
+      "grapefruit",
+      "grapefruit juice",
+      "西柚"
+    ]
+  },
+  "fish soup": {
+    "tags": [
+      "low_sodium",
+      "lean_protein"
+    ],
+    "aliases": [
+      "fish soup",
+      "sliced fish soup"
+    ]
+  },
+  "yong tau foo": {
+    "tags": [
+      "low_sodium",
+      "high_fiber"
+    ],
+    "aliases": [
+      "yong tau foo",
+      "yong tau fu"
+    ]
+  },
+  "brown rice": {
+    "tags": [
+      "low_glycemic",
+      "high_fiber"
+    ],
+    "aliases": [
+      "brown rice"
+    ]
+  },
+  "steamed fish": {
+    "tags": [
+      "lean_protein",
+      "low_fat"
+    ],
+    "aliases": [
+      "steamed fish"
+    ]
+  },
+  "vegetable soup": {
+    "tags": [
+      "low_sodium",
+      "high_fiber"
+    ],
+    "aliases": [
+      "vegetable soup"
+    ]
+  },
+  "sweet drinks": {
+    "tags": [
+      "high_sugar"
+    ],
+    "aliases": [
+      "sweet drinks",
+      "sweet drink",
+      "sugary drinks",
+      "sugary drink",
+      "soft drink",
+      "soda"
+    ]
+  }
+}

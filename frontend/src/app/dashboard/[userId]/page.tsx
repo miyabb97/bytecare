@@ -74,6 +74,7 @@ type ChatMessage = {
   originalText?: string;
   timestamp: Date;
   lang?: string;
+  quickReplies?: string[];
 };
 
 type ReminderResponseStatus = "taken" | "skipped" | "snoozed" | "missed" | "late";
@@ -83,6 +84,15 @@ type ReminderGroup = {
   scheduled_label: string;
   medications: ReminderMedication[];
 };
+
+const QUICK_FOOD_QUESTIONS = [
+  "Can I eat laksa today?",
+  "Is bubble tea okay for me?",
+  "Can I eat spinach today?",
+  "What should I eat for dinner?",
+  "Can I eat this after taking my medicine?",
+  "Show healthier alternatives",
+];
 
 const SNOOZE_MINUTES = 5;
 
@@ -387,14 +397,17 @@ export default function DashboardPage() {
   const [chatError, setChatError] = useState<string | null>(null);
   const [chatLang, setChatLang] = useState<"en" | "zh" | "yue" | "ms" | "ta" | "hi">("en");
   const [isRecording, setIsRecording] = useState(false);
+  const [showQuickFoodQuestions, setShowQuickFoodQuestions] = useState(true);
   const [chatAudioLoading, setChatAudioLoading] = useState<number | null>(null);
   const [chatAudioPlaying, setChatAudioPlaying] = useState<number | null>(null);
   const [chatTranslating, setChatTranslating] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
+  const bottomNavRef = useRef<HTMLDivElement>(null);
   const prevChatLang = useRef(chatLang);
   const nutritionImageInputRef = useRef<HTMLInputElement>(null);
   const [bottomNavBounds, setBottomNavBounds] = useState<{ left: number; width: number } | null>(null);
+  const [bottomNavHeight, setBottomNavHeight] = useState(0);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -403,9 +416,13 @@ export default function DashboardPage() {
   useEffect(() => {
     const updateBottomNavBounds = () => {
       const shell = shellRef.current;
+      const nav = bottomNavRef.current;
       if (!shell) return;
       const rect = shell.getBoundingClientRect();
       setBottomNavBounds({ left: rect.left, width: rect.width });
+      if (nav) {
+        setBottomNavHeight(nav.getBoundingClientRect().height);
+      }
     };
 
     updateBottomNavBounds();
@@ -1102,7 +1119,15 @@ export default function DashboardPage() {
     try {
       const response = await api.postChat(userId, message, lang);
       setChatResult(response);
-      setChatMessages((prev) => [...prev, { id: Date.now() + 1, sender: "bot", text: response.reply, originalText: response.reply_en || response.reply, timestamp: new Date(), lang: response.language || lang }]);
+      setChatMessages((prev) => [...prev, {
+        id: Date.now() + 1,
+        sender: "bot",
+        text: response.reply,
+        originalText: response.reply_en || response.reply,
+        timestamp: new Date(),
+        lang: response.language || lang,
+        quickReplies: response.quick_replies ?? [],
+      }]);
 
       if (response.context?.reminder_mode === "timer" && response.context?.reminder_delay_seconds) {
         const delaySeconds = response.context.reminder_delay_seconds;
@@ -1676,7 +1701,15 @@ export default function DashboardPage() {
 
   return (
     <main className="flex min-h-screen justify-center bg-slate-100">
-      <div ref={shellRef} className="relative min-h-screen w-full max-w-md bg-slate-50 pb-24 md:border-x md:border-slate-200 md:bg-slate-50 md:shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+      <div
+        ref={shellRef}
+        className={`relative min-h-screen w-full max-w-md bg-slate-50 ${
+          activeTab === "chat" ? "flex h-screen flex-col overflow-hidden" : ""
+        } ${
+          activeTab === "chat" ? "pb-0" : "pb-24"
+        } md:border-x md:border-slate-200 md:bg-slate-50 md:shadow-[0_24px_80px_rgba(15,23,42,0.08)]`}
+        style={activeTab === "chat" && bottomNavHeight > 0 ? { paddingBottom: `${bottomNavHeight}px` } : undefined}
+      >
         <header className="app-header">
           <div className="header-left">
             <Image
@@ -1718,7 +1751,13 @@ export default function DashboardPage() {
 
         <section
           key={activeTab}
-          className={`tc-motion-stack ${activeTab === "events" ? "space-y-5 px-4 py-6" : "space-y-4 px-4 py-4"}`}
+          className={`tc-motion-stack ${
+            activeTab === "chat"
+              ? "flex-1 min-h-0 px-0 py-0"
+              : activeTab === "events"
+                ? "space-y-5 px-4 py-6"
+                : "space-y-4 px-4 py-4"
+          }`}
         >
           {activeTab === "home" ? (
             <>
@@ -2547,11 +2586,28 @@ export default function DashboardPage() {
                       </div>
                     ) : message.sender === "bot" ? (
                       <div className="chat-bubble-group">
-                        <div className="bubble bubble-bot">
-                          <div className="bubble-text">{message.text}</div>
-                          <span className="bubble-time">
-                            {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                          </span>
+                        <div className="chat-bubble-stack">
+                          <div className="bubble bubble-bot">
+                            <div className="bubble-text">{message.text}</div>
+                            <span className="bubble-time">
+                              {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          </div>
+                          {message.quickReplies && message.quickReplies.length > 0 ? (
+                            <div className="chat-quick-replies">
+                              {message.quickReplies.map((quickReply) => (
+                                <button
+                                  key={`${message.id}:${quickReply}`}
+                                  type="button"
+                                  className="chat-quick-reply-btn"
+                                  disabled={chatLoading}
+                                  onClick={() => void handleSendChat(quickReply)}
+                                >
+                                  {quickReply}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
                         <button
                           type="button"
@@ -2590,6 +2646,41 @@ export default function DashboardPage() {
                   </div>
                 ) : null}
                 <div ref={chatEndRef} />
+              </div>
+
+              <div className="chat-quick-food-wrap">
+                <button
+                  type="button"
+                  className="tc-list-row-btn flex w-full items-center justify-between px-0 text-left"
+                  style={{ margin: 0 }}
+                  onClick={() => setShowQuickFoodQuestions((prev) => !prev)}
+                  aria-expanded={showQuickFoodQuestions}
+                  aria-label={showQuickFoodQuestions ? "Collapse quick food questions" : "Expand quick food questions"}
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    Quick food questions
+                  </p>
+                  <ChevronRight
+                    size={16}
+                    className={`text-slate-400 transition-transform ${showQuickFoodQuestions ? "rotate-90" : ""}`}
+                  />
+                </button>
+                {showQuickFoodQuestions ? (
+                  <div className="mt-2.5 flex flex-wrap gap-2">
+                    {QUICK_FOOD_QUESTIONS.map((question) => (
+                      <button
+                        key={question}
+                        type="button"
+                        className="tc-list-row-btn rounded-full border border-blue-100 bg-blue-50 px-3 py-2 text-left text-xs font-medium text-blue-700 transition hover:border-blue-200 hover:bg-blue-100"
+                        style={{ width: "auto", margin: 0 }}
+                        disabled={chatLoading}
+                        onClick={() => void handleSendChat(question)}
+                      >
+                        {question}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               <div className="chat-input-bar">
@@ -3412,11 +3503,12 @@ export default function DashboardPage() {
       </div>
 
       <div
+        ref={bottomNavRef}
         className="pointer-events-none fixed bottom-0 z-50 pb-[max(env(safe-area-inset-bottom),0px)]"
         style={bottomNavBounds ? { left: `${bottomNavBounds.left}px`, width: `${bottomNavBounds.width}px` } : undefined}
       >
         <div className="w-full">
-          <nav className="tc-bottom-nav pointer-events-auto flex w-full items-center justify-between border-t border-slate-200 bg-white px-2 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.10)]">
+          <nav className="tc-bottom-nav pointer-events-auto flex w-full items-center justify-between border-t border-slate-200 bg-white px-6 pb-6 pt-2">
           <button
             type="button"
             className={`flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition ${activeTab === "home" ? "text-blue-600" : "text-slate-400 hover:text-blue-500"}`}

@@ -1,0 +1,22 @@
+{
+  "warfarin": {
+    "aliases": ["warfarin", "coumadin"],
+    "avoid": ["spinach", "kale", "broccoli"],
+    "reason": "Vitamin K may reduce the effectiveness of warfarin."
+  },
+  "statins": {
+    "aliases": ["statin", "statins", "atorvastatin", "simvastatin", "rosuvastatin"],
+    "avoid": ["grapefruit", "grapefruit juice"],
+    "reason": "Grapefruit may increase statin concentration."
+  },
+  "metformin": {
+    "aliases": ["metformin", "glucophage"],
+    "avoid": ["excess alcohol"],
+    "reason": "It may increase the risk of side effects."
+  },
+  "amlodipine": {
+    "aliases": ["amlodipine", "norvasc"],
+    "avoid": ["grapefruit", "grapefruit juice"],
+    "reason": "Grapefruit may alter how the medication is metabolised."
+  }
+}
