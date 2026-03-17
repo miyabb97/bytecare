@@ -57,12 +57,18 @@ class Medication(Base):
     name = Column(String, nullable=False)
     dose_text = Column(String, default="")
     schedule_json = Column(Text, nullable=False)
-    routine_type = Column(String, default="morning")
     time_window_minutes = Column(Integer, default=120)
     criticality = Column(String, default="medium")
     total_supply = Column(Integer, default=0)   # 0 = not tracked
     reminder_offset_minutes = Column(Integer, nullable=True)  # None = no reminder
     created_at = Column(String, nullable=False)
+    routine_period = Column(Text, nullable=True)
+    meal_relation = Column(Text, nullable=True)
+    recommended_default_time = Column(Text, nullable=True)
+    learned_usual_time = Column(Text, nullable=True)
+    window_minutes = Column(Integer, nullable=True)
+    missed_threshold_hours = Column(Integer, nullable=True)
+    routine_type = Column(Text, nullable=True)
 
     @property
     def schedule(self):
@@ -77,10 +83,41 @@ class Medication(Base):
             "schedule": self.schedule,
             "time_window_minutes": self.time_window_minutes,
             "criticality": self.criticality,
-            "routine_type": self.routine_type,
             "total_supply": self.total_supply or 0,
             "reminder_offset_minutes": self.reminder_offset_minutes,
             "created_at": self.created_at,
+            "routine_period": self.routine_period,
+            "meal_relation": self.meal_relation,
+            "recommended_default_time": self.recommended_default_time,
+            "learned_usual_time": self.learned_usual_time,
+            "window_minutes": self.window_minutes,
+            "missed_threshold_hours": self.missed_threshold_hours,
+            "routine_type": self.routine_type,
+        }
+
+
+class MedicationRoutine(Base):
+    __tablename__ = "medication_routines"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    patient_id = Column(String, nullable=False, index=True)
+    medication_id = Column(String, nullable=False, index=True)
+    routine_period = Column(String, nullable=True)
+    learned_usual_time = Column(String, nullable=True)
+    window_minutes = Column(Integer, nullable=True)
+    sample_size = Column(Integer, default=0)
+    updated_at = Column(String, nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "patient_id": self.patient_id,
+            "medication_id": self.medication_id,
+            "routine_period": self.routine_period,
+            "learned_usual_time": self.learned_usual_time,
+            "window_minutes": self.window_minutes,
+            "sample_size": self.sample_size,
+            "updated_at": self.updated_at,
         }
 
 

@@ -79,6 +79,20 @@ def init_db():
         if "caregiver_id" not in user_cols:
             conn.execute(text("ALTER TABLE users ADD COLUMN caregiver_id TEXT DEFAULT NULL"))
 
+        # Medication table new columns
+        med_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(medications)"))]
+        for col_name, col_default in [
+            ("routine_period", "NULL"),
+            ("meal_relation", "NULL"),
+            ("recommended_default_time", "NULL"),
+            ("learned_usual_time", "NULL"),
+            ("window_minutes", "NULL"),
+            ("missed_threshold_hours", "NULL"),
+            ("routine_type", "NULL"),
+        ]:
+            if col_name not in med_cols:
+                conn.execute(text(f"ALTER TABLE medications ADD COLUMN {col_name} TEXT DEFAULT {col_default}"))
+
         conn.commit()
 
     db = SessionLocal()
