@@ -12,7 +12,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from app.db import SessionLocal
-from app.models import Appointment, Medication, User
+from app.models import Appointment, ChatMessage, Medication, User
 from app.services.meralion_client import MeralionClient, MeralionClientError
 
 # ---------------------------------------------------------------------------
@@ -59,6 +59,38 @@ _EMOTIONAL_RE = re.compile(
     r"lonely|afraid|fear|depress|hopeless|overwhelm)\b",
     re.IGNORECASE,
 )
+_APPOINTMENT_RE = re.compile(
+    r"\b(appointment|doctor.?s?\s*(visit|appointment)|check.?up|"
+    r"next visit|see (my |the )?(doctor|dr|physician|specialist)|"
+    r"when.*(doctor|appointment|visit|check.?up)|"
+    r"schedule.*(visit|appointment)|book.*(appointment|visit)|"
+    r"clinic|hospital visit|follow.?up)\b",
+    re.IGNORECASE,
+)
+_TCM_RE = re.compile(
+    r"\b(tcm|traditional chinese medicine|herbal|chinese herb|"
+    r"ginseng|lingzhi|dang gui|dong quai|goji|wolfberry|"
+    r"herb.*(safe|check|interact|ok|okay)|"
+    r"chinese medicine|sinseh|tcm.*(safe|check|interact))\b",
+    re.IGNORECASE,
+)
+_EVENTS_RE = re.compile(
+    r"\b(events?|activit\w*|community|workshop|class|exercise class|"
+    r"tai chi|yoga|group|social|gathering|programme|program|"
+    r"what.*(happening|going on|activit\w*|events?)|"
+    r"join.*(events?|class|activit\w*|group)|"
+    r"things to do|something to do)\b",
+    re.IGNORECASE,
+)
+_MEMORY_CHECK_RE = re.compile(
+    r"\b(memory|cognitive|brain.*(check|test|exercise|game|train)|"
+    r"forget(ful|ting)?|forgetful|"
+    r"memory.*(check|test|exercise|game|train)|"
+    r"focus.*(check|test)|mind.*(sharp|exercise)|"
+    r"mental.*(exercise|check|test)|"
+    r"concentration|brain health)\b",
+    re.IGNORECASE,
+)
 
 _SECONDS_RE = re.compile(r"\b(\d{1,4})\s*(seconds?|secs?|sec|s)\b", re.IGNORECASE)
 _MINUTES_RE = re.compile(r"\b(\d{1,4})\s*(minutes?|mins?|min|m)\b", re.IGNORECASE)
@@ -81,6 +113,15 @@ def _detect_intent(message: str) -> str:
         return "emotional_support"
     if _MEDICATION_QUERY_RE.search(message):
         return "medication_query"
+    # Feature navigation intents
+    if _APPOINTMENT_RE.search(message):
+        return "appointment_query"
+    if _TCM_RE.search(message):
+        return "tcm_query"
+    if _MEMORY_CHECK_RE.search(message):
+        return "memory_check_query"
+    if _EVENTS_RE.search(message):
+        return "events_query"
     return "general_chat"
 
 
@@ -152,6 +193,51 @@ _INTENT_GUIDANCE: Dict[str, str] = {
         "Remind them their care team is here, and offer one gentle next step."
     ),
     "general_chat": "Respond warmly and supportively to the patient's message, and include one simple next step when helpful.",
+    "appointment_query": (
+        "The patient is asking about their appointments. "
+        "Use the appointment data below to answer specifically (date, time, location). "
+        "If they have an upcoming appointment, mention the details. "
+        "If none, let them know warmly. End by saying they can check it on their Home page."
+    ),
+    "tcm_query": (
+        "The patient is asking about TCM or herbal medicine. "
+        "Acknowledge their question warmly. Advise them to use the TCM Checker to verify herb safety with their medications. "
+        "Do NOT give specific TCM safety advice yourself."
+    ),
+    "events_query": (
+        "The patient is asking about activities or community events. "
+        "Respond warmly and encourage them to check out available events. "
+        "Mention it is good for social wellness."
+    ),
+    "memory_check_query": (
+        "The patient is asking about memory, cognitive exercises, or brain health. "
+        "Respond warmly and encourage them to try the Memory & Focus Check. "
+        "Be supportive and non-alarming."
+    ),
+}
+
+# Navigation mapping: intent → {label, route, tab}
+# 'tab' is used for in-dashboard tab switching, 'route' for separate pages
+_INTENT_NAVIGATION: Dict[str, Dict[str, str]] = {
+    "appointment_query": {
+        "label": "Go to Appointments",
+        "route": "/home",
+        "tab": "home",
+    },
+    "tcm_query": {
+        "label": "Open TCM Checker",
+        "route": "/health",
+        "tab": "health",
+    },
+    "events_query": {
+        "label": "View Events",
+        "route": "/events",
+        "tab": "events",
+    },
+    "memory_check_query": {
+        "label": "Start Memory Check",
+        "route": "/memory-check",
+    },
 }
 
 
@@ -163,6 +249,7 @@ def _build_agent_prompt(
     action: Dict[str, Any],
     medications: List[Dict[str, Any]],
     appointments: List[str],
+    recent_history: Optional[List[Dict[str, str]]] = None,
 ) -> str:
     med_text = (
         "; ".join(f"{m['name']} ({m['dose']})" for m in medications)
@@ -171,6 +258,15 @@ def _build_agent_prompt(
     appt_text = "; ".join(appointments) or "none upcoming"
     guidance = _INTENT_GUIDANCE.get(intent, _INTENT_GUIDANCE["general_chat"])
 
+    # Build conversation history section
+    history_text = ""
+    if recent_history:
+        history_lines = []
+        for entry in recent_history:
+            role_label = "Patient" if entry["role"] == "user" else "ByteCare"
+            history_lines.append(f"  {role_label}: {entry['content']}")
+        history_text = "\nRecent conversation:\n" + "\n".join(history_lines) + "\n"
+
     return (
         "You are ByteCare, a caring medication adherence support assistant for older adults in Singapore.\n"
         "Answer the patient's message directly and warmly using the context below.\n\n"
@@ -178,16 +274,19 @@ def _build_agent_prompt(
         "1. Do NOT diagnose conditions or suggest changing medication doses.\n"
         "2. Do NOT use overly permissive phrases like 'no worries, just eat it' for health-related situations.\n"
         "3. Keep your response to 4 short, clear sentences or fewer (max 65 words).\n"
-        "4. When appropriate, follow this structure: acknowledge, give safe guidance, offer one next step or simple follow-up.\n"
+        "4. ALWAYS answer the patient's question first using their real data (appointments, medications, etc), then guide them to the relevant feature.\n"
         "5. Use simple words suitable for elderly users.\n"
-        "6. Light Singlish tone is okay (lah, leh, lor).\n\n"
+        "6. Light Singlish tone is okay (lah, leh, lor).\n"
+        "7. Do NOT repeat answers already given in the recent conversation.\n"
+        "8. If the patient's message is a follow-up, use conversation context to understand what they mean.\n\n"
         f"Intent guidance: {guidance}\n\n"
         f"Patient: {user.get('name', 'Patient')}, age {user.get('age')}\n"
         f"Conditions: {', '.join(user.get('conditions') or []) or 'none'}\n"
         f"Medications: {med_text}\n"
         f"Upcoming appointments: {appt_text}\n"
         f"Adherence: drift={drift.get('drift_detected')}, severity={drift.get('severity')}\n"
-        f"Suggested action: {action.get('next_action')}\n\n"
+        f"Suggested action: {action.get('next_action')}\n"
+        f"{history_text}\n"
         f"Patient message: {message}\n"
         "Reply (warm, up to 4 short sentences):"
     )
@@ -203,6 +302,7 @@ def _template_reply(
     next_action: str,
     medications: List[Dict[str, Any]],
     reminder_delay_seconds: Optional[int] = None,
+    appointments: Optional[List[str]] = None,
 ) -> str:
     if intent == "medical_advice_request":
         return (
@@ -259,6 +359,33 @@ def _template_reply(
             f"{name}, a gentle reminder to follow your medication schedule today. "
             "If it helps, I can set a reminder for you too."
         )
+    if intent == "appointment_query":
+        if appointments:
+            appt_details = "; ".join(appointments[:2])
+            return (
+                f"{name}, you have upcoming appointment(s): {appt_details}. "
+                "You can view or manage them on your Home page."
+            )
+        return (
+            f"{name}, you don't have any upcoming appointments right now. "
+            "You can check your Home page to schedule one."
+        )
+    if intent == "tcm_query":
+        return (
+            f"{name}, thanks for checking! "
+            "You can use the TCM Checker to see if your herbs are safe with your medicines. "
+            "Better to check first before taking, ya."
+        )
+    if intent == "events_query":
+        return (
+            f"{name}, there are community activities you can join! "
+            "Check out the Events page to see what is happening near you."
+        )
+    if intent == "memory_check_query":
+        return (
+            f"{name}, keeping your mind active is great! "
+            "You can try the Memory & Focus Check — it is a simple exercise to keep your brain sharp."
+        )
     return (
         f"Thanks for reaching out, {name}. "
         "I am here to support you. "
@@ -311,6 +438,19 @@ def generate_agent_response(user_id: str, message: str) -> Dict[str, Any]:
                 .all()
             )
         ]
+        # Fetch recent conversation history for context-aware responses
+        recent_msgs = (
+            db.query(ChatMessage)
+            .filter_by(user_id=user_id)
+            .filter(ChatMessage.role.in_(["user", "assistant"]))
+            .order_by(ChatMessage.created_at.desc())
+            .limit(6)
+            .all()
+        )
+        recent_history = [
+            {"role": m.role if m.role != "assistant" else "assistant", "content": m.content}
+            for m in reversed(recent_msgs)
+        ]
 
     intent = _detect_intent(message)
     tone = _detect_tone(intent)
@@ -358,7 +498,8 @@ def generate_agent_response(user_id: str, message: str) -> Dict[str, Any]:
 
     if client.enabled:
         prompt = _build_agent_prompt(
-            user, message, intent, drift, action, medications, appointments
+            user, message, intent, drift, action, medications, appointments,
+            recent_history=recent_history,
         )
         try:
             raw = client.chat(prompt, hyperparameters={"temperature": 0.35, "topP": 0.9})
@@ -374,9 +515,13 @@ def generate_agent_response(user_id: str, message: str) -> Dict[str, Any]:
             action.get("next_action", "none"),
             medications,
             reminder_delay_seconds,
+            appointments=appointments,
         )
 
-    return {
+    # Attach navigation action if intent maps to a feature
+    navigation = _INTENT_NAVIGATION.get(intent)
+
+    result: Dict[str, Any] = {
         "reply": reply,
         "tone": tone,
         "suggested_action": suggested_action,
@@ -384,3 +529,6 @@ def generate_agent_response(user_id: str, message: str) -> Dict[str, Any]:
         "reminder_mode": reminder_mode,
         "reminder_delay_seconds": reminder_delay_seconds,
     }
+    if navigation:
+        result["navigation"] = navigation
+    return result

@@ -91,6 +91,12 @@ export type CommunityMyEventsResponse = {
   saved: CommunityEventItem[];
 };
 
+export type ChatNavigation = {
+  label: string;
+  route: string;
+  tab?: string;
+};
+
 export type ChatResponse = {
   reply: string;
   reply_en?: string;
@@ -105,6 +111,7 @@ export type ChatResponse = {
     recommendation_level?: string | null;
     reminder_mode?: "timer" | "medication_schedule" | null;
     reminder_delay_seconds?: number | null;
+    navigation?: ChatNavigation | null;
   };
   language: string;
 };

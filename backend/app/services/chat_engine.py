@@ -119,12 +119,7 @@ def _build_food_quick_replies(parsed_food: Dict[str, Any], nutrition_result: Dic
 
 
 def _build_general_quick_replies(intent: str) -> List[str]:
-    if intent in {"medication_query", "medication_education"}:
-        return ["Please explain simply", "Why is this important?", "Set a reminder for me"]
-    if intent == "missed_medication":
-        return ["What should I do now?", "Set a reminder for me", "Explain simply"]
-    if intent == "emotional_support":
-        return ["Set a reminder for me", "What should I do next?", "Explain simply"]
+    """Build quick reply suggestions. Only used for food-related intents."""
     return []
 
 
@@ -276,6 +271,7 @@ def generate_patient_reply(user_id: str, message: str, language: str = "en") -> 
             "recommendation_level": nutrition_result.get("recommendation_level"),
             "reminder_mode": None,
             "reminder_delay_seconds": None,
+            "navigation": None,
         }
     else:
         # Route through the Conversation Care Agent for intent detection + reply generation
@@ -283,6 +279,7 @@ def generate_patient_reply(user_id: str, message: str, language: str = "en") -> 
         agent_result = generate_agent_response(user_id, message)
         reply = agent_result["reply"]
         quick_replies = _build_general_quick_replies(str(agent_result.get("intent") or ""))
+        navigation = agent_result.get("navigation")
 
         # If agent detected a reminder intent, persist the reminder preference
         if agent_result["suggested_action"] == "set_reminder":
@@ -305,6 +302,7 @@ def generate_patient_reply(user_id: str, message: str, language: str = "en") -> 
             "intent": agent_result["intent"],
             "reminder_mode": agent_result.get("reminder_mode"),
             "reminder_delay_seconds": agent_result.get("reminder_delay_seconds"),
+            "navigation": navigation,
         }
 
     # Translate if a non-English language is requested

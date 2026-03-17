@@ -75,6 +75,7 @@ type ChatMessage = {
   timestamp: Date;
   lang?: string;
   quickReplies?: string[];
+  navigation?: { label: string; route: string; tab?: string } | null;
 };
 
 type ReminderResponseStatus = "taken" | "skipped" | "snoozed" | "missed" | "late";
@@ -1127,6 +1128,7 @@ export default function DashboardPage() {
         timestamp: new Date(),
         lang: response.language || lang,
         quickReplies: response.quick_replies ?? [],
+        navigation: response.context?.navigation ?? null,
       }]);
 
       if (response.context?.reminder_mode === "timer" && response.context?.reminder_delay_seconds) {
@@ -2607,6 +2609,28 @@ export default function DashboardPage() {
                                 </button>
                               ))}
                             </div>
+                          ) : null}
+                          {message.navigation ? (
+                            <button
+                              type="button"
+                              className="chat-nav-btn"
+                              onClick={() => {
+                                if (message.navigation?.tab) {
+                                  setActiveTab(message.navigation.tab as Tab);
+                                  // Scroll to the relevant section after tab switch
+                                  if (message.navigation.tab === "home") {
+                                    setTimeout(() => {
+                                      document.getElementById("upcoming-visit")?.scrollIntoView({ behavior: "smooth", block: "center" });
+                                    }, 150);
+                                  }
+                                } else if (message.navigation?.route) {
+                                  router.push(`/dashboard/${userId}${message.navigation.route}`);
+                                }
+                              }}
+                            >
+                              <ChevronRight size={15} strokeWidth={2.2} />
+                              {message.navigation.label}
+                            </button>
                           ) : null}
                         </div>
                         <button
