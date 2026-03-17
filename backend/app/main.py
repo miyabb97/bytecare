@@ -79,6 +79,11 @@ def on_startup():
             conn.commit()
         except Exception:
             pass  # Column already exists — safe to ignore
+        try:
+            conn.execute(_text("ALTER TABLE medications ADD COLUMN routine_type TEXT DEFAULT 'morning'"))
+            conn.commit()
+        except Exception:
+            pass  # Column already exists — safe to ignore
     # Pre-load CLIP model in a background thread so the first /tcm-identify
     # request doesn't block long enough to trigger a proxy timeout.
     import threading
