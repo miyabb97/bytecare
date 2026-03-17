@@ -40,6 +40,7 @@ import {
 import {
   api,
   type Account,
+  type AdaptiveTimingItem,
   type AppointmentItem,
   type AppointmentListResponse,
   type AppointmentResponse,
@@ -642,6 +643,9 @@ export default function DashboardPage() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [adherenceTracking, setAdherenceTracking] = useState<Record<string, string>>({});
 
+  // --- Adaptive Timing state ---
+  const [adaptiveTiming, setAdaptiveTiming] = useState<AdaptiveTimingItem[]>([]);
+
   // --- Medication Supply / Refill reminder state ---
   const [refillStatus, setRefillStatus] = useState<RefillStatusItem[] | null>(null);
   const [supplyInputs, setSupplyInputs] = useState<Record<string, string>>({});
@@ -667,7 +671,7 @@ export default function DashboardPage() {
     setDashboardLoading(true);
     setDashboardError(null);
 
-    const [userRes, medsRes, driftRes, nextRes, foodRes, appointmentRes, communityRes, myEventsRes] = await Promise.allSettled([
+    const [userRes, medsRes, driftRes, nextRes, foodRes, appointmentRes, communityRes, myEventsRes, adaptiveRes] = await Promise.allSettled([
       api.getUser(userId),
       api.getMedications(userId),
       api.getDrift(userId),
@@ -675,7 +679,8 @@ export default function DashboardPage() {
       api.getFoodRecommendations(userId),
       api.getAppointments(userId),
       api.getCommunityEvents(userId),
-      getMyCommunityEventsSafe(userId)
+      getMyCommunityEventsSafe(userId),
+      api.getAdaptiveTiming(userId)
     ]);
 
     const errors: string[] = [];
@@ -736,6 +741,12 @@ export default function DashboardPage() {
     } else {
       setMyCommunityEvents(null);
       errors.push(`my-events: ${safeMessage(myEventsRes.reason)}`);
+    }
+
+    if (adaptiveRes.status === "fulfilled") {
+      setAdaptiveTiming(adaptiveRes.value.items ?? []);
+    } else {
+      setAdaptiveTiming([]);
     }
 
     if (errors.length > 0) {
@@ -889,6 +900,15 @@ export default function DashboardPage() {
     }
     return sorted[0] ?? null;
   }, [allAppts, appointments]);
+
+  // Adaptive timing lookup: "medId:scheduleTime" -> AdaptiveTimingItem
+  const adaptiveMap = useMemo(() => {
+    const m = new Map<string, AdaptiveTimingItem>();
+    for (const a of adaptiveTiming) {
+      m.set(`${a.medication_id}:${a.schedule_time}`, a);
+    }
+    return m;
+  }, [adaptiveTiming]);
 
   // Build today's dose slots for the home tab overview
   type TodayDoseSlot = { med: MedicationItem; scheduledFor: string; timeLabel: string; status: string | null };
@@ -1827,24 +1847,36 @@ export default function DashboardPage() {
 
               {/* Today's Doses */}
               {todayDoseSlots.length > 0 && (
-                <section id="today-doses" className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
+                <section id="today-doses" className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm overflow-visible">
                   <div className="mb-3 flex items-center gap-3">
                     <CalendarDays className="text-[#3670e2]" size={22} />
                     <h3 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Today&apos;s Doses</h3>
                   </div>
                   <div className="space-y-3">
-                    {todayDoseSlots.map((slot) => {
+                    {todayDoseSlots.map((slot, slotIdx) => {
                       const key = `${slot.med.medication_id}:${slot.scheduledFor}`;
                       const isLoading = quickMarkLoading === key;
                       const undoInfo = undoEvents.get(key);
                       const effectiveStatus = timerResponseByMedId.get(slot.med.medication_id) ?? slot.status;
+                      const adaptive = adaptiveMap.get(`${slot.med.medication_id}:${slot.timeLabel}`);
+                      const isLearned = adaptive?.confidence === "learned";
+                      const dropdownUp = slotIdx >= todayDoseSlots.length - 3;
+                      // Check if this dose is still in the future (can't mark yet)
+                      const nowDate = new Date();
+                      const schedDate = new Date(slot.scheduledFor);
+                      const isFuture = schedDate.getTime() > nowDate.getTime();
                       return (
                         <div key={key} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-semibold text-slate-800">{slot.med.name}</p>
                             <p className="text-xs text-slate-500">{slot.timeLabel} &middot; {slot.med.dose_text}</p>
+                            {isLearned && adaptive.learned_time && adaptive.learned_time !== slot.timeLabel ? (
+                              <p className="mt-0.5 text-xs text-slate-400">Usually around {adaptive.learned_time} &middot; {adaptive.timing_status}</p>
+                            ) : null}
                             {userMentionedReminderSeconds ? (
                               <p className="mt-0.5 text-xs font-medium text-blue-500">Reminder in {formatTimerLabel(userMentionedReminderSeconds)}</p>
+                            ) : isLearned && adaptive.smart_reminder_time ? (
+                              <p className="mt-0.5 text-xs font-medium text-blue-500">Smart reminder around {adaptive.smart_reminder_time}</p>
                             ) : slot.med.reminder_offset_minutes ? (
                               <p className="mt-0.5 text-xs font-medium text-blue-500">Reminder {slot.med.reminder_offset_minutes} min before</p>
                             ) : null}
@@ -1867,8 +1899,8 @@ export default function DashboardPage() {
                                   <span className="ml-0.5 opacity-60 text-[9px]">▾</span>
                                 </button>
                                 {openDropdownKey === key && (
-                                  <div className="absolute right-0 top-full z-50 mt-1 min-w-[110px] overflow-hidden rounded-xl border border-slate-200 bg-gray-50 shadow-md">
-                                    {(["taken", "missed", "late", "skipped"] as ReminderResponseStatus[])
+                                  <div className={`absolute right-0 z-50 min-w-[110px] overflow-hidden rounded-xl border border-slate-200 bg-gray-50 shadow-md ${dropdownUp ? "bottom-full mb-1" : "top-full mt-1"}`}>
+                                    {(["taken", "missed", "late", "snoozed"] as ReminderResponseStatus[])
                                       .filter((s) => s !== effectiveStatus)
                                       .map((s) => (
                                         <button
@@ -1878,7 +1910,7 @@ export default function DashboardPage() {
                                           onClick={() => { setOpenDropdownKey(null); void handleQuickMark(slot, s); }}
                                           style={{ background: "none", marginTop: 0, borderRadius: 0, padding: "0.5rem 1rem" }}
                                           className={`block w-full text-left text-xs font-medium outline-none transition hover:bg-slate-200 ${s === "taken" ? "text-emerald-700"
-                                            : s === "skipped" ? "text-slate-500"
+                                            : s === "snoozed" ? "text-blue-600"
                                               : s === "late" ? "text-amber-700"
                                                 : "text-red-700"
                                             }`}
@@ -1900,6 +1932,10 @@ export default function DashboardPage() {
                                 </button>
                               )}
                             </div>
+                          ) : isFuture ? (
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-400">
+                              Upcoming
+                            </span>
                           ) : (
                             <div className="relative" data-dose-dropdown>
                               <button
@@ -1912,8 +1948,8 @@ export default function DashboardPage() {
                                 <span className="ml-0.5 opacity-60 text-[9px]">▾</span>
                               </button>
                               {openDropdownKey === key && (
-                                <div className="absolute right-0 top-full z-50 mt-1 min-w-[110px] overflow-hidden rounded-xl border border-slate-200 bg-gray-50 shadow-md">
-                                  {(["taken", "missed", "late", "skipped", "snoozed"] as ReminderResponseStatus[]).map((s) => (
+                                <div className={`absolute right-0 z-50 min-w-[110px] overflow-hidden rounded-xl border border-slate-200 bg-gray-50 shadow-md ${dropdownUp ? "bottom-full mb-1" : "top-full mt-1"}`}>
+                                  {(["taken", "missed", "late", "snoozed"] as ReminderResponseStatus[]).map((s) => (
                                     <button
                                       key={s}
                                       type="button"
@@ -1921,10 +1957,9 @@ export default function DashboardPage() {
                                       onClick={() => { setOpenDropdownKey(null); void handleQuickMark(slot, s); }}
                                       style={{ background: "none", marginTop: 0, borderRadius: 0, padding: "0.5rem 1rem" }}
                                       className={`block w-full text-left text-xs font-medium outline-none transition hover:bg-slate-200 ${s === "taken" ? "text-emerald-700"
-                                        : s === "skipped" ? "text-slate-500"
-                                          : s === "snoozed" ? "text-blue-600"
-                                            : s === "late" ? "text-amber-700"
-                                              : "text-red-700"
+                                        : s === "snoozed" ? "text-blue-600"
+                                          : s === "late" ? "text-amber-700"
+                                            : "text-red-700"
                                         }`}
                                     >
                                       Mark as {formatReminderStatusLabel(s)}
@@ -2917,6 +2952,51 @@ export default function DashboardPage() {
                   </div>
                 </div>
               </section>
+
+              {adaptiveTiming.length > 0 && (
+                <section className="space-y-3">
+                  <div className="flex items-center gap-3 px-1">
+                    <Clock3 className="text-[#3670e2]" size={24} />
+                    <h2 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Medication Timing</h2>
+                  </div>
+                  <div className="rounded-[2rem] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
+                    <div className="space-y-4">
+                      {adaptiveTiming.map((item) => {
+                        const isLearned = item.confidence === "learned";
+                        return (
+                          <div key={`${item.medication_id}:${item.schedule_time}`} className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
+                            <h4 className="text-sm font-semibold text-slate-900">{item.medication_name}</h4>
+                            <div className="mt-2 space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] text-slate-500">Recommended</span>
+                                <span className="text-[11px] font-semibold text-slate-700">{item.schedule_time}</span>
+                              </div>
+                              {isLearned && item.learned_time ? (
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[11px] text-slate-500">Usual time</span>
+                                  <span className="text-[11px] font-semibold text-slate-700">around {item.learned_time}</span>
+                                </div>
+                              ) : null}
+                              {item.smart_reminder_time ? (
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[11px] text-slate-500">Smart reminder</span>
+                                  <span className="text-[11px] font-semibold text-blue-600">around {item.smart_reminder_time}</span>
+                                </div>
+                              ) : null}
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] text-slate-500">Status</span>
+                                <span className={`text-[11px] font-semibold ${isLearned && item.average_deviation_minutes <= 30 ? "text-emerald-600" : isLearned && item.average_deviation_minutes <= 60 ? "text-amber-600" : isLearned ? "text-red-500" : "text-slate-400"}`}>
+                                  {item.timing_status}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </section>
+              )}
 
               <section className="space-y-3">
                 <div className="flex items-center gap-3 px-1">

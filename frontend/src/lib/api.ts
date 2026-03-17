@@ -200,6 +200,25 @@ export type DoseEventListResponse = {
   items: DoseEventItem[];
 };
 
+export type AdaptiveTimingItem = {
+  medication_id: string;
+  medication_name: string;
+  schedule_time: string;
+  learned_time: string | null;
+  display_time: string;
+  sample_count: number;
+  average_deviation_minutes: number;
+  smart_reminder_time: string | null;
+  routine_type: string;
+  timing_status: string;
+  confidence: "learned" | "default";
+};
+
+export type AdaptiveTimingResponse = {
+  user_id: string;
+  items: AdaptiveTimingItem[];
+};
+
 export type Account = {
   account_id: string;
   name: string;
@@ -256,6 +275,8 @@ export const api = {
     apiRequest<AppointmentResponse>(`/users/${userId}/appointments`),
   getDoseEvents: (userId: string, days: number = 7) =>
     apiRequest<DoseEventListResponse>(`/users/${userId}/dose-events?days=${days}`),
+  getAdaptiveTiming: (userId: string) =>
+    apiRequest<AdaptiveTimingResponse>(`/users/${userId}/adaptive-timing`),
   getCommunityEvents: (userId: string) =>
     apiRequest<CommunityResponse>(`/users/${userId}/community-events`),
   getAllCommunityEvents: (userId: string) =>

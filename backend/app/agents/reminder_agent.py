@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from app.db import SessionLocal
-from app.models import ChatMessage, Medication, User
+from app.models import ChatMessage, Medication, MedicationBehaviorPattern, User
 
 
 def set_medication_reminder(
@@ -102,8 +102,17 @@ def schedule_quick_reminder(user_id: str, delay_seconds: int) -> Dict[str, Any]:
     return {"success": True, "delay_seconds": delay_seconds, "mode": "timer"}
 
 
-def _next_scheduled_time(schedule: Dict[str, Any]) -> Optional[datetime]:
-    """Return the next scheduled dose datetime from a medication schedule dict."""
+def _next_scheduled_time(
+    schedule: Dict[str, Any],
+    adaptive_overrides: Optional[Dict[str, str]] = None,
+) -> Optional[datetime]:
+    """Return the next scheduled dose datetime from a medication schedule dict.
+
+    Args:
+        schedule: medication schedule with "times" list
+        adaptive_overrides: optional mapping of schedule_time -> display_time
+            (learned usual time). When provided, uses display_time as the anchor.
+    """
     times: List[str] = schedule.get("times", [])
     if not times:
         return None
@@ -113,8 +122,12 @@ def _next_scheduled_time(schedule: Dict[str, Any]) -> Optional[datetime]:
     candidates: List[datetime] = []
 
     for hhmm in times:
+        # Use learned display_time if available
+        anchor = hhmm
+        if adaptive_overrides and hhmm in adaptive_overrides:
+            anchor = adaptive_overrides[hhmm]
         try:
-            h, m = hhmm.split(":")
+            h, m = anchor.split(":")
             dt = datetime(today.year, today.month, today.day, int(h), int(m))
             if dt > now:
                 candidates.append(dt)
@@ -125,8 +138,11 @@ def _next_scheduled_time(schedule: Dict[str, Any]) -> Optional[datetime]:
         # No more doses today — try tomorrow
         tomorrow = today + timedelta(days=1)
         for hhmm in times:
+            anchor = hhmm
+            if adaptive_overrides and hhmm in adaptive_overrides:
+                anchor = adaptive_overrides[hhmm]
             try:
-                h, m = hhmm.split(":")
+                h, m = anchor.split(":")
                 dt = datetime(tomorrow.year, tomorrow.month, tomorrow.day, int(h), int(m))
                 candidates.append(dt)
             except (ValueError, AttributeError):
@@ -157,6 +173,20 @@ def check_and_fire_reminders(user_id: str) -> Dict[str, Any]:
         now_str = now.isoformat(timespec="seconds")
         two_hours_ago = (now - timedelta(hours=2)).isoformat(timespec="seconds")
 
+        # Load learned patterns for adaptive anchor times
+        patterns = (
+            db.query(MedicationBehaviorPattern)
+            .filter_by(patient_id=user_id)
+            .all()
+        )
+        # Build per-medication adaptive overrides: {med_id: {schedule_time: display_time}}
+        adaptive_by_med: Dict[str, Dict[str, str]] = {}
+        for p in patterns:
+            if p.learned_time and (p.sample_count or 0) >= 3 and p.schedule_time:
+                if p.medication_id not in adaptive_by_med:
+                    adaptive_by_med[p.medication_id] = {}
+                adaptive_by_med[p.medication_id][p.schedule_time] = p.learned_time
+
         fired: List[Dict[str, Any]] = []
 
         for med in meds:
@@ -165,19 +195,28 @@ def check_and_fire_reminders(user_id: str) -> Dict[str, Any]:
                 continue
 
             schedule = med.schedule or {}
-            next_time = _next_scheduled_time(schedule)
+            overrides = adaptive_by_med.get(med.medication_id)
+            next_time = _next_scheduled_time(schedule, adaptive_overrides=overrides)
             if not next_time:
                 continue
 
             minutes_until = (next_time - now).total_seconds() / 60
+            is_adaptive = overrides is not None and len(overrides) > 0
 
             # Fire window: between (offset) and (offset - 2) minutes before dose
             if offset - 2 <= minutes_until <= offset:
-                reminder_text = (
-                    f"Reminder: It's almost time for your {med.name}! "
-                    f"Scheduled at {next_time.strftime('%I:%M %p')}. "
-                    f"Please get ready ah."
-                )
+                if is_adaptive:
+                    reminder_text = (
+                        f"Smart reminder: It's almost time for your {med.name}! "
+                        f"Your usual time is around {next_time.strftime('%I:%M %p')}. "
+                        f"Please get ready ah."
+                    )
+                else:
+                    reminder_text = (
+                        f"Reminder: It's almost time for your {med.name}! "
+                        f"Scheduled at {next_time.strftime('%I:%M %p')}. "
+                        f"Please get ready ah."
+                    )
 
                 # Dedup: skip if we already fired for this med within 2 hours
                 existing = (

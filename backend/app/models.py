@@ -254,7 +254,7 @@ class MedicationTimingDeviation(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     patient_id = Column(String, nullable=False, index=True)
     medication_id = Column(String, nullable=False, index=True)
-    routine_type = Column(String, nullable=True)
+    routine_type = Column("routine_period", String, nullable=True)
     expected_start_time = Column(String, nullable=False)  # HH:MM
     expected_end_time = Column(String, nullable=False)    # HH:MM
     actual_taken_time = Column(String, nullable=False)     # ISO datetime
@@ -284,7 +284,9 @@ class MedicationBehaviorPattern(Base):
     patient_id = Column(String, nullable=False, index=True)
     medication_id = Column(String, nullable=False, index=True)
     routine_type = Column(String, nullable=True)
-    learned_time = Column(String, nullable=True)  # HH:MM learned/mean time
+    schedule_time = Column(String, nullable=True)   # HH:MM prescribed slot this row tracks
+    learned_time = Column(String, nullable=True)    # HH:MM learned median time
+    sample_count = Column(Integer, default=0)       # number of valid "taken" samples
     average_deviation_minutes = Column(Integer, default=0)
     late_dose_count = Column(Integer, default=0)
     missed_dose_count = Column(Integer, default=0)
@@ -296,7 +298,9 @@ class MedicationBehaviorPattern(Base):
             "patient_id": self.patient_id,
             "medication_id": self.medication_id,
             "routine_type": self.routine_type,
+            "schedule_time": self.schedule_time,
             "learned_time": self.learned_time,
+            "sample_count": self.sample_count,
             "average_deviation_minutes": self.average_deviation_minutes,
             "late_dose_count": self.late_dose_count,
             "missed_dose_count": self.missed_dose_count,

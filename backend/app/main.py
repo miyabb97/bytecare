@@ -37,6 +37,7 @@ from app.models import (
     MedicationTimingDeviation,
     MedicationBehaviorPattern,
 )
+from app.routers.adaptive_timing import router as adaptive_timing_router
 from app.routers.agent import router as agent_router
 from app.routers.appointments import router as appointments_router
 from app.routers.chat import router as chat_router
@@ -84,6 +85,16 @@ def on_startup():
             conn.commit()
         except Exception:
             pass  # Column already exists — safe to ignore
+        try:
+            conn.execute(_text("ALTER TABLE medication_behavior_patterns ADD COLUMN schedule_time TEXT"))
+            conn.commit()
+        except Exception:
+            pass
+        try:
+            conn.execute(_text("ALTER TABLE medication_behavior_patterns ADD COLUMN sample_count INTEGER DEFAULT 0"))
+            conn.commit()
+        except Exception:
+            pass
     # Pre-load CLIP model in a background thread so the first /tcm-identify
     # request doesn't block long enough to trigger a proxy timeout.
     import threading
@@ -807,16 +818,47 @@ def record_medication_intake(user_id: str, payload: IntakeResponseCreate, db: Se
     if payload.response_status == "taken":
         # fetch user for timezone if needed
         user = get_user_or_404(db, user_id)
-        # expected windows
+
+        # Hardcoded fallback routine windows
         routine_windows = {
             "morning": ("05:00", "11:00"),
             "afternoon": ("11:00", "17:00"),
             "evening": ("17:00", "23:00"),
         }
 
+        # Load learned patterns to use adaptive windows when available
+        from app.models import MedicationBehaviorPattern
+        learned_patterns = (
+            db.query(MedicationBehaviorPattern)
+            .filter_by(patient_id=user_id)
+            .all()
+        )
+        pattern_lookup = {}
+        for p in learned_patterns:
+            if p.learned_time and (p.sample_count or 0) >= 3:
+                pattern_lookup[f"{p.medication_id}:{p.schedule_time}"] = p
+
         for medication, created in zip(medications, created_events):
             routine = getattr(medication, "routine_type", "morning") or "morning"
-            expected_start, expected_end = routine_windows.get(routine, ("05:00", "11:00"))
+            half_window = (medication.time_window_minutes or 120) // 2
+
+            # Try to use learned window centered on usual time
+            sched_time_str = payload.scheduled_for[11:16] if len(payload.scheduled_for) >= 16 else ""
+            pattern_key = f"{medication.medication_id}:{sched_time_str}"
+            pattern = pattern_lookup.get(pattern_key)
+
+            if pattern and pattern.learned_time:
+                # Adaptive window centered on learned time
+                lh, lm = map(int, pattern.learned_time.split(":"))
+                learned_mins = lh * 60 + lm
+                start_mins = max(0, learned_mins - half_window)
+                end_mins = min(23 * 60 + 59, learned_mins + half_window)
+                expected_start = f"{start_mins // 60:02d}:{start_mins % 60:02d}"
+                expected_end = f"{end_mins // 60:02d}:{end_mins % 60:02d}"
+            else:
+                # Fallback to hardcoded routine windows
+                expected_start, expected_end = routine_windows.get(routine, ("05:00", "11:00"))
+
             try:
                 actual_dt = datetime.fromisoformat(timestamp)
             except Exception:
@@ -881,7 +923,13 @@ def record_medication_intake(user_id: str, payload: IntakeResponseCreate, db: Se
 
         db.commit()
 
+    # Recompute learned behavior patterns after any dose event
     if payload.response_status in {"taken", "skipped", "missed", "late"}:
+        try:
+            from app.services.routine_learning import update_behavior_patterns
+            update_behavior_patterns(db, user_id)
+        except Exception:
+            pass  # non-fatal: learning update should not block intake
         recompute_mes_for_user(db, user_id, days=14)
 
     return {"items": created_events}
@@ -944,12 +992,21 @@ def simulate_pillbox(user_id: str, payload: SimulatorRun, db: Session = Depends(
                 else:
                     ev_dt = scheduled_dt + timedelta(minutes=rng.randint(0, 20))
 
+            # Determine response_status based on timing
+            delta_mins = int((ev_dt - scheduled_dt).total_seconds() / 60)
+            if delta_mins > 90:
+                sim_status = "late"
+            else:
+                sim_status = "taken"
+
             db.add(DoseEvent(
                 event_id=str(uuid4()),
                 user_id=user_id,
                 medication_id=med["medication_id"],
                 event_type="pillbox_open",
                 source="simulator",
+                scheduled_for=scheduled_dt.isoformat(timespec="seconds"),
+                response_status=sim_status,
                 timestamp=ev_dt.isoformat(timespec="seconds"),
                 created_at=now_iso(),
             ))
@@ -1128,6 +1185,7 @@ app.include_router(clinician_router, prefix="/api/v1")
 app.include_router(orchestrator_router, prefix="/api/v1")
 app.include_router(refill_router, prefix="/api/v1")
 app.include_router(reminders_router, prefix="/api/v1")
+app.include_router(adaptive_timing_router, prefix="/api/v1")
 
 
 # -------------------------
@@ -1232,3 +1290,75 @@ def seed_demo_patients(db: Session = Depends(get_db)):
 
     db.commit()
     return {"patients": created, "count": len(created)}
+
+
+# ---------------------------------------------------------------------------
+# Seed adaptive-timing test data
+# ---------------------------------------------------------------------------
+
+class SeedAdaptiveRequest(BaseModel):
+    days: int = Field(default=5, ge=3, le=14, description="Number of past days to generate taken events for")
+    offset_minutes: int = Field(default=30, description="Average offset from scheduled time (positive = later)")
+
+@app.post("/api/v1/users/{user_id}/seed-adaptive-data")
+def seed_adaptive_data(user_id: str, payload: SeedAdaptiveRequest, db: Session = Depends(get_db)):
+    """Generate fake 'taken' dose events over recent days so adaptive learning can be tested.
+
+    For each medication and each schedule time, creates one taken event per day
+    at schedule_time + offset_minutes ± small random jitter.
+    Then triggers the learning service to recompute patterns.
+    """
+    user = get_user_or_404(db, user_id)
+    meds = db.query(Medication).filter_by(user_id=user_id).all()
+    if not meds:
+        raise HTTPException(status_code=404, detail="No medications found for this user")
+
+    created_count = 0
+    now = datetime.now()
+
+    for med in meds:
+        schedule = med.schedule or {}
+        times: List[str] = schedule.get("times", [])
+
+        for sched_time in times:
+            if not sched_time:
+                continue
+            sh, sm = map(int, sched_time.split(":"))
+            sched_mins = sh * 60 + sm
+
+            for day_offset in range(1, payload.days + 1):
+                day = now - timedelta(days=day_offset)
+                # Add the configured offset plus a small random jitter (-10 to +10 min)
+                jitter = random.randint(-10, 10)
+                taken_mins = sched_mins + payload.offset_minutes + jitter
+                taken_h = max(0, min(23, taken_mins // 60))
+                taken_m = max(0, min(59, taken_mins % 60))
+
+                taken_dt = day.replace(hour=taken_h, minute=taken_m, second=0, microsecond=0)
+                scheduled_dt = day.replace(hour=sh, minute=sm, second=0, microsecond=0)
+
+                ev = DoseEvent(
+                    event_id=str(uuid4()),
+                    user_id=user_id,
+                    medication_id=med.medication_id,
+                    event_type="tap_confirm",
+                    source="seed_adaptive_test",
+                    scheduled_for=scheduled_dt.isoformat(timespec="seconds"),
+                    response_status="taken",
+                    timestamp=taken_dt.isoformat(timespec="seconds"),
+                    created_at=taken_dt.isoformat(timespec="seconds"),
+                )
+                db.add(ev)
+                created_count += 1
+
+    db.commit()
+
+    # Trigger learning recomputation
+    from app.services.routine_learning import update_behavior_patterns
+    patterns = update_behavior_patterns(db, user_id)
+
+    return {
+        "message": f"Seeded {created_count} dose events across {payload.days} days with ~{payload.offset_minutes}min offset",
+        "events_created": created_count,
+        "learned_patterns": patterns,
+    }

@@ -19,6 +19,7 @@ import {
 
 import {
   api,
+  type AdaptiveTimingItem,
   type CommunityEventItem,
   type MedicationItem,
   type UserProfile,
@@ -35,7 +36,7 @@ const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
-const TIMELINE_HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
+const TIMELINE_HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
 
 function BottomNavIcon({ tab, active }: { tab: Tab; active: boolean }) {
   const s = { size: 19, strokeWidth: active ? 2.15 : 1.95 };
@@ -132,6 +133,7 @@ export default function PlannerPage() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [medications, setMedications] = useState<MedicationItem[]>([]);
   const [events, setEvents] = useState<CommunityEventItem[]>([]);
+  const [adaptiveTiming, setAdaptiveTiming] = useState<AdaptiveTimingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -147,14 +149,16 @@ export default function PlannerPage() {
     setLoading(true);
     setError(null);
     try {
-      const [prof, meds, evts] = await Promise.all([
+      const [prof, meds, evts, adaptive] = await Promise.all([
         api.getUser(userId),
         api.getMedications(userId),
         api.getCommunityEvents(userId),
+        api.getAdaptiveTiming(userId).catch(() => ({ user_id: userId, items: [] })),
       ]);
       setUserProfile(prof);
       setMedications(meds.items ?? []);
       setEvents(evts.events ?? []);
+      setAdaptiveTiming(adaptive.items ?? []);
     } catch (e) {
       setError(safeMessage(e));
     } finally {
@@ -164,16 +168,27 @@ export default function PlannerPage() {
 
   useEffect(() => { void loadData(); }, [loadData]);
 
-  // All scheduled med times (repeat every day)
+  // Adaptive timing lookup
+  const adaptiveMap = useMemo(() => {
+    const m = new Map<string, AdaptiveTimingItem>();
+    for (const a of adaptiveTiming) {
+      m.set(`${a.medication_id}:${a.schedule_time}`, a);
+    }
+    return m;
+  }, [adaptiveTiming]);
+
+  // All scheduled med times (repeat every day), positioned at display_time
   const allMedSlots = useMemo(() => {
-    const out: { med: MedicationItem; mins: number }[] = [];
+    const out: { med: MedicationItem; mins: number; scheduledMins: number; scheduleTime: string }[] = [];
     for (const med of medications) {
       for (const t of med.schedule.times) {
-        out.push({ med, mins: parseTimeMins(t) });
+        const adaptive = adaptiveMap.get(`${med.medication_id}:${t}`);
+        const displayMins = adaptive ? parseTimeMins(adaptive.display_time) : parseTimeMins(t);
+        out.push({ med, mins: displayMins, scheduledMins: parseTimeMins(t), scheduleTime: t });
       }
     }
     return out.sort((a, b) => a.mins - b.mins);
-  }, [medications]);
+  }, [medications, adaptiveMap]);
 
   // Events on selected day
   const dayEvents = useMemo(() => {
@@ -184,12 +199,12 @@ export default function PlannerPage() {
 
   // Combined timeline items sorted by time
   type TLItem =
-    | { kind: "med"; mins: number; med: MedicationItem }
+    | { kind: "med"; mins: number; scheduledMins: number; med: MedicationItem }
     | { kind: "event"; mins: number; event: CommunityEventItem };
 
   const timelineItems = useMemo((): TLItem[] => {
     const items: TLItem[] = [
-      ...allMedSlots.map((s) => ({ kind: "med" as const, mins: s.mins, med: s.med })),
+      ...allMedSlots.map((s) => ({ kind: "med" as const, mins: s.mins, scheduledMins: s.scheduledMins, med: s.med })),
       ...dayEvents.map((e) => {
         const dt = new Date(e.datetime);
         return { kind: "event" as const, mins: dt.getHours() * 60 + dt.getMinutes(), event: e };
@@ -208,6 +223,15 @@ export default function PlannerPage() {
     }
     return map;
   }, [timelineItems]);
+
+  // Only show hours that have items (plus the current hour if today)
+  const visibleHours = useMemo(() => {
+    if (timelineItems.length === 0) return TIMELINE_HOURS;
+    const hoursWithItems = new Set(timelineItems.map((it) => Math.floor(it.mins / 60)));
+    // Also include current hour when viewing today
+    if (isSameDay(selectedDate, today)) hoursWithItems.add(nowHour);
+    return TIMELINE_HOURS.filter((h) => hoursWithItems.has(h));
+  }, [timelineItems, selectedDate, today, nowHour]);
 
   // Set of date-strings that have any items (for month dots)
   const datesWithItems = useMemo(() => {
@@ -269,7 +293,7 @@ export default function PlannerPage() {
 
   return (
     <main className="flex min-h-screen justify-center bg-slate-100">
-      <div className="min-h-screen w-full max-w-md bg-slate-50 pb-24 md:border-x md:border-slate-200 md:shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+      <div className="flex min-h-screen w-full max-w-md flex-col bg-slate-50 md:border-x md:border-slate-200 md:shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
 
         {/* App header */}
         <header className="app-header">
@@ -312,7 +336,7 @@ export default function PlannerPage() {
           <p className="pl-[3.25rem] text-[0.77rem] text-slate-600">Medications &amp; activities at a glance.</p>
         </section>
 
-        <section className="space-y-4 px-4 py-4">
+        <section className="flex-1 space-y-4 px-4 py-4">
 
           {/* Calendar card */}
           <section className="rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
@@ -471,7 +495,7 @@ export default function PlannerPage() {
 
           {/* Vertical timeline */}
           {!loading && !error && (
-            <section className="rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
+            <section className="rounded-[1.75rem] border border-slate-200 bg-white shadow-sm overflow-hidden">
               <div className="px-5 pt-4 pb-2 border-b border-slate-100">
                 <h3 className="text-base font-bold text-slate-900">Day Schedule</h3>
               </div>
@@ -479,14 +503,28 @@ export default function PlannerPage() {
               {timelineItems.length === 0 ? (
                 <p className="px-5 py-6 text-center text-xs text-slate-400">Nothing scheduled for this day.</p>
               ) : (
-                <div className="px-4 py-3">
-                  {TIMELINE_HOURS.map((hr) => {
+                <div className="px-4 pt-3 pb-8">
+                  {visibleHours.map((hr, hrIdx) => {
                     const items = byHour.get(hr) ?? [];
                     const isPast = isSameDay(selectedDate, today) && hr < nowHour;
                     const isCurrent = isSameDay(selectedDate, today) && hr === nowHour;
+                    const isLastHour = hrIdx === visibleHours.length - 1;
+                    // Show a gap indicator when hours are non-consecutive
+                    const prevHr = hrIdx > 0 ? visibleHours[hrIdx - 1] : hr - 1;
+                    const hasGap = hr - prevHr > 1;
 
                     return (
-                      <div key={hr} className="flex gap-3 min-h-[2.75rem]">
+                      <div key={hr}>
+                        {hasGap && (
+                          <div className="flex gap-3 items-center py-1 pl-[3.25rem]">
+                            <div className="flex flex-col items-center">
+                              <div className="h-1 w-1 rounded-full bg-slate-200" />
+                              <div className="h-1 w-px bg-slate-200 mt-0.5" />
+                              <div className="h-1 w-1 rounded-full bg-slate-200 mt-0.5" />
+                            </div>
+                          </div>
+                        )}
+                      <div className="flex gap-3 min-h-[2.75rem]">
                         {/* Time label */}
                         <div className="w-12 flex-shrink-0 flex flex-col items-end pt-1">
                           <span
@@ -510,8 +548,10 @@ export default function PlannerPage() {
                                 : "bg-slate-200"
                             }`}
                           />
-                          {/* line segment */}
-                          <div className={`flex-1 w-px mt-1 ${isPast ? "bg-slate-100" : "bg-slate-200"}`} />
+                          {/* line segment — hide on last hour */}
+                          {!isLastHour && (
+                            <div className={`flex-1 w-px mt-1 ${isPast ? "bg-slate-100" : "bg-slate-200"}`} />
+                          )}
                         </div>
 
                         {/* Cards */}
@@ -519,31 +559,39 @@ export default function PlannerPage() {
                           {items.map((item, idx) => {
                             if (item.kind === "med") {
                               const isHigh = item.med.criticality?.toLowerCase() === "high";
+                              const showPrescribed = "scheduledMins" in item && item.scheduledMins !== item.mins;
                               return (
                                 <div
                                   key={`med-${item.med.medication_id}-${idx}`}
-                                  className={`flex items-center gap-2.5 rounded-2xl px-3 py-2.5 border ${
+                                  className={`rounded-2xl px-3 py-2.5 border ${
                                     isHigh
                                       ? "bg-blue-50 border-blue-100"
                                       : "bg-slate-50 border-slate-100"
                                   } ${isPast ? "opacity-40" : ""}`}
                                 >
-                                  <div
-                                    className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-xl ${
-                                      isHigh ? "bg-blue-100 text-[#3670e2]" : "bg-slate-200 text-slate-500"
-                                    }`}
-                                  >
-                                    <Pill size={13} />
+                                  <div className="flex items-start gap-2">
+                                    <div
+                                      className={`mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-xl ${
+                                        isHigh ? "bg-blue-100 text-[#3670e2]" : "bg-slate-200 text-slate-500"
+                                      }`}
+                                    >
+                                      <Pill size={13} />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-1.5">
+                                        <p className="text-[12px] font-semibold text-slate-800">{item.med.name}</p>
+                                        {isHigh && (
+                                          <span className="flex-shrink-0 rounded-full bg-blue-100 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-[#3670e2]">
+                                            Critical
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-[10px] text-slate-500">
+                                        {item.med.dose_text} · {fmtMins(item.mins)}
+                                        {showPrescribed ? ` (prescribed ${fmtMins(item.scheduledMins)})` : ""}
+                                      </p>
+                                    </div>
                                   </div>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="truncate text-[12px] font-semibold text-slate-800">{item.med.name}</p>
-                                    <p className="text-[10px] text-slate-500">{item.med.dose_text} · {fmtMins(item.mins)}</p>
-                                  </div>
-                                  {isHigh && (
-                                    <span className="flex-shrink-0 rounded-full bg-blue-100 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-[#3670e2]">
-                                      Critical
-                                    </span>
-                                  )}
                                 </div>
                               );
                             }
@@ -571,6 +619,7 @@ export default function PlannerPage() {
                           })}
                         </div>
                       </div>
+                      </div>
                     );
                   })}
                 </div>
@@ -581,8 +630,8 @@ export default function PlannerPage() {
         </section>
 
         {/* Bottom nav */}
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center pb-[max(env(safe-area-inset-bottom),0px)]">
-          <nav className="tc-bottom-nav pointer-events-auto flex w-full max-w-md items-center justify-between border-t border-slate-200 bg-white px-2 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.10)]">
+        <div className="w-full pb-[max(env(safe-area-inset-bottom),0px)]">
+          <nav className="tc-bottom-nav flex w-full items-center justify-between border-t border-slate-200 bg-white px-2 py-3">
             {(["home", "chat", "events", "health", "profile"] as Tab[]).map((tab) => (
               <button
                 key={tab}
