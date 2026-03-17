@@ -31,6 +31,7 @@ from app.models import (
     DoseEvent,
     InterventionLog,
     Medication,
+    MemoryCheckSession,
     MesScore,
     Simulation,
     User,
@@ -39,6 +40,7 @@ from app.models import (
 )
 from app.routers.adaptive_timing import router as adaptive_timing_router
 from app.routers.agent import router as agent_router
+from app.routers.memory_check import router as memory_check_router
 from app.routers.appointments import router as appointments_router
 from app.routers.chat import router as chat_router
 from app.routers.clinician import router as clinician_router
@@ -1186,6 +1188,7 @@ app.include_router(orchestrator_router, prefix="/api/v1")
 app.include_router(refill_router, prefix="/api/v1")
 app.include_router(reminders_router, prefix="/api/v1")
 app.include_router(adaptive_timing_router, prefix="/api/v1")
+app.include_router(memory_check_router, prefix="/api/v1")
 
 
 # -------------------------

@@ -341,11 +341,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ message })
     }),
-  postTTS: async (text: string, lang: string = "en"): Promise<Blob> => {
+  postTTS: async (text: string, lang: string = "en", slow: boolean = false): Promise<Blob> => {
     const response = await fetch(`${API_BASE}/voice/tts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, lang }),
+      body: JSON.stringify({ text, lang, slow }),
     });
     if (!response.ok) throw new Error(`TTS failed: HTTP ${response.status}`);
     return response.blob();
@@ -560,6 +560,28 @@ export const api = {
 
   requestRefill: (userId: string, medId: string) =>
     apiRequest<{ success: boolean; medication: string }>(`/users/${userId}/medications/${medId}/refill-request`, { method: "POST" }),
+
+  // --- Memory & Focus Check ---
+  startMemoryCheck: (userId: string, lang: string = "en") =>
+    apiRequest<MemoryCheckStartResponse>(`/users/${userId}/memory-check/start`, {
+      method: "POST",
+      body: JSON.stringify({ lang }),
+    }),
+
+  submitMemoryCheck: (userId: string, sessionId: string, responses: string[], lang: string = "en") =>
+    apiRequest<MemoryCheckResult>(`/users/${userId}/memory-check/submit`, {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId, responses, lang }),
+    }),
+
+  getMemoryCheckHistory: (userId: string) =>
+    apiRequest<MemoryCheckHistoryResponse>(`/users/${userId}/memory-check/history`),
+
+  getMemoryCheckAnalysis: (userId: string, lang: string = "en") =>
+    apiRequest<MemoryCheckAnalysisResponse>(`/users/${userId}/memory-check/analysis`, {
+      method: "POST",
+      body: JSON.stringify({ lang }),
+    }),
 
   // --- Reminder agent endpoints ---
   checkReminders: (userId: string) =>
@@ -822,4 +844,52 @@ export type RefillStatusItem = {
 
 export type RefillStatusResponse = {
   items: RefillStatusItem[];
+};
+
+// --- Memory & Focus Check types ---
+
+export type MemoryCheckQuestion = {
+  type: "orientation" | "recall" | "attention";
+  question: string;
+  answer_hint?: string;
+  words?: string[];
+  answer?: string;
+};
+
+export type MemoryCheckStartResponse = {
+  session_id: string;
+  questions: MemoryCheckQuestion[];
+};
+
+export type MemoryCheckScoringDetail = {
+  question: string;
+  correct: boolean;
+};
+
+export type MemoryCheckResult = {
+  session_id: string;
+  user_id: string;
+  questions: MemoryCheckQuestion[];
+  expected_answers: string[];
+  user_responses: string[];
+  score: number;
+  status: string;
+  insight: string;
+  completed: boolean;
+  created_at: string;
+  scoring_details?: MemoryCheckScoringDetail[];
+  alert_triggered?: boolean;
+  alert_message?: string;
+};
+
+export type MemoryCheckHistoryResponse = {
+  sessions: MemoryCheckResult[];
+};
+
+export type MemoryCheckAnalysisResponse = {
+  analysis: string;
+  session_count: number;
+  average_score: number | null;
+  alert_notified?: boolean;
+  alert_notified_at?: string;
 };

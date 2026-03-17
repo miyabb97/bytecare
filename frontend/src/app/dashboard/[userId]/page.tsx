@@ -6,6 +6,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Bell,
+  Brain,
   Camera,
   CalendarDays,
   ChevronRight,
@@ -249,7 +250,7 @@ function QuickActionTile({
 }: {
   icon: ReactNode;
   label: string;
-  tone: "blue" | "violet" | "teal" | "orange" | "green" | "red";
+  tone: "blue" | "violet" | "teal" | "orange" | "green" | "red" | "purple";
   onClick: () => void;
 }) {
   const tones = {
@@ -259,6 +260,7 @@ function QuickActionTile({
     orange: "bg-orange-50 text-orange-600",
     green: "bg-emerald-50 text-emerald-600",
     red: "bg-red-50 text-red-600",
+    purple: "bg-purple-50 text-purple-600",
   };
 
   return (
@@ -1775,6 +1777,12 @@ export default function DashboardPage() {
                     label="Support"
                     tone="red"
                     onClick={() => setActiveTab("chat")}
+                  />
+                  <QuickActionTile
+                    icon={<Brain className="h-5 w-5" />}
+                    label="Memory Check"
+                    tone="purple"
+                    onClick={() => router.push(`/dashboard/${userId}/memory-check`)}
                   />
                 </div>
               </section>

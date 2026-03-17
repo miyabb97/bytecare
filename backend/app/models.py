@@ -306,3 +306,44 @@ class MedicationBehaviorPattern(Base):
             "missed_dose_count": self.missed_dose_count,
             "last_updated": self.last_updated,
         }
+
+
+class MemoryCheckSession(Base):
+    __tablename__ = "memory_check_sessions"
+
+    session_id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False, index=True)
+    questions_json = Column(Text, nullable=False)       # JSON list of question objects
+    expected_answers_json = Column(Text, nullable=False) # JSON list of expected answers
+    user_responses_json = Column(Text, default="[]")     # JSON list of user responses
+    score = Column(Integer, nullable=True)               # deterministic score (0-3)
+    status = Column(String, default="within_range")      # within_range | slightly_lower
+    insight = Column(Text, default="")                   # LLM-generated friendly message
+    completed = Column(Integer, default=0)               # 0=in-progress, 1=completed
+    created_at = Column(String, nullable=False)
+
+    @property
+    def questions(self):
+        return json.loads(self.questions_json) if self.questions_json else []
+
+    @property
+    def expected_answers(self):
+        return json.loads(self.expected_answers_json) if self.expected_answers_json else []
+
+    @property
+    def user_responses(self):
+        return json.loads(self.user_responses_json) if self.user_responses_json else []
+
+    def to_dict(self):
+        return {
+            "session_id": self.session_id,
+            "user_id": self.user_id,
+            "questions": self.questions,
+            "expected_answers": self.expected_answers,
+            "user_responses": self.user_responses,
+            "score": self.score,
+            "status": self.status,
+            "insight": self.insight,
+            "completed": bool(self.completed),
+            "created_at": self.created_at,
+        }

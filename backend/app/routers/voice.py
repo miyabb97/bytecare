@@ -24,6 +24,7 @@ class VoiceAgentRequest(BaseModel):
 class TTSRequest(BaseModel):
     text: str
     lang: str = "en"
+    slow: bool = False
 
 
 @router.post("/users/{user_id}/voice/transcript")
@@ -41,7 +42,7 @@ def voice_agent(user_id: str, payload: VoiceAgentRequest):
 @router.post("/voice/tts")
 def tts_endpoint(payload: TTSRequest):
     """Convert text to speech audio (MP3)."""
-    audio_bytes = text_to_speech(payload.text, lang=payload.lang)
+    audio_bytes = text_to_speech(payload.text, lang=payload.lang, slow=payload.slow)
     return StreamingResponse(io.BytesIO(audio_bytes), media_type="audio/mpeg")
 
 

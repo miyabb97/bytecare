@@ -227,8 +227,14 @@ _LANG_GTTS = {"en": "en", "zh": "zh-CN", "yue": "zh-TW", "ms": "ms", "ta": "ta",
 
 # ─── Text-to-Speech ────────────────────────────────────────
 
-def text_to_speech(text: str, lang: str = "en") -> bytes:
-    """Convert text to MP3 audio bytes using edge-tts with language-appropriate SG voice."""
+def text_to_speech(text: str, lang: str = "en", slow: bool = False) -> bytes:
+    """Convert text to MP3 audio bytes using edge-tts with language-appropriate SG voice.
+
+    Args:
+        text: The text to synthesise.
+        lang: BCP-47 language code (en/zh/yue/ms/ta/hi).
+        slow: When True, reduces speaking rate by ~40% (used for recall-word playback).
+    """
     voice = _LANG_VOICES.get(lang, _LANG_VOICES["en"])
     try:
         import asyncio
@@ -236,7 +242,10 @@ def text_to_speech(text: str, lang: str = "en") -> bytes:
         import io
 
         async def _generate():
-            communicate = edge_tts.Communicate(text, voice=voice)
+            kwargs = {"voice": voice}
+            if slow:
+                kwargs["rate"] = "-40%"
+            communicate = edge_tts.Communicate(text, **kwargs)
             buf = io.BytesIO()
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
@@ -262,7 +271,7 @@ def text_to_speech(text: str, lang: str = "en") -> bytes:
         try:
             from gtts import gTTS
             gtts_lang = _LANG_GTTS.get(lang, "en")
-            tts = gTTS(text=text, lang=gtts_lang, slow=False)
+            tts = gTTS(text=text, lang=gtts_lang, slow=slow)
             buf = __import__("io").BytesIO()
             tts.write_to_fp(buf)
             buf.seek(0)
