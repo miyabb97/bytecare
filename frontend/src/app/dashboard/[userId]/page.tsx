@@ -2258,6 +2258,19 @@ export default function DashboardPage() {
               </section>
 
               <section className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Recommended For You</h2>
+                    <p className="mt-1 text-[0.75rem] text-slate-500">A preview of activities picked for your health profile.</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="tc-btn-link"
+                    onClick={() => router.push(`/dashboard/${encodeURIComponent(userId)}/events`)}
+                  >
+                    See all
+                  </button>
+                </div>
                 {homeEventsPreview.map((event, index) => {
                   const isJoined = joinedEventIds.has(event.event_id);
                   const isLoading = communityActionLoading === event.event_id;

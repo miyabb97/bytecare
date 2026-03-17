@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
@@ -12,6 +13,9 @@ from app.models import Medication, User, UserEvent
 from app.services.appointment_engine import get_upcoming_appointments
 from app.services.drift_engine import detect_adherence_drift
 from app.services.event_provider import load_local_events
+from app.services.recsys_engine import recommend_events as _recsys_recommend
+
+logger = logging.getLogger(__name__)
 
 
 _DIABETES_HINTS = {"diabetes", "insulin", "metformin", "humulin"}
@@ -158,6 +162,13 @@ def recommend_community_events(user_id: str) -> Dict[str, Any]:
     """Recommend top 5 community events by relevance and date."""
     _ensure_user_exists(user_id)
 
+    try:
+        top_events = _recsys_recommend(user_id, n=5)
+        return {"events": top_events}
+    except Exception:
+        logger.warning("recsys_engine failed for user %s, falling back to rule-based scorer", user_id)
+
+    # --- rule-based fallback ---
     conditions = _infer_conditions(user_id)
     drift = detect_adherence_drift(user_id)
     drift_severity = drift.get("severity", "green")
@@ -191,6 +202,44 @@ def list_community_events(user_id: str) -> Dict[str, Any]:
     """Return all upcoming community events with recommendation metadata."""
     _ensure_user_exists(user_id)
 
+    try:
+        top_events = _recsys_recommend(user_id, n=5)
+        recommended_ids = {e["event_id"] for e in top_events}
+        reasons_by_id = {e["event_id"]: e["reason"] for e in top_events}
+
+        now_utc = _now_utc()
+        all_upcoming: List[Dict[str, Any]] = []
+        for event in load_local_events():
+            event_dt = _as_utc(datetime.fromisoformat(event["datetime"]))
+            if event_dt < now_utc:
+                continue
+            all_upcoming.append(event)
+
+        all_upcoming.sort(key=lambda e: _as_utc(datetime.fromisoformat(e["datetime"])))
+
+        events: List[Dict[str, Any]] = []
+        for event in all_upcoming:
+            eid = event["event_id"]
+            is_recommended = eid in recommended_ids
+            events.append(
+                {
+                    "event_id": eid,
+                    "title": event["title"],
+                    "location": event["location"],
+                    "datetime": event["datetime"],
+                    "type": event["type"],
+                    "description": event["description"],
+                    "organiser": event["organiser"],
+                    "is_recommended": is_recommended,
+                    "reason": reasons_by_id.get(eid) if is_recommended else None,
+                }
+            )
+
+        return {"events": events}
+    except Exception:
+        logger.warning("recsys_engine failed for user %s, falling back to rule-based scorer", user_id)
+
+    # --- rule-based fallback ---
     conditions = _infer_conditions(user_id)
     drift = detect_adherence_drift(user_id)
     drift_severity = drift.get("severity", "green")
