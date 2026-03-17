@@ -228,13 +228,21 @@ def _food_profile_tags(food_name: str, food_profiles: Dict[str, Any]) -> Tuple[S
     matched_profiles: List[str] = []
 
     for profile_food, payload in food_profiles.items():
-        profile_norm = _normalize_text(profile_food)
-        if not profile_norm:
-            continue
+        candidates = [str(profile_food)]
+        if isinstance(payload, dict):
+            candidates.extend(str(item) for item in payload.get("aliases", []) if str(item).strip())
 
-        is_match = profile_norm in query_norm
-        if not is_match and len(query_norm) >= 5:
-            is_match = query_norm in profile_norm
+        is_match = False
+        for candidate in candidates:
+            candidate_norm = _normalize_text(candidate)
+            if not candidate_norm:
+                continue
+            if candidate_norm in query_norm:
+                is_match = True
+                break
+            if len(query_norm) >= 5 and query_norm in candidate_norm:
+                is_match = True
+                break
 
         if not is_match:
             continue
@@ -254,29 +262,28 @@ def _collect_avoid_food_tags(avoid_foods: Sequence[str], food_profiles: Dict[str
     return collected
 
 
-def _evaluate_food_query(
-    food_query: str | None,
-    candidate_foods: Sequence[str] | None,
-    interaction_matches: Sequence[Dict[str, Any]],
-    food_profiles: Dict[str, Any],
-) -> Tuple[bool, str, List[str]]:
+def _build_checked_foods(food_query: str | None, candidate_foods: Sequence[str] | None) -> List[str]:
     checked_foods: List[str] = []
-    if food_query and str(food_query).strip():
-        checked_foods.append(str(food_query).strip())
-    for item in candidate_foods or []:
-        value = str(item).strip()
-        if not value:
+    seen: Set[str] = set()
+
+    for value in [food_query, *(candidate_foods or [])]:
+        item = str(value or "").strip()
+        if not item:
             continue
-        if value.lower() not in {x.lower() for x in checked_foods}:
-            checked_foods.append(value)
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        checked_foods.append(item)
 
-    if not checked_foods:
-        return False, "", []
+    return checked_foods
 
-    avoid_foods: List[str] = []
-    for match in interaction_matches:
-        avoid_foods.extend(match.get("avoid", []))
 
+def _inspect_foods_against_avoid_list(
+    checked_foods: Sequence[str],
+    avoid_foods: Sequence[str],
+    food_profiles: Dict[str, Any],
+) -> Tuple[bool, str, List[str], List[str]]:
     avoid_tags = _collect_avoid_food_tags(avoid_foods, food_profiles)
     reasoning: List[str] = []
     conflict_detected = False
@@ -304,7 +311,7 @@ def _evaluate_food_query(
             reasoning.append(f"{query} matched food profiles: {', '.join(matched_profiles[:3])}")
 
         if direct_conflicts:
-            reasoning.append(f"{query} matched interaction avoid list: {', '.join(sorted(set(direct_conflicts))[:3])}")
+            reasoning.append(f"{query} matched avoid list: {', '.join(sorted(set(direct_conflicts))[:3])}")
             conflict_avoid_hits.extend(direct_conflicts)
         elif tag_conflict:
             overlap = sorted(query_tags & avoid_tags)
@@ -313,6 +320,28 @@ def _evaluate_food_query(
         if has_conflict and not conflict_detected:
             conflict_detected = True
             first_conflict_input = query
+
+    return conflict_detected, first_conflict_input, conflict_avoid_hits, reasoning
+
+
+def _evaluate_food_query(
+    food_query: str | None,
+    candidate_foods: Sequence[str] | None,
+    interaction_matches: Sequence[Dict[str, Any]],
+    food_profiles: Dict[str, Any],
+) -> Tuple[bool, str, List[str]]:
+    checked_foods = _build_checked_foods(food_query, candidate_foods)
+    if not checked_foods:
+        return False, "", []
+
+    avoid_foods: List[str] = []
+    for match in interaction_matches:
+        avoid_foods.extend(match.get("avoid", []))
+    conflict_detected, first_conflict_input, conflict_avoid_hits, reasoning = _inspect_foods_against_avoid_list(
+        checked_foods,
+        avoid_foods,
+        food_profiles,
+    )
 
     if not conflict_detected:
         checked_text = ", ".join(checked_foods[:2])
@@ -337,6 +366,42 @@ def _evaluate_food_query(
     )
 
     return True, warning_message, reasoning
+
+
+def _evaluate_condition_food_query(
+    food_query: str | None,
+    candidate_foods: Sequence[str] | None,
+    conditions: Sequence[str],
+    condition_avoid_foods: Sequence[str],
+    food_profiles: Dict[str, Any],
+) -> Tuple[bool, str, List[str]]:
+    checked_foods = _build_checked_foods(food_query, candidate_foods)
+    if not checked_foods or not condition_avoid_foods:
+        return False, "", []
+
+    conflict_detected, first_conflict_input, _hits, reasoning = _inspect_foods_against_avoid_list(
+        checked_foods,
+        condition_avoid_foods,
+        food_profiles,
+    )
+    if not conflict_detected:
+        return False, "", reasoning
+
+    condition_set = set(conditions)
+    if "hypertension" in condition_set:
+        message = (
+            f"{first_conflict_input} can be quite high in sodium or rich, so it may not be the best choice today if you are managing blood pressure."
+        )
+    elif "diabetes" in condition_set:
+        message = (
+            f"{first_conflict_input} may be high in sugar or fast-absorbing carbs, so it may not be the best choice today if you are managing blood sugar."
+        )
+    else:
+        message = (
+            f"{first_conflict_input} may not be the best choice today based on your current nutrition plan."
+        )
+
+    return True, message, reasoning
 
 
 def _condition_preferences(conditions: Sequence[str]) -> Tuple[Set[str], List[str], List[str]]:
@@ -470,12 +535,37 @@ def get_adaptive_nutrition_recommendation(
         if value and value.lower() not in {x.lower() for x in combined_avoid_foods}:
             combined_avoid_foods.append(value)
 
-    interaction_warning, warning_message, food_query_reasoning = _evaluate_food_query(
+    med_interaction_warning, med_warning_message, food_query_reasoning = _evaluate_food_query(
         food_query=food_query,
         candidate_foods=candidate_foods,
         interaction_matches=interaction_matches,
         food_profiles=food_profiles,
     )
+    condition_warning, condition_warning_message, condition_query_reasoning = _evaluate_condition_food_query(
+        food_query=food_query,
+        candidate_foods=candidate_foods,
+        conditions=conditions,
+        condition_avoid_foods=condition_avoid_foods,
+        food_profiles=food_profiles,
+    )
+
+    checked_foods = _build_checked_foods(food_query, candidate_foods)
+    interaction_warning = med_interaction_warning or condition_warning
+    warning_message = (
+        med_warning_message
+        if med_interaction_warning
+        else condition_warning_message
+        if condition_warning
+        else med_warning_message if checked_foods else ""
+    )
+
+    recommendation_level = "recommended"
+    if med_interaction_warning:
+        recommendation_level = "avoid"
+    elif condition_warning:
+        recommendation_level = "caution"
+    elif checked_foods:
+        recommendation_level = "generally_ok"
 
     day_key = _local_day_key(timezone_name)
     recommended_foods = _select_recommended_foods(
@@ -501,12 +591,14 @@ def get_adaptive_nutrition_recommendation(
 
     reasoning.extend(condition_reasoning)
     reasoning.extend(food_query_reasoning)
+    reasoning.extend(condition_query_reasoning)
 
     condition_label = "_and_".join(conditions) if conditions else "general_wellness"
 
     result: Dict[str, Any] = {
         "medications_taken_today": taken_medications_today,
         "food_query": food_query,
+        "recommendation_level": recommendation_level,
         "interaction_warning": interaction_warning,
         "warning_message": warning_message,
         "recommended_foods": recommended_foods,

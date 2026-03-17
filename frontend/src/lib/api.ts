@@ -94,12 +94,15 @@ export type CommunityMyEventsResponse = {
 export type ChatResponse = {
   reply: string;
   reply_en?: string;
+  quick_replies?: string[];
   context: {
     drift_detected: boolean;
     severity: string;
     next_action: string;
     suggested_action?: string;
     intent?: string;
+    food_query?: string | null;
+    recommendation_level?: string | null;
     reminder_mode?: "timer" | "medication_schedule" | null;
     reminder_delay_seconds?: number | null;
   };
