@@ -610,3 +610,99 @@ def get_patient_weekly_summary(patient_user_id: str, account_id: str, db: Sessio
         "food_summary": food_summary,
         "food_recommendations": food_recommendations,
     }
+
+
+# --------------- AI insights ---------------
+
+@router.get("/patients/{patient_user_id}/ai-summary")
+def get_patient_ai_summary(patient_user_id: str, account_id: str, db: Session = Depends(get_db)):
+    """Generate an AI-powered clinical summary for a patient using LLM."""
+    account = _require_clinician(account_id, db)
+    clinician_user = _get_clinician_user(account, db)
+    patient = _get_assigned_patient(clinician_user.user_id, patient_user_id, db)
+
+    meds = db.query(Medication).filter_by(user_id=patient_user_id).all()
+    med_names = [m.name for m in meds]
+
+    # ---- Gather same data as weekly summary ----
+    now = datetime.utcnow()
+    current_start = (now - timedelta(days=7)).isoformat(timespec="seconds")
+    prior_start = (now - timedelta(days=14)).isoformat(timespec="seconds")
+    current_end = now.isoformat(timespec="seconds")
+
+    current_counts = _adherence_counts_for_window(db, patient_user_id, current_start, current_end)
+    prior_counts = _adherence_counts_for_window(db, patient_user_id, prior_start, current_start)
+    current_score = _adherence_score_from_counts(current_counts)
+    prior_score = _adherence_score_from_counts(prior_counts)
+
+    from app.services.drift_engine import detect_adherence_drift
+    drift = detect_adherence_drift(patient_user_id)
+
+    since_7d = current_start
+    recent_interventions = [
+        i.to_dict() for i in
+        db.query(InterventionLog).filter(
+            InterventionLog.user_id == patient_user_id,
+            InterventionLog.timestamp >= since_7d,
+        ).order_by(InterventionLog.timestamp.desc()).all()
+    ]
+
+    tcm_warnings: List[Dict[str, Any]] = []
+    try:
+        from app.services.tcm_engine import HERB_INTERACTIONS, _check_medication_overlap
+        for herb_key, info in HERB_INTERACTIONS.items():
+            flagged = _check_medication_overlap(herb_key, med_names)
+            if flagged:
+                tcm_warnings.append({
+                    "herb": info["display_name"],
+                    "risk_level": info["risk_level"],
+                    "flagged_medications": flagged,
+                    "guidance": info.get("guidance", ""),
+                })
+    except Exception:
+        pass
+
+    food_recommendations: List[str] = []
+    try:
+        from app.services.nutrition_engine import recommend_food
+        food = recommend_food(patient_user_id)
+        food_recommendations = food.get("recommendations", [])
+    except Exception:
+        pass
+
+    community_joined_count = 0
+    try:
+        from app.services.community_engine import get_user_community_events
+        community = get_user_community_events(patient_user_id)
+        community_joined_count = len(community.get("joined", []))
+    except Exception:
+        pass
+
+    overall = "On track" if current_score >= 80 and not drift.get("drift_detected") else "Needs attention" if current_score >= 60 else "At risk"
+
+    patient_data = {
+        "patient": patient.to_dict(),
+        "medications": [m.to_dict() for m in meds],
+        "adherence": {
+            "current_score": current_score,
+            "prior_score": prior_score,
+            "delta": round(current_score - prior_score, 1),
+            "taken": current_counts["taken"],
+            "missed": current_counts["missed"],
+            "late": current_counts["late"],
+        },
+        "drift": drift,
+        "interventions": recent_interventions,
+        "tcm_warnings": tcm_warnings,
+        "food_recommendations": food_recommendations,
+        "community_joined_count": community_joined_count,
+        "overall_status": overall,
+    }
+
+    from app.services.clinician_ai import generate_ai_summary
+    try:
+        result = generate_ai_summary(patient_data)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    return result

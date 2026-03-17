@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Bell,
+  BrainCircuit,
   Cake,
   CalendarClock,
   ClipboardList,
@@ -15,8 +16,10 @@ import {
   FileText,
   Pill,
   Plus,
+  RefreshCw,
   Save,
   Settings,
+  Sparkles,
   Stethoscope,
   ShieldAlert,
   Trash2,
@@ -28,6 +31,7 @@ import {
   api,
   type Account,
   type AppointmentItem,
+  type ClinicianAISummary,
   type ClinicianAllPatientItem,
   type ClinicianPatientDetail,
   type ClinicianPatientSummary,
@@ -43,7 +47,7 @@ import {
   TabBar,
 } from "../../../components/mobile/DashboardPrimitives";
 
-type ClinicianTab = "patients" | "care-plan" | "outcomes" | "profile";
+type ClinicianTab = "patients" | "care-plan" | "outcomes" | "ai-insights" | "profile";
 
 type CarePlanMeta = {
   sex: string;
@@ -170,6 +174,10 @@ export default function ClinicianDashboardPage() {
   const [weeklySummary, setWeeklySummary] = useState<WeeklySummaryResponse | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
 
+  const [aiSummary, setAiSummary] = useState<ClinicianAISummary | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
   const [profileSaving, setProfileSaving] = useState(false);
   const [conditionsSaving, setConditionsSaving] = useState(false);
   const [medSaving, setMedSaving] = useState(false);
@@ -254,6 +262,7 @@ export default function ClinicianDashboardPage() {
       { key: "patients", label: "Patients", icon: <Users size={18} strokeWidth={2.1} /> },
       { key: "care-plan", label: "Care Plan", icon: <ClipboardList size={18} strokeWidth={2.1} /> },
       { key: "outcomes", label: "Outcomes", icon: <FileText size={18} strokeWidth={2.1} /> },
+      { key: "ai-insights", label: "AI Insights", icon: <BrainCircuit size={18} strokeWidth={2.1} /> },
       { key: "profile", label: "Profile", icon: <Settings size={18} strokeWidth={2.1} /> },
     ],
     []
@@ -1457,6 +1466,133 @@ export default function ClinicianDashboardPage() {
                   </SummaryCard>
                 </>
               ) : null}
+            </>
+          ) : null}
+
+          {tab === "ai-insights" ? (
+            <>
+              {!selectedPatientId ? (
+                <ChartCard>
+                  <p className="text-sm text-[#667085]">Select a patient in Patients tab to generate AI insights.</p>
+                </ChartCard>
+              ) : (
+                <>
+                  <SummaryCard
+                    title="AI Clinical Insights"
+                    icon={<Sparkles size={16} className="text-[#3B6EF5]" />}
+                  >
+                    <p className="text-xs text-[#667085]">
+                      Powered by AI — generates a clinical summary, risk assessment, and recommendations based on patient data.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={aiLoading}
+                      onClick={async () => {
+                        if (!selectedPatientId) return;
+                        setAiLoading(true);
+                        setAiError(null);
+                        setAiSummary(null);
+                        try {
+                          const result = await api.clinicianGetAISummary(accountId, selectedPatientId);
+                          setAiSummary(result);
+                        } catch (err) {
+                          setAiError(safeMessage(err));
+                        } finally {
+                          setAiLoading(false);
+                        }
+                      }}
+                      className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#3670e2] to-[#6366F1] px-4 py-3 text-sm font-semibold text-white shadow-md transition-all hover:shadow-lg disabled:opacity-60"
+                    >
+                      {aiLoading ? (
+                        <>
+                          <RefreshCw size={14} className="animate-spin" />
+                          Generating Insights...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={14} />
+                          {aiSummary ? "Regenerate Insights" : "Generate AI Insights"}
+                        </>
+                      )}
+                    </button>
+                  </SummaryCard>
+
+                  {aiError ? (
+                    <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+                      <p className="text-sm font-semibold text-red-700">Failed to generate insights</p>
+                      <p className="mt-1 text-xs text-red-600">{aiError}</p>
+                    </div>
+                  ) : null}
+
+                  {aiLoading ? (
+                    <div className="space-y-3">
+                      {[1, 2, 3].map((i) => (
+                        <div key={i} className="animate-pulse rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
+                          <div className="mb-3 h-4 w-1/3 rounded bg-slate-200" />
+                          <div className="space-y-2">
+                            <div className="h-3 w-full rounded bg-slate-100" />
+                            <div className="h-3 w-5/6 rounded bg-slate-100" />
+                            <div className="h-3 w-4/6 rounded bg-slate-100" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {aiSummary && !aiLoading ? (
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-[#3670e2]/20 bg-gradient-to-br from-[#EEF2FF] to-white p-5 shadow-sm">
+                        <div className="mb-3 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <BrainCircuit size={18} className="text-[#3670e2]" />
+                            <h3 className="text-base font-bold text-[#1F2A37]">
+                              AI Summary — {aiSummary.patient_name}
+                            </h3>
+                          </div>
+                          <span className="rounded-full bg-[#3670e2]/10 px-2.5 py-0.5 text-[10px] font-semibold text-[#3670e2]">
+                            {aiSummary.provider.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="prose prose-sm max-w-none text-[#344054]">
+                          {aiSummary.summary.split("\n").map((line, idx) => {
+                            const trimmed = line.trim();
+                            if (!trimmed) return <br key={idx} />;
+                            if (trimmed.startsWith("**") && trimmed.endsWith("**")) {
+                              return (
+                                <h4 key={idx} className="mb-1 mt-4 text-sm font-bold text-[#1F2A37]">
+                                  {trimmed.replace(/\*\*/g, "")}
+                                </h4>
+                              );
+                            }
+                            if (/^\d+\.\s*\*\*/.test(trimmed)) {
+                              return (
+                                <h4 key={idx} className="mb-1 mt-4 text-sm font-bold text-[#1F2A37]">
+                                  {trimmed.replace(/\*\*/g, "")}
+                                </h4>
+                              );
+                            }
+                            if (trimmed.startsWith("- ") || trimmed.startsWith("• ")) {
+                              return (
+                                <div key={idx} className="ml-3 flex items-start gap-2 py-0.5">
+                                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#3670e2]" />
+                                  <span className="text-sm leading-relaxed text-[#475467]">
+                                    {trimmed.slice(2).replace(/\*\*/g, "")}
+                                  </span>
+                                </div>
+                              );
+                            }
+                            return (
+                              <p key={idx} className="text-sm leading-relaxed text-[#475467]">
+                                {trimmed.replace(/\*\*/g, "")}
+                              </p>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              )}
             </>
           ) : null}
 
