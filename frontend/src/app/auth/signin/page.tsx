@@ -40,15 +40,15 @@ export default function SignInPage() {
     setError(null);
     try {
       const account = await api.signIn({ email: email.trim(), password });
-      // Store session
+      // Store session (also persist account so redirected pages can read it)
       sessionStorage.setItem("bytecare_account", JSON.stringify(account));
+      localStorage.setItem("bytecare_account", JSON.stringify(account));
       // Remember credentials if checked
       if (rememberMe) {
         localStorage.setItem("bytecare_remember", JSON.stringify({ email: email.trim(), password }));
-        localStorage.setItem("bytecare_account", JSON.stringify(account));
       } else {
         localStorage.removeItem("bytecare_remember");
-        localStorage.removeItem("bytecare_account");
+        // keep `bytecare_account` persisted so a reload still shows the caregiver view
       }
       // Go directly to dashboard if user profile is linked, otherwise to profile select
       if (account.role === "clinician") {

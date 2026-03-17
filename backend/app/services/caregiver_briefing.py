@@ -52,8 +52,8 @@ def _gather_patient_context(account_id: str, patient_user_id: str) -> Dict[str, 
 
         next_appt = (
             db.query(Appointment)
-            .filter(Appointment.user_id == patient_user_id, Appointment.datetime > now.isoformat())
-            .order_by(Appointment.datetime)
+            .filter(Appointment.user_id == patient_user_id, Appointment.datetime_str > now.isoformat())
+            .order_by(Appointment.datetime_str)
             .first()
         )
 
@@ -111,9 +111,9 @@ def _gather_patient_context(account_id: str, patient_user_id: str) -> Dict[str, 
             "risk": risk,
             "today_summary": today_summary,
             "next_appt": {
-                "datetime": next_appt.datetime,
-                "location": next_appt.location,
-                "notes": next_appt.notes,
+                "datetime": getattr(next_appt, "datetime_str", None) or (next_appt.to_dict().get("datetime") if next_appt else None),
+                "location": next_appt.location if next_appt else None,
+                "notes": next_appt.notes if next_appt else None,
             } if next_appt else None,
             "last_intervention_type": last_intervention.action_type if last_intervention else None,
         }
@@ -141,24 +141,31 @@ def _build_prompt(ctx: Dict[str, Any]) -> str:
         except Exception:
             appt_str = ctx["next_appt"]["datetime"]
 
+    # Strong, rule-based instructions to the LLM to match the caregiver assistant spec
     return (
-        "You are a care coordinator AI helping a family caregiver support an elderly patient "
-        "in Singapore. Based on the patient data below, produce exactly 1 concise, actionable "
-        "bullet point telling the caregiver what to do TODAY. Be specific, warm, and practical. "
-        "Do NOT suggest prescribing, changing, or stopping medications — that is a doctor's role. "
-        "Focus on emotional support, reminders, appointments, and logistics the caregiver can act on.\n\n"
-        "Output format: return ONLY a JSON object with one key 'actions' containing a single "
-        "string. No other text.\n\n"
-        f"Patient: {ctx['patient_name']}, Age {ctx['patient_age']}\n"
+        "You are a healthcare support assistant for family caregivers. Your role is to summarize a patient’s current situation in a clear, calm, and supportive way.\n\n"
+        "RULES (must follow exactly):\n"
+        "- Do NOT provide medical diagnosis or clinical advice.\n"
+        "- Do NOT suggest prescribing, changing, or stopping medications.\n"
+        "- Do NOT use alarming or overly negative language. Avoid words like 'death', 'fatal', 'emergency', 'critical', or language that creates panic.\n"
+        "- Use simple, non-technical language.\n"
+        "- Be concise: produce 2–3 short sentences maximum.\n"
+        "- Focus only on the data provided below. Do NOT assume facts not present.\n"
+        "- If there are concerns, suggest gentle caregiver actions (e.g., check in, send a reminder, contact clinician).\n\n"
+        "TONE: calm, reassuring, supportive, neutral.\n\n"
+        "OUTPUT FORMAT (must follow exactly): Return ONLY a JSON object with the keys:\n"
+        "  - today_summary: a short 2–3 sentence summary following the rules above.\n"
+        "  - actions: an array with up to 2 short suggested caregiver actions (strings).\n"
+        "Do not include any extra text outside the JSON object.\n\n"
+        f"DATA:\nPatient: {ctx['patient_name']}, Age {ctx['patient_age']}\n"
         f"Conditions: {conditions}\n"
         f"Medications (view only): {meds}\n"
-        f"7-day adherence: {ctx['adherence_pct']}% "
-        f"({ctx['taken']} taken, {ctx['missed']} missed, {ctx['late']} late)\n"
+        f"7-day adherence: {ctx['adherence_pct']}% ({ctx['taken']} taken, {ctx['missed']} missed, {ctx['late']} late)\n"
         f"Missed medications: {missed_str}\n"
         f"Risk level: {ctx['risk']}\n"
         f"Next appointment: {appt_str}\n"
         f"Last system alert: {ctx['last_intervention_type'] or 'none'}\n"
-        f"Today's summary: {ctx.get('today_summary','No medication events recorded for today.')}\n\n"
+        f"Today's raw summary: {ctx.get('today_summary','No medication events recorded for today.')}\n\n"
         "Produce the JSON now."
     )
 
@@ -185,6 +192,52 @@ def _shorten_text(s: Optional[str], max_chars: int = 90) -> Optional[str]:
         return trimmed.rstrip(' .,:;')
     except Exception:
         return (s or "")[:max_chars]
+
+
+def _clean_sentence_for_caregiver(s: str) -> str:
+    """Return a single safe, non-alarming sentence. Replace clinical imperatives with gentle actions."""
+    try:
+        s = s.strip()
+        # forbidden patterns that imply diagnosis/prescription/urgent clinical instruction
+        forbidden = [r"\bdiagnos", r"\bprescrib", r"\bstop\b", r"\bchange\b", r"\bdeath\b", r"\bemergency\b", r"\bcall an ambulance\b", r"\bimmediately\b"]
+        for pat in forbidden:
+            if re.search(pat, s, re.IGNORECASE):
+                return "If you are concerned, contact their clinician for advice."
+        # remove excessive alarming words
+        s = re.sub(r"\b(critical|urgent|life[- ]?threatening|severe)\b", "concerning", s, flags=re.IGNORECASE)
+        # ensure sentence ends with a single period
+        s = s.rstrip('.?!') + '.'
+        return s
+    except Exception:
+        return s
+
+
+def _sanitize_summary(text: Optional[str], max_sentences: int = 3) -> str:
+    """Produce a calm, non-alarming short summary of at most max_sentences sentences."""
+    if not text:
+        return ""
+    try:
+        # split into sentences
+        parts = re.split(r'(?<=[\.\!\?])\s+', text.strip())
+        out: List[str] = []
+        for p in parts:
+            if not p.strip():
+                continue
+            if len(out) >= max_sentences:
+                break
+            cleaned = _clean_sentence_for_caregiver(p)
+            out.append(cleaned)
+        # if nothing produced, return a neutral fallback
+        if not out:
+            return "No recent medication events recorded. Check in with the patient as needed."
+        # join with space
+        result = ' '.join(out)
+        # final safety: clamp length to 250 chars
+        if len(result) > 250:
+            result = result[:247].rsplit(' ', 1)[0] + '.'
+        return result
+    except Exception:
+        return (text or '')[:250]
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +291,9 @@ def _parse_actions(text: str) -> Optional[Dict[str, Any]]:
         data = json.loads(match.group())
         # Normalize minimal shape
         briefing: Dict[str, Any] = {}
-        briefing["today_summary"] = data.get("today_summary") or data.get("summary")
+        # Sanitize and enforce summary rules: max 3 sentences, calm tone, no diagnosis/advice
+        raw_summary = data.get("today_summary") or data.get("summary") or ""
+        briefing["today_summary"] = _sanitize_summary(raw_summary)
         briefing["adherence_pct"] = data.get("adherence_pct")
         briefing["missed"] = data.get("missed_count") or data.get("missed") or 0
         briefing["risk"] = data.get("risk")

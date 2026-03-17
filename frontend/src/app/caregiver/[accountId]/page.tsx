@@ -11,6 +11,7 @@ import {
   Pill,
   Siren,
   Sparkles,
+  ArrowRight,
   Users,
 } from "lucide-react";
 
@@ -25,8 +26,9 @@ import {
   SectionTitle,
   TabBar,
 } from "../../../components/mobile/DashboardPrimitives";
- 
-
+import ConsequenceModalCompact from "../../../components/ConsequenceModalCompact";
+import CaregiverAssistantSummary from "../../../components/CaregiverAssistantSummary";
+import MedicationEatingPatternCard from "../../../components/MedicationEatingPatternCard";
 function loadAccount(router: ReturnType<typeof useRouter>, setAccount: (value: Account) => void) {
   const raw = sessionStorage.getItem("bytecare_account") || localStorage.getItem("bytecare_account");
   if (!raw) { router.replace("/auth/signin"); return; }
@@ -39,7 +41,7 @@ function loadAccount(router: ReturnType<typeof useRouter>, setAccount: (value: A
 
 function calcAdherence(detail: CaregiverPatientDetail) {
   const events = detail.dose_events;
-  const taken = events.filter(e => e.response_status === "taken").length;
+  const taken = events.filter(e => e.response_status === "taken" || ['pillbox_open','tap_confirm','voice_confirm'].includes(e.event_type)).length;
   const missed = events.filter(e => e.response_status === "missed").length;
   const late = events.filter(e => e.response_status === "late").length;
   const total = taken + missed + late;
@@ -100,13 +102,40 @@ function formatShortDate(iso?: string | null) {
 
 function computeMedStats(detail: CaregiverPatientDetail, medId: string) {
   const events = detail.dose_events.filter(e => e.medication_id === medId);
-  const taken = events.filter(e => e.response_status === "taken").length;
+  const taken = events.filter(e => e.response_status === "taken" || ['pillbox_open','tap_confirm','voice_confirm'].includes(e.event_type)).length;
   const missed = events.filter(e => e.response_status === "missed").length;
   const late = events.filter(e => e.response_status === "late").length;
   const lastTaken = events
     .filter(e => e.response_status === "taken")
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0];
   return { taken, missed, late, lastTaken: lastTaken ? lastTaken.timestamp : null, totalEvents: events.length };
+}
+
+function computeTrend(detail: CaregiverPatientDetail) {
+  // Build missed counts per day for the last 7 days (oldest -> newest)
+  const days: number[] = [];
+  const now = new Date();
+  for (let i = 6; i >= 0; i--) {
+    const dayStart = new Date(now);
+    dayStart.setDate(now.getDate() - i);
+    dayStart.setHours(0,0,0,0);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setHours(23,59,59,999);
+    const count = detail.dose_events.filter(ev => {
+      const t = new Date(ev.timestamp || '');
+      return t >= dayStart && t <= dayEnd && ev.response_status === 'missed';
+    }).length;
+    days.push(count);
+  }
+
+  const recent = days.slice(4).reduce((s, v) => s + v, 0); // last 3 days
+  const prior = days.slice(0,4).reduce((s, v) => s + v, 0); // previous 4 days
+  const delta = recent - prior;
+  let trendLabel = 'Stable';
+  if (delta > 0) trendLabel = 'Slightly worsening';
+  else if (delta < 0) trendLabel = 'Improving';
+
+  return { days, recent, prior, delta, trendLabel };
 }
 
 export default function CaregiverDashboardPage({ params }: { params: { accountId: string } }) {
@@ -166,11 +195,27 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
       .catch(() => setRefillStatus(null));
   }, [selectedId, accountId, detail]);
 
+  // index of currently-displayed medication in the Consequences view
+  const [medIndex, setMedIndex] = useState(0);
+  useEffect(() => { setMedIndex(0); }, [detail]);
+  const [consequenceOpen, setConsequenceOpen] = useState(false);
+  const [pendingRefillMedId, setPendingRefillMedId] = useState<string | null>(null);
+
   const stats = useMemo(() => detail ? calcAdherence(detail) : null, [detail]);
   const risk = useMemo(() => stats ? getRisk(stats.pct) : null, [stats]);
   const missedMeds = useMemo(() => detail ? getMissedMedNames(detail) : [], [detail]);
   const nextAppt = useMemo(() => detail ? getNextAppointment(detail) : null, [detail]);
   const fallbackSuggestions = useMemo(() => stats ? getEncouragementSuggestions(stats.pct, stats.missed) : [], [stats]);
+
+  const currentMed = detail && detail.medications && detail.medications.length > 0 ? detail.medications[medIndex % detail.medications.length] : null;
+  const currentMedStats = currentMed ? computeMedStats(detail!, currentMed.medication_id) : null;
+  const trend = detail ? computeTrend(detail) : null;
+  const predictedPct = (() => {
+    if (!stats || !trend) return null;
+    // simple conservative prediction: reduce pct by 2% per additional missed dose in recent window
+    const adj = Math.max(0, trend.delta) * 2;
+    return Math.max(0, stats.pct - adj);
+  })();
 
   const tabs = useMemo(() => [
     { key: "dashboard", label: "Dashboard", icon: <Heart size={18} strokeWidth={2.1} /> },
@@ -198,6 +243,11 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
         />
 
         <section className="space-y-5 px-3 pb-8 pt-4">
+
+          {/* Debug banner - shows live counts from API while developing */}
+          <div className="mb-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800">
+            Debug: account: {account?.name} · selectedId: {selectedId ?? '—'} · patients: {patients.length} · meds: {detail?.medications?.length ?? 0} · events: {detail?.dose_events?.length ?? 0}
+          </div>
 
           {/* Patient selector — only shown when caregiver has multiple patients */}
           {patients.length > 1 && (
@@ -264,11 +314,28 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                 </div>
               </section>
 
+              {/* Quick AI summary (moved above adherence) */}
+              <section className="mt-3">
+                <CaregiverAssistantSummary
+                  detail={detail}
+                  briefing={briefing ?? undefined}
+                  stats={stats}
+                  days={trend?.days}
+                  predictedPct={predictedPct}
+                  trendLabel={trend ? `${trend.trendLabel} — ${trend.recent} missed in last 3 days` : undefined}
+                  recommendation={trend && trend.delta > 0 ? 'Check in with the patient and consider sending a reminder.' : 'Maintain regular check-ins to keep this trend.'}
+                />
+              </section>
+
+
               {/* Medication adherence — read-only, no prescribing */}
               <section className="space-y-2">
                 <SectionTitle title="Medication Adherence (Last 7 Days)" />
                 <ChartCard>
                   <div className="flex items-start justify-between">
+
+              
+
                     <div>
                       <p className="text-[12px] font-medium text-[#98A2B3]">Adherence Rate</p>
                       <p className="mt-1 text-[44px] font-bold leading-none text-[#1F2A37]">{stats.pct}%</p>
@@ -340,6 +407,16 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                 </ChartCard>
               </section>
 
+              {/* Medication eating-with-meal inference (caregiver-only) — same layout as Consequences */}
+              {selectedId && (
+                <section className="space-y-2 mt-3">
+                  <SectionTitle title="Medication Eating Patterns" />
+                  <ChartCard>
+                    <MedicationEatingPatternCard accountId={accountId} patientUserId={selectedId} days={14} singleMedId={currentMed ? currentMed.medication_id : null} />
+                  </ChartCard>
+                </section>
+              )}
+
               {/* Missed dose alert + medication history (agentic) */}
               <section className="space-y-2">
                 <SectionTitle title="Medication Consequences & History" />
@@ -355,138 +432,162 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                       <p className="mt-1 text-[13px] text-[#667085]">Below are specific medication histories, likely consequences, and suggested near-term actions for the caregiver.</p>
                     </div>
                   </div>
-                  <div className="mt-3 border-t border-[#E9EEF7] pt-3">
-                    <div className="mb-3 flex items-center justify-between">
-                      <div className="text-[13px] text-[#667085]">View:</div>
-                      <div className="flex gap-2">
-                        <button type="button" onClick={() => setMedViewMode('consequences')} className={`rounded-2xl px-2 py-1 text-[12px] font-semibold ${medViewMode === 'consequences' ? 'bg-[#3B6EF5] text-white' : 'bg-white text-[#344054] border border-[#E9EEF7]'}`}>Consequences</button>
-                        <button type="button" onClick={() => setMedViewMode('history')} className={`rounded-2xl px-2 py-1 text-[12px] font-semibold ${medViewMode === 'history' ? 'bg-[#3B6EF5] text-white' : 'bg-white text-[#344054] border border-[#E9EEF7]'}`}>History</button>
-                      </div>
-                    </div>
-                    {detail.medications.map((m, idx) => {
-                      const st = computeMedStats(detail, m.medication_id);
-                      const status = refillStatus?.find(s => s.medication_id === m.medication_id);
-                      const expectedPerDay = (m.schedule?.times?.length ?? 1);
-                      const expected7d = expectedPerDay * 7;
-                      const adherencePct = expected7d > 0 ? Math.round((st.taken / expected7d) * 100) : 100;
-                      const isHighRisk = /(warfarin|insulin|anticoag)/i.test(m.name);
-                      const urgent = (status && (status.doses_remaining === 0 || status.is_low)) || (isHighRisk && st.missed > 0) || adherencePct < 50;
-
-                      // consequence text
-                      let consequence = "";
-                      if (isHighRisk && st.missed > 0) {
-                        if (/insulin/i.test(m.name)) consequence = "Missed insulin can cause high blood sugar and dehydration; seek advice if unwell.";
-                        else if (/warfarin|anticoag/i.test(m.name)) consequence = "Missing anticoagulants increases clot/stroke risk — contact clinician promptly.";
-                        else consequence = "This is a high-risk medication — seek clinical advice if multiple doses missed.";
-                      } else if (st.missed > 0) {
-                        consequence = "Missed doses can reduce treatment effectiveness; encourage timely intake and monitor symptoms.";
-                      } else if (st.taken > expected7d) {
-                        consequence = "More doses than scheduled were recorded — check for duplicate intake or dosing confusion.";
-                      } else {
-                        consequence = "No immediate concerns — continue regular check-ins and monitor for changes.";
-                      }
-
-                      return (
-                        <div key={m.medication_id} className={`mb-3 ${idx > 0 ? 'pt-3 border-t border-[#E9EEF7]' : ''}`}>
-                          <div className="flex items-center justify-between">
-                            <div className="min-w-0">
-                              <p className="text-[14px] font-semibold text-[#1F2A37]">{m.name} · {m.dose_text}</p>
-                              <p className="mt-1 text-[12px] text-[#98A2B3]">Last taken: {formatShortDate(st.lastTaken)} · {st.taken} taken · {st.missed} missed · {st.late} late</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold ${urgent ? 'bg-[#FFF1F1] text-[#EF5A5A] border border-[#FFD8D8]' : 'bg-[#F2F4F7] text-[#667085] border border-[#E4E7EC]'}`}>{adherencePct}%</span>
-                              {status && status.tracking_enabled && (
-                                <span className={`text-[12px] font-medium ${status.doses_remaining === 0 ? 'text-[#EF5A5A]' : 'text-[#98A2B3]'}`}>{status.doses_remaining} left</span>
-                              )}
-                            </div>
-                          </div>
-                          {medViewMode === 'consequences' && (
-                            <>
-                              <div className="mt-2 text-[13px] text-[#344054]">• {consequence}</div>
-                              <div className="mt-2">
-                                {medRecommendations[m.medication_id]?.recommendations ? (
-                                  <div className="mt-2">
-                                    <p className="text-[12px] text-[#98A2B3]">Recommended next step:</p>
-                                    <div className="mt-1 text-[13px] text-[#344054]">• {medRecommendations[m.medication_id].recommendations[0]}</div>
-                                  </div>
-                                ) : (
-                                  <div className="mt-2">
-                                    <button
-                                      type="button"
-                                      onClick={async () => {
-                                        if (!selectedId) return;
-                                        setMedRecommendations(prev => ({ ...prev, [m.medication_id]: { recommendations: [], loading: true } }));
-                                        try {
-                                          const res = await api.caregiverGetMedRecommendations(accountId, selectedId, m.medication_id);
-                                          setMedRecommendations(prev => ({ ...prev, [m.medication_id]: { recommendations: (res.recommendations || []).slice(0,1), confidence: res.confidence ?? null } }));
-                                        } catch (e) {
-                                          // Generate a deterministic local fallback so caregiver sees useful steps even offline
-                                          const localFallback: string[] = [];
-                                          if (isHighRisk) {
-                                            localFallback.push(`This is a high-risk medication. If multiple doses are missed or patient shows worrying symptoms, contact clinician immediately.`);
-                                            localFallback.push(`Check for signs like dizziness, bleeding, fainting or extreme thirst. Arrange clinician review if present.`);
-                                          } else if (st.missed > 0) {
-                                            localFallback.push(`Call ${detail.patient.name.split(' ')[0]} to check why ${m.name} was missed and whether they have it available.`);
-                                            localFallback.push(`Help them take the missed dose now only if it's within schedule; otherwise document and contact clinician.`);
-                                          } else {
-                                            localFallback.push(`Confirm ${m.name} supply and help set a reminder to take doses on time.`);
-                                            localFallback.push(`Check in tomorrow to ensure doses are taken as scheduled.`);
-                                          }
-                                          // always include a logistics step
-                                          localFallback.push(`If supply is low or zero, request a refill or assist with pharmacy order.`);
-                                          setMedRecommendations(prev => ({ ...prev, [m.medication_id]: { recommendations: localFallback.slice(0,1), confidence: null } }));
-                                        }
-                                      }}
-                                      className="mt-2 inline-flex items-center rounded-2xl bg-[#3B6EF5] px-3 py-1 text-[13px] font-semibold text-white"
-                                    >
-                                      Get recommended next steps
-                                    </button>
-                                  </div>
-                                )}
+                    <div className="mt-3 border-t border-[#E9EEF7] pt-3">
+                      <div className="mb-3 flex items-center justify-between">
+                        <div className="text-[13px] text-[#667085]">View:</div>
+                        <div className="flex gap-2 items-center">
+                          <button type="button" onClick={() => setMedViewMode('consequences')} className={`rounded-2xl px-2 py-1 text-[12px] font-semibold ${medViewMode === 'consequences' ? 'bg-[#3B6EF5] text-white' : 'bg-white text-[#344054] border border-[#E9EEF7]'}`}>Consequences</button>
+                          <button type="button" onClick={() => setMedViewMode('history')} className={`rounded-2xl px-2 py-1 text-[12px] font-semibold ${medViewMode === 'history' ? 'bg-[#3B6EF5] text-white' : 'bg-white text-[#344054] border border-[#E9EEF7]'}`}>History</button>
+                          <div className="ml-3 flex items-center gap-3">
+                            <div className="relative">
+                              <div className="h-14 w-14 rounded-full border border-[#E9EEF7] bg-white flex flex-col items-center justify-center text-center">
+                                <div className="text-[16px] font-semibold text-[#3B6EF5] leading-tight">{detail.medications.length > 0 ? ((medIndex % detail.medications.length) + 1) : '-'}</div>
+                                <div className="text-[11px] text-[#98A2B3] mt-1">of {detail.medications.length}</div>
                               </div>
-                              {urgent && (
-                                <div className="mt-2">
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      if (!selectedId) return;
-                                      setActionLoading(m.medication_id);
-                                      try {
-                                        await api.requestRefill(selectedId, m.medication_id);
-                                        const r = await api.getRefillStatus(selectedId);
-                                        setRefillStatus(r.items);
-                                        setRequestedMedIds((s) => Array.from(new Set([...s, m.medication_id])));
-                                        setActionSuccess(m.medication_id);
-                                        setTimeout(() => setActionSuccess(null), 2500);
-                                      } catch (e) {
-                                        // ignore
-                                      } finally {
-                                        setActionLoading(null);
-                                      }
-                                    }}
-                                    className="mt-2 inline-flex items-center rounded-2xl bg-[#EF5A5A] px-3 py-1 text-[13px] font-semibold text-white"
-                                  >
-                                    {actionLoading === m.medication_id ? 'Requesting…' : 'Request urgent refill'}
-                                  </button>
+                            </div>
+                            <button type="button" onClick={() => { if (detail.medications.length > 0) setMedIndex(i => (i + 1) % detail.medications.length); }} className="h-10 w-10 rounded-full border border-[#EEF4FF] bg-white grid place-items-center shadow-sm">
+                              <div className="h-8 w-8 rounded-full bg-[#F2F6FF] grid place-items-center">
+                                <ArrowRight size={16} className="text-[#3B6EF5]" />
+                              </div>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      {currentMed && (
+                        (() => {
+                          const m = currentMed;
+                          const st = currentMedStats!;
+                          const status = refillStatus?.find(s => s.medication_id === m.medication_id);
+                          const expectedPerDay = (m.schedule?.times?.length ?? 1);
+                          const expected7d = expectedPerDay * 7;
+                          const adherencePct = expected7d > 0 ? Math.round((st.taken / expected7d) * 100) : 100;
+                          const isHighRisk = /(warfarin|insulin|anticoag)/i.test(m.name);
+                          const urgent = (status && (status.doses_remaining === 0 || status.is_low)) || (isHighRisk && st.missed > 0) || adherencePct < 50;
+
+                          let consequence = "";
+                          if (isHighRisk && st.missed > 0) {
+                            if (/insulin/i.test(m.name)) consequence = "Missed insulin can cause high blood sugar and dehydration; seek advice if unwell.";
+                            else if (/warfarin|anticoag/i.test(m.name)) consequence = "Missing anticoagulants increases clot/stroke risk — contact clinician promptly.";
+                            else consequence = "This is a high-risk medication — seek clinical advice if multiple doses missed.";
+                          } else if (st.missed > 0) {
+                            consequence = "Missed doses can reduce treatment effectiveness; encourage timely intake and monitor symptoms.";
+                          } else if (st.taken > expected7d) {
+                            consequence = "More doses than scheduled were recorded — check for duplicate intake or dosing confusion.";
+                          } else {
+                            consequence = "No immediate concerns — continue regular check-ins and monitor for changes.";
+                          }
+
+                          return (
+                            <div key={m.medication_id} className="mb-3">
+                              <div className="flex items-center justify-between">
+                                <div className="min-w-0">
+                                  <p className="text-[14px] font-semibold text-[#1F2A37]">{m.name} · {m.dose_text}</p>
+                                  <p className="mt-1 text-[12px] text-[#98A2B3]">Last taken: {formatShortDate(st.lastTaken)} · {st.taken} taken · {st.missed} missed · {st.late} late</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold ${urgent ? 'bg-[#FFF1F1] text-[#EF5A5A] border border-[#FFD8D8]' : 'bg-[#F2F4F7] text-[#667085] border border-[#E4E7EC]'}`}>{adherencePct}%</span>
+                                  {status && status.tracking_enabled && (
+                                    <span className={`text-[12px] font-medium ${status.doses_remaining === 0 ? 'text-[#EF5A5A]' : 'text-[#98A2B3]'}`}>{status.doses_remaining} left</span>
+                                  )}
+                                </div>
+                              </div>
+                              {medViewMode === 'consequences' && (
+                                <>
+                                  <div className="mt-2 text-[13px] text-[#344054]">• {consequence}</div>
+                                  <div className="mt-2">
+                                    {medRecommendations[m.medication_id]?.recommendations ? (
+                                      <div className="mt-2">
+                                        <p className="text-[12px] text-[#98A2B3]">Recommended next step:</p>
+                                        <div className="mt-1 text-[13px] text-[#344054]">• {medRecommendations[m.medication_id].recommendations[0]}</div>
+                                      </div>
+                                    ) : (
+                                      <div className="mt-2">
+                                        <button
+                                          type="button"
+                                          onClick={async () => {
+                                            if (!selectedId) return;
+                                            setMedRecommendations(prev => ({ ...prev, [m.medication_id]: { recommendations: [], loading: true } }));
+                                            try {
+                                              const res = await api.caregiverGetMedRecommendations(accountId, selectedId, m.medication_id);
+                                              setMedRecommendations(prev => ({ ...prev, [m.medication_id]: { recommendations: (res.recommendations || []).slice(0,1), confidence: res.confidence ?? null } }));
+                                            } catch (e) {
+                                              const localFallback: string[] = [];
+                                              if (isHighRisk) {
+                                                localFallback.push(`This is a high-risk medication. If multiple doses are missed or patient shows worrying symptoms, contact clinician immediately.`);
+                                                localFallback.push(`Check for signs like dizziness, bleeding, fainting or extreme thirst. Arrange clinician review if present.`);
+                                              } else if (st.missed > 0) {
+                                                localFallback.push(`Call ${detail.patient.name.split(' ')[0]} to check why ${m.name} was missed and whether they have it available.`);
+                                                localFallback.push(`Help them take the missed dose now only if it's within schedule; otherwise document and contact clinician.`);
+                                              } else {
+                                                localFallback.push(`Confirm ${m.name} supply and help set a reminder to take doses on time.`);
+                                                localFallback.push(`Check in tomorrow to ensure doses are taken as scheduled.`);
+                                              }
+                                              localFallback.push(`If supply is low or zero, request a refill or assist with pharmacy order.`);
+                                              setMedRecommendations(prev => ({ ...prev, [m.medication_id]: { recommendations: localFallback.slice(0,1), confidence: null } }));
+                                            }
+                                          }}
+                                          className="mt-2 inline-flex items-center rounded-2xl bg-[#3B6EF5] px-3 py-1 text-[13px] font-semibold text-white"
+                                        >
+                                          Get recommended next steps
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {urgent && (
+                                    <div className="mt-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setPendingRefillMedId(m.medication_id);
+                                          setConsequenceOpen(true);
+                                        }}
+                                        className="mt-2 w-full inline-flex items-center justify-center rounded-2xl bg-[#EF5A5A] px-4 py-2 text-[14px] font-semibold text-white shadow-sm"
+                                      >
+                                        Request urgent refill
+                                      </button>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                              {medViewMode === 'history' && (
+                                <div className="mt-2 text-[13px] text-[#344054]">
+                                  <p className="mb-1 text-[12px] text-[#98A2B3]">Recent events (7d)</p>
+                                  <ul className="list-disc pl-4">
+                                    {detail.dose_events.filter(ev => ev.medication_id === m.medication_id).slice(0,7).map(ev => (
+                                      <li key={ev.event_id} className="text-[13px]">{formatShortDate(ev.timestamp)} — {ev.response_status}</li>
+                                    ))}
+                                    {detail.dose_events.filter(ev => ev.medication_id === m.medication_id).length === 0 && <li className="text-[13px] text-[#98A2B3]">No events in the last 7 days.</li>}
+                                  </ul>
                                 </div>
                               )}
-                            </>
-                          )}
-                          {medViewMode === 'history' && (
-                            <div className="mt-2 text-[13px] text-[#344054]">
-                              <p className="mb-1 text-[12px] text-[#98A2B3]">Recent events (7d)</p>
-                              <ul className="list-disc pl-4">
-                                {detail.dose_events.filter(ev => ev.medication_id === m.medication_id).slice(0,7).map(ev => (
-                                  <li key={ev.event_id} className="text-[13px]">{formatShortDate(ev.timestamp)} — {ev.response_status}</li>
-                                ))}
-                                {detail.dose_events.filter(ev => ev.medication_id === m.medication_id).length === 0 && <li className="text-[13px] text-[#98A2B3]">No events in the last 7 days.</li>}
-                              </ul>
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                          );
+                        })()
+                      )}
+                    </div>
+                    <ConsequenceModalCompact
+                      open={consequenceOpen}
+                      text={currentMed ? `Request urgent refill for ${currentMed.name}?` : 'Request urgent refill?'}
+                      onClose={() => { setConsequenceOpen(false); setPendingRefillMedId(null); }}
+                      onConfirm={async () => {
+                        if (!selectedId || !pendingRefillMedId) return;
+                        setConsequenceOpen(false);
+                        setActionLoading(pendingRefillMedId);
+                        try {
+                          await api.requestRefill(selectedId, pendingRefillMedId);
+                          const r = await api.getRefillStatus(selectedId);
+                          setRefillStatus(r.items);
+                          setRequestedMedIds((s) => Array.from(new Set([...s, pendingRefillMedId])));
+                          setActionSuccess(pendingRefillMedId);
+                          setTimeout(() => setActionSuccess(null), 2500);
+                        } catch (e) {
+                          // ignore
+                        } finally {
+                          setActionLoading(null);
+                          setPendingRefillMedId(null);
+                        }
+                      }}
+                    />
                 </ChartCard>
               </section>
 
