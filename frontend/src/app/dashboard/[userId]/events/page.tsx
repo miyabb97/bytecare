@@ -235,7 +235,7 @@ export default function EventsPage() {
             >
               <ArrowLeft size={22} />
             </button>
-            <h1 className="text-[2rem] font-bold leading-none tracking-tight text-slate-900">Jio Events</h1>
+            <h1 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Jio Events</h1>
           </div>
           <p className="text-[0.77rem] text-slate-600">
             Discover nearby activities to stay healthy and connected.

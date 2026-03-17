@@ -1683,7 +1683,7 @@ export default function DashboardPage() {
         {activeTab === "events" ? (
           <section className="border-b border-slate-200 bg-white px-4 py-5">
             <div className="mb-4 flex items-center">
-              <h1 className="text-[2rem] font-bold leading-none tracking-tight text-slate-900">Jio Events</h1>
+              <h1 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Jio Events</h1>
             </div>
             <p className="text-[0.77rem] text-slate-600">
               Discover nearby activities to stay healthy and connected.
@@ -1762,7 +1762,7 @@ export default function DashboardPage() {
               <section className="rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-3">
                   <Pill className="text-[#3670e2]" size={18} />
-                  <h3 className="text-sm font-bold text-slate-900">Medication Adherence</h3>
+                  <h3 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Medication Adherence</h3>
                   {meeScore ? (() => {
                     const riskLevel = getRiskLevel(meeScore.score);
                     return (
@@ -1807,7 +1807,7 @@ export default function DashboardPage() {
                           <span className="text-[11px] font-bold text-red-500">{meeScore.counts.missed}</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-[11px] text-slate-500">MEE Score</span>
+                          <span className="text-[11px] text-slate-500">Risk Score</span>
                           <span className="text-[11px] font-bold text-slate-800">{Math.round(meeScore.score)}%</span>
                         </div>
                         <div className="flex items-center justify-between">
@@ -1830,7 +1830,7 @@ export default function DashboardPage() {
                 <section id="today-doses" className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="mb-3 flex items-center gap-3">
                     <CalendarDays className="text-[#3670e2]" size={22} />
-                    <h3 className="text-[1.2rem] font-bold leading-none text-slate-900">Today&apos;s Doses</h3>
+                    <h3 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Today&apos;s Doses</h3>
                   </div>
                   <div className="space-y-3">
                     {todayDoseSlots.map((slot) => {
@@ -2078,16 +2078,16 @@ export default function DashboardPage() {
                   <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50">
                     <Utensils className="text-emerald-500" size={24} strokeWidth={2.2} />
                   </div>
-                  <h3 className="text-[1.2rem] font-bold leading-none tracking-tight text-slate-900">
+                  <h3 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">
                     Diet Suggestions
                   </h3>
                 </div>
-                <ul className="mt-6 space-y-5 pb-6">
+                <ul className="mt-4 space-y-3.5 pb-4">
                   {nutritionRecommendations.slice(0, 3).map((item) => {
                     const needsChange = isDietChangeSuggestion(item);
                     return (
-                      <li key={item} className="flex items-center gap-4 text-[1rem] text-slate-700 sm:text-[1.05rem]">
-                        <span className={`h-3.5 w-3.5 shrink-0 rounded-full ${needsChange ? "bg-red-500" : "bg-emerald-500"}`} />
+                      <li key={item} className="flex items-center gap-3 text-[0.92rem] text-slate-700">
+                        <span className={`h-3 w-3 shrink-0 rounded-full ${needsChange ? "bg-red-500" : "bg-emerald-500"}`} />
                         <span className={needsChange ? "text-red-500" : "text-slate-700"}>{item}</span>
                       </li>
                     );
@@ -2097,7 +2097,7 @@ export default function DashboardPage() {
                   ) : null}
                 </ul>
 
-                <div className="border-t border-slate-100 pt-6">
+                <div className="border-t border-slate-100 pt-4">
                   <input
                     ref={nutritionImageInputRef}
                     type="file"
@@ -2245,7 +2245,7 @@ export default function DashboardPage() {
             <>
               <section>
                 <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-[1.5rem] font-bold leading-none text-slate-900">Recommended For You</h2>
+                  <h2 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Recommended For You</h2>
                   <button
                     type="button"
                     className="tc-btn-link"
@@ -2342,7 +2342,7 @@ export default function DashboardPage() {
               </section>
 
               <section>
-                <h2 className="mb-4 text-[1.5rem] font-bold leading-none text-slate-900">My Events</h2>
+                <h2 className="mb-4 text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">My Events</h2>
                 {joinedEvents.length > 0 ? (
                   <article
                     role="button"
@@ -2605,7 +2605,7 @@ export default function DashboardPage() {
               <section className="space-y-3">
                 <div className="flex items-center gap-3 px-1">
                   <ShieldCheck className="text-[#3670e2]" size={24} />
-                  <h2 className="text-[1.2rem] font-bold leading-none tracking-tight text-slate-900">TCM Safety Check</h2>
+                  <h2 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">TCM Safety Check</h2>
                 </div>
                 <div className="rounded-[2rem] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
                   <div className="space-y-4">
@@ -2792,7 +2792,7 @@ export default function DashboardPage() {
               <section className="space-y-3">
                 <div className="flex items-center gap-3 px-1">
                   <Package className="text-[#3670e2]" size={24} />
-                  <h2 className="text-[1.2rem] font-bold leading-none tracking-tight text-slate-900">Medication Supply</h2>
+                  <h2 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Medication Supply</h2>
                 </div>
                 <div className="rounded-[2rem] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
                   <div className="space-y-5">
@@ -2921,7 +2921,7 @@ export default function DashboardPage() {
               <section className="space-y-3">
                 <div className="flex items-center gap-3 px-1">
                   <Pill className="text-[#3670e2]" size={24} />
-                  <h2 className="text-[1.2rem] font-bold leading-none tracking-tight text-slate-900">Medication Tracking</h2>
+                  <h2 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Medication Tracking</h2>
                 </div>
                 <div className="rounded-[2rem] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
                   <div className="space-y-3">
@@ -3010,7 +3010,7 @@ export default function DashboardPage() {
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <User size={20} className="text-[#3670e2]" />
-                    <h3 className="text-base font-bold text-slate-900">Personal Information</h3>
+                    <h3 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Personal Information</h3>
                   </div>
                   {!editingProfile ? (
                     <button type="button" className="icon-button" onClick={startEditProfile}>Edit</button>
@@ -3058,7 +3058,7 @@ export default function DashboardPage() {
               <section className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="mb-4 flex items-center gap-2">
                   <FileText size={20} className="text-[#3670e2]" />
-                  <h3 className="text-base font-bold text-slate-900">Medical Records</h3>
+                  <h3 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Medical Records</h3>
                 </div>
                 <div className="space-y-4">
                   <div>
@@ -3099,7 +3099,7 @@ export default function DashboardPage() {
               <section className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="mb-4 flex items-center gap-2">
                   <PhoneCall size={20} className="text-[#3670e2]" />
-                  <h3 className="text-base font-bold text-slate-900">Help & Support</h3>
+                  <h3 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Help & Support</h3>
                 </div>
                 <p className="text-sm leading-relaxed text-slate-600">
                   Need help with medications, appointments, or reminders? Open the support chat and ByteCare will guide you.
@@ -3116,7 +3116,7 @@ export default function DashboardPage() {
 
               <section className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
                 <div className="border-b border-slate-100 px-5 py-4">
-                  <h3 className="text-base font-bold text-slate-900">App Settings</h3>
+                  <h3 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">App Settings</h3>
                 </div>
                 <div className="flex flex-col">
                   <button
