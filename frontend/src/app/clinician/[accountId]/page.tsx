@@ -3,14 +3,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
+  ArrowLeft,
   Bell,
+  Cake,
   CalendarClock,
   ClipboardList,
+  Languages,
+  MapPin,
+  PencilLine,
+  Search,
   FileText,
   Pill,
   Plus,
   Save,
   Settings,
+  Stethoscope,
   ShieldAlert,
   Trash2,
   UserRound,
@@ -47,6 +54,18 @@ type CarePlanMeta = {
   followUpStatus: string;
 };
 
+type PatientRiskTone = "red" | "amber" | "emerald";
+
+type EnrichedPatientCard = {
+  summary: ClinicianPatientSummary;
+  detail: ClinicianPatientDetail | null;
+  adherencePct: number | null;
+  riskLabel: string;
+  riskTone: PatientRiskTone;
+  flagged: boolean;
+  isNewlyAdded: boolean;
+};
+
 const DEFAULT_META: CarePlanMeta = {
   sex: "",
   backgroundNotes: "",
@@ -59,6 +78,53 @@ const DEFAULT_META: CarePlanMeta = {
 function safeMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return "Something went wrong.";
+}
+
+function computePatientAdherence(detail: ClinicianPatientDetail | null): number | null {
+  const counts = detail?.mee?.counts;
+  if (!counts) return null;
+  const total = counts.taken + counts.missed + counts.late + counts.skipped;
+  if (total <= 0) return 0;
+  return Math.round((counts.taken / total) * 100);
+}
+
+function riskMeta(detail: ClinicianPatientDetail | null): { label: string; tone: PatientRiskTone; flagged: boolean } {
+  const severity = (detail?.drift?.severity || "").toLowerCase();
+  if (severity === "red") return { label: "High Risk", tone: "red", flagged: true };
+  if (severity === "orange" || severity === "amber" || severity === "yellow") {
+    return { label: "Moderate Risk", tone: "amber", flagged: true };
+  }
+  return { label: "Low Risk", tone: "emerald", flagged: false };
+}
+
+function isNewPatient(createdAt?: string | null): boolean {
+  if (!createdAt) return false;
+  const created = new Date(createdAt);
+  if (Number.isNaN(created.getTime())) return false;
+  const ageMs = Date.now() - created.getTime();
+  return ageMs <= 1000 * 60 * 60 * 24 * 14;
+}
+
+function patientAvatarTone(userId: string): string {
+  const tones = [
+    "from-[#DBEAFE] to-[#BFDBFE]",
+    "from-[#E0F2FE] to-[#BAE6FD]",
+    "from-[#DCFCE7] to-[#BBF7D0]",
+    "from-[#FCE7F3] to-[#FBCFE8]",
+  ];
+  let hash = 0;
+  for (const char of userId) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return tones[hash % tones.length];
+}
+
+function patientInitials(name: string): string {
+  return name
+    .split(" ")
+    .map((part) => part.trim()[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 }
 
 function loadMeta(patientUserId: string): CarePlanMeta {
@@ -94,6 +160,10 @@ export default function ClinicianDashboardPage() {
   const [patients, setPatients] = useState<ClinicianPatientSummary[]>([]);
   const [allPatients, setAllPatients] = useState<ClinicianAllPatientItem[]>([]);
   const [showAssignPanel, setShowAssignPanel] = useState(false);
+  const [patientSearch, setPatientSearch] = useState("");
+  const [patientFilter, setPatientFilter] = useState<"all" | "high-risk" | "low-risk" | "new">("all");
+  const [patientDetailMap, setPatientDetailMap] = useState<Record<string, ClinicianPatientDetail>>({});
+  const [floatingBounds, setFloatingBounds] = useState<{ left: number; width: number } | null>(null);
 
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ClinicianPatientDetail | null>(null);
@@ -104,6 +174,8 @@ export default function ClinicianDashboardPage() {
   const [conditionsSaving, setConditionsSaving] = useState(false);
   const [medSaving, setMedSaving] = useState(false);
   const [apptSaving, setApptSaving] = useState(false);
+  const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false);
+  const [isConditionsEditorOpen, setIsConditionsEditorOpen] = useState(false);
 
   const [meta, setMeta] = useState<CarePlanMeta>(DEFAULT_META);
 
@@ -139,6 +211,44 @@ export default function ClinicianDashboardPage() {
   const isEditingMed = medForm.medication_id.length > 0;
   const isEditingAppt = apptForm.appointment_id.length > 0;
 
+  useEffect(() => {
+    setIsProfileEditorOpen(false);
+    setIsConditionsEditorOpen(false);
+  }, [selectedPatientId]);
+
+  useEffect(() => {
+    const updateBounds = () => {
+      const element = shellRef.current;
+      if (!element) {
+        setFloatingBounds(null);
+        return;
+      }
+      const rect = element.getBoundingClientRect();
+      setFloatingBounds({ left: rect.left, width: rect.width });
+    };
+
+    updateBounds();
+
+    window.addEventListener("resize", updateBounds);
+    window.addEventListener("scroll", updateBounds, { passive: true });
+
+    const element = shellRef.current;
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" && element
+        ? new ResizeObserver(() => updateBounds())
+        : null;
+
+    if (resizeObserver && element) {
+      resizeObserver.observe(element);
+    }
+
+    return () => {
+      window.removeEventListener("resize", updateBounds);
+      window.removeEventListener("scroll", updateBounds);
+      resizeObserver?.disconnect();
+    };
+  }, []);
+
   const navTabs = useMemo(
     () => [
       { key: "patients", label: "Patients", icon: <Users size={18} strokeWidth={2.1} /> },
@@ -168,6 +278,66 @@ export default function ClinicianDashboardPage() {
   const selectedPatient = useMemo(
     () => patients.find((p) => p.user_id === selectedPatientId) ?? null,
     [patients, selectedPatientId]
+  );
+
+  const enrichedPatients = useMemo<EnrichedPatientCard[]>(() => {
+    return patients.map((summary) => {
+      const detail = patientDetailMap[summary.user_id] ?? null;
+      const adherencePct = computePatientAdherence(detail);
+      const meta = riskMeta(detail);
+      const createdAt = detail?.patient?.created_at;
+      return {
+        summary,
+        detail,
+        adherencePct,
+        riskLabel: meta.label,
+        riskTone: meta.tone,
+        flagged: meta.flagged,
+        isNewlyAdded: isNewPatient(createdAt),
+      };
+    });
+  }, [patients, patientDetailMap]);
+
+  const filteredPatients = useMemo(() => {
+    const search = patientSearch.trim().toLowerCase();
+    return enrichedPatients.filter((patient) => {
+      const matchesSearch =
+        !search ||
+        patient.summary.name.toLowerCase().includes(search) ||
+        patient.summary.conditions.some((condition) => condition.toLowerCase().includes(search));
+
+      if (!matchesSearch) return false;
+
+      if (patientFilter === "high-risk") return patient.flagged;
+      if (patientFilter === "low-risk") return patient.riskTone === "emerald";
+      if (patientFilter === "new") return patient.isNewlyAdded;
+      return true;
+    });
+  }, [enrichedPatients, patientFilter, patientSearch]);
+
+  const priorityWatchlist = useMemo(() => {
+    if (patientFilter !== "all" && patientFilter !== "high-risk") {
+      return [] as EnrichedPatientCard[];
+    }
+    return filteredPatients
+      .filter((patient) => patient.flagged)
+      .sort((a, b) => {
+        const toneRank = { red: 0, amber: 1, emerald: 2 } as const;
+        const diff = toneRank[a.riskTone] - toneRank[b.riskTone];
+        if (diff !== 0) return diff;
+        return (a.adherencePct ?? 999) - (b.adherencePct ?? 999);
+      })
+      .slice(0, 3);
+  }, [filteredPatients, patientFilter]);
+
+  const priorityWatchlistIds = useMemo(
+    () => new Set(priorityWatchlist.map((patient) => patient.summary.user_id)),
+    [priorityWatchlist]
+  );
+
+  const remainingPatients = useMemo(
+    () => filteredPatients.filter((patient) => !priorityWatchlistIds.has(patient.summary.user_id)),
+    [filteredPatients, priorityWatchlistIds]
   );
 
   const requireClinician = useCallback(() => {
@@ -204,6 +374,28 @@ export default function ClinicianDashboardPage() {
       if (!selectedPatientId && (mine.items ?? []).length > 0) {
         setSelectedPatientId(mine.items[0].user_id);
       }
+
+      const summaries = mine.items ?? [];
+      if (summaries.length > 0) {
+        const details = await Promise.all(
+          summaries.map(async (patient) => {
+            try {
+              const detail = await api.clinicianGetPatientDetail(accountId, patient.user_id);
+              return [patient.user_id, detail] as const;
+            } catch {
+              return null;
+            }
+          })
+        );
+        setPatientDetailMap(
+          details.reduce<Record<string, ClinicianPatientDetail>>((acc, item) => {
+            if (item) acc[item[0]] = item[1];
+            return acc;
+          }, {})
+        );
+      } else {
+        setPatientDetailMap({});
+      }
     } catch (err) {
       setError(safeMessage(err));
     } finally {
@@ -217,6 +409,7 @@ export default function ClinicianDashboardPage() {
     try {
       const data = await api.clinicianGetPatientDetail(accountId, patientUserId);
       setDetail(data);
+      setPatientDetailMap((prev) => ({ ...prev, [patientUserId]: data }));
       setSelectedPatientId(patientUserId);
 
       const saved = loadMeta(patientUserId);
@@ -301,12 +494,12 @@ export default function ClinicianDashboardPage() {
   }
 
   async function saveProfile() {
-    if (!selectedPatientId) return;
+    if (!selectedPatientId) return false;
     const name = profileForm.name.trim();
     const ageNum = parseInt(profileForm.age, 10);
     if (!name || Number.isNaN(ageNum) || ageNum < 0 || ageNum > 120) {
       setError("Please provide valid patient name and age (0-120).");
-      return;
+      return false;
     }
 
     setProfileSaving(true);
@@ -330,15 +523,17 @@ export default function ClinicianDashboardPage() {
 
       await loadPatientDetail(selectedPatientId);
       await loadPatientLists();
+      return true;
     } catch (err) {
       setError(safeMessage(err));
+      return false;
     } finally {
       setProfileSaving(false);
     }
   }
 
   async function saveConditions() {
-    if (!selectedPatientId) return;
+    if (!selectedPatientId) return false;
     const parsed = conditionsText
       .split(",")
       .map((c) => c.trim())
@@ -350,8 +545,10 @@ export default function ClinicianDashboardPage() {
       await api.clinicianUpdateConditions(accountId, selectedPatientId, parsed);
       await loadPatientDetail(selectedPatientId);
       await loadPatientLists();
+      return true;
     } catch (err) {
       setError(safeMessage(err));
+      return false;
     } finally {
       setConditionsSaving(false);
     }
@@ -498,51 +695,274 @@ export default function ClinicianDashboardPage() {
   return (
     <main className="flex min-h-screen justify-center bg-white">
       <div ref={shellRef} className="relative min-h-screen w-full max-w-md bg-[#F8FAFC] pb-24">
-        <Header
-          title="ByteCare - Clinician"
-          left={
-            <div className="grid h-11 w-11 place-items-center rounded-xl border border-[#C9D9FF] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.06)]">
-              <ClipboardList size={19} className="text-[#3B6EF5]" />
+        {tab === "patients" ? (
+          <header className="sticky top-0 z-20 border-b border-[#E9EEF7] bg-white/90 px-4 pb-2 pt-6 backdrop-blur-md">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 place-items-center rounded-full bg-[#3670e2]/10 text-[#3670e2]">
+                  <Stethoscope size={18} strokeWidth={2.1} />
+                </div>
+                <h1 className="text-[1.75rem] font-bold tracking-[-0.03em] text-[#1F2A37]">Patients</h1>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  style={{ width: "auto", marginTop: 0, background: "transparent", padding: "0.5rem" }}
+                  className="rounded-full text-[#667085] transition hover:bg-slate-100"
+                  onClick={() => void loadPatientLists()}
+                  aria-label="Refresh patients"
+                >
+                  <Bell size={18} />
+                </button>
+                <button
+                  type="button"
+                  style={{ width: "auto", marginTop: 0, background: "transparent", padding: "0.5rem" }}
+                  className="rounded-full text-[#667085] transition hover:bg-slate-100"
+                  onClick={() => setTab("profile")}
+                  aria-label="Open profile settings"
+                >
+                  <Settings size={18} />
+                </button>
+              </div>
             </div>
-          }
-          right={
-            <button type="button" className="relative grid h-11 w-11 place-items-center rounded-full bg-[#3B6EF5] text-white shadow-[0_4px_10px_rgba(59,110,245,0.24)]">
-              <Bell size={19} />
-              <span className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full border border-white bg-[#EF5A5A]" />
-            </button>
-          }
-        />
+
+            <div className="flex flex-col gap-3">
+              <label className="flex w-full items-center gap-3 rounded-xl bg-slate-100 px-4 py-2.5">
+                <Search size={16} className="shrink-0 text-slate-400" />
+                <input
+                  className="m-0 w-full border-none bg-transparent p-0 text-sm leading-5 text-slate-700 placeholder:text-slate-400 focus:ring-0"
+                  placeholder="Search by name or condition"
+                  value={patientSearch}
+                  onChange={(event) => setPatientSearch(event.target.value)}
+                />
+              </label>
+              <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {[
+                  { key: "all", label: "All Patients" },
+                  { key: "high-risk", label: "High Risk" },
+                  { key: "low-risk", label: "Low Risk" },
+                  { key: "new", label: "Newly Added" },
+                ].map((item) => {
+                  const isActive = patientFilter === item.key;
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      style={{ width: "auto", marginTop: 0 }}
+                      onClick={() => setPatientFilter(item.key as "all" | "high-risk" | "low-risk" | "new")}
+                      className={`whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-semibold transition ${
+                        isActive
+                          ? "bg-[#3670e2] text-white"
+                          : "border border-slate-200 bg-white text-slate-600"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </header>
+        ) : tab === "care-plan" ? (
+          <header className="sticky top-0 z-20 border-b border-[#E9EEF7] bg-white px-4 py-3">
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => setTab("patients")}
+                style={{ width: "auto", marginTop: 0, background: "transparent", padding: "0.5rem" }}
+                className="rounded-full text-[#667085] transition hover:bg-slate-100"
+                aria-label="Back to patients"
+              >
+                <ArrowLeft size={18} />
+              </button>
+              <h1 className="min-w-0 truncate text-xl font-bold tracking-tight text-[#1F2A37]">
+                {selectedPatient ? `${selectedPatient.name}'s Care Plan` : "Care Plan"}
+              </h1>
+            </div>
+          </header>
+        ) : tab === "outcomes" ? (
+          <header className="sticky top-0 z-20 border-b border-[#E9EEF7] bg-white/90 px-4 pb-2 pt-6 backdrop-blur-md">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 place-items-center rounded-full bg-[#3670e2]/10 text-[#3670e2]">
+                  <FileText size={18} strokeWidth={2.1} />
+                </div>
+                <h1 className="text-[1.75rem] font-bold tracking-[-0.03em] text-[#1F2A37]">Outcomes</h1>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  style={{ width: "auto", marginTop: 0, background: "transparent", padding: "0.5rem" }}
+                  className="rounded-full text-[#667085] transition hover:bg-slate-100"
+                  onClick={() => void loadOutcomes()}
+                  aria-label="Refresh outcomes"
+                >
+                  <Bell size={18} />
+                </button>
+                <button
+                  type="button"
+                  style={{ width: "auto", marginTop: 0, background: "transparent", padding: "0.5rem" }}
+                  className="rounded-full text-[#667085] transition hover:bg-slate-100"
+                  onClick={() => setTab("profile")}
+                  aria-label="Open profile settings"
+                >
+                  <Settings size={18} />
+                </button>
+              </div>
+            </div>
+          </header>
+        ) : (
+          <Header
+            title="ByteCare - Clinician"
+            left={
+              <div className="grid h-11 w-11 place-items-center rounded-xl border border-[#C9D9FF] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.06)]">
+                <ClipboardList size={19} className="text-[#3B6EF5]" />
+              </div>
+            }
+            right={
+              <button type="button" className="relative grid h-11 w-11 place-items-center rounded-full bg-[#3B6EF5] text-white shadow-[0_4px_10px_rgba(59,110,245,0.24)]">
+                <Bell size={19} />
+                <span className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full border border-white bg-[#EF5A5A]" />
+              </button>
+            }
+          />
+        )}
 
         <section className="space-y-4 px-3 pb-8 pt-4">
           {error ? <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
 
           {tab === "patients" ? (
             <>
-              <div className="flex items-center justify-between">
-                <h2 className="text-3xl font-bold text-[#1F2A37]">My Patients</h2>
-                <button
-                  type="button"
-                  onClick={() => setShowAssignPanel((v) => !v)}
-                  className="mt-0 inline-flex w-auto items-center gap-1 rounded-xl bg-[#3B6EF5] px-3 py-2 text-sm font-semibold text-white"
-                >
-                  <Plus size={15} /> Assign
-                </button>
-              </div>
-
               {loading ? <p className="text-sm text-[#667085]">Loading patients...</p> : null}
 
+              {patientFilter !== "low-risk" && patientFilter !== "new" ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Priority Watchlist</h2>
+                    <span className="text-xs font-medium text-[#3670e2]">{priorityWatchlist.length} flagged cases</span>
+                  </div>
+
+                  {priorityWatchlist.length === 0 && !loading && patients.length > 0 ? (
+                    <div className="rounded-xl border border-slate-100 bg-white p-4 text-sm text-[#667085] shadow-sm">
+                      No flagged patients match the current view.
+                    </div>
+                  ) : null}
+
+                  <div className="space-y-4">
+                    {priorityWatchlist.map((patient) => (
+                      <article key={`watch-${patient.summary.user_id}`} className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
+                        <div className="mb-3 flex items-start justify-between gap-3">
+                          <div className="flex gap-3">
+                            <div className="relative">
+                              <div className={`grid h-12 w-12 place-items-center rounded-full border-2 border-slate-50 bg-gradient-to-br ${patientAvatarTone(patient.summary.user_id)} text-sm font-bold text-[#1F2A37]`}>
+                                {patientInitials(patient.summary.name)}
+                              </div>
+                              <div className={`absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-white ${
+                                patient.riskTone === "red" ? "bg-red-500" : patient.riskTone === "amber" ? "bg-amber-500" : "bg-emerald-500"
+                              }`} />
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-bold leading-none text-[#1F2A37]">{patient.summary.name}</h3>
+                              <p className="mt-1 text-xs text-slate-500">Age {patient.summary.age}</p>
+                            </div>
+                          </div>
+                          <span className={`rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${
+                            patient.riskTone === "red"
+                              ? "bg-red-100 text-red-600"
+                              : patient.riskTone === "amber"
+                                ? "bg-amber-100 text-amber-600"
+                                : "bg-emerald-100 text-emerald-600"
+                          }`}>
+                            {patient.riskLabel}
+                          </span>
+                        </div>
+
+                        <div className="mb-4">
+                          <p className="mb-1 text-xs font-medium text-slate-700">Diagnoses</p>
+                          <div className="flex flex-wrap gap-1">
+                            {patient.summary.conditions.length > 0 ? patient.summary.conditions.map((condition) => (
+                              <span key={`${patient.summary.user_id}-${condition}`} className="rounded bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">
+                                {condition}
+                              </span>
+                            )) : (
+                              <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">No diagnoses recorded</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 border-t border-slate-50 py-3">
+                          <div className="text-center">
+                            <p className="text-[10px] font-semibold uppercase text-slate-400">Adherence</p>
+                            <p className={`text-sm font-bold ${
+                              patient.riskTone === "red" ? "text-red-500" : patient.riskTone === "amber" ? "text-amber-500" : "text-emerald-500"
+                            }`}>{patient.adherencePct ?? 0}%</p>
+                          </div>
+                          <div className="border-x border-slate-50 text-center">
+                            <p className="text-[10px] font-semibold uppercase text-slate-400">Medications</p>
+                            <p className="text-sm font-bold text-[#1F2A37]">{patient.summary.medication_count} meds</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-[10px] font-semibold uppercase text-slate-400">Follow-up</p>
+                            <p className="text-sm font-bold text-[#1F2A37]">{patient.summary.appointment_count} appt</p>
+                          </div>
+                        </div>
+
+                        <div className="mt-2 flex items-stretch gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedPatientId(patient.summary.user_id);
+                              setTab("care-plan");
+                            }}
+                            className={`mt-0 flex h-11 flex-1 items-center justify-center rounded-lg px-4 text-sm font-semibold ${
+                              patient.riskTone === "red"
+                                ? "bg-[#3670e2] text-white"
+                                : "bg-slate-100 text-slate-700"
+                            }`}
+                          >
+                            View Care Plan
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleUnassign(patient.summary.user_id)}
+                            className="mt-0 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-600"
+                            aria-label={`Remove ${patient.summary.name}`}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+
               {showAssignPanel ? (
-                <ChartCard>
-                  <SectionTitle title="Assign Patient" />
-                  <div className="mt-3 space-y-2">
+                <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
+                  <div className="mb-3 flex items-center justify-between">
+                    <SectionTitle title="Assign Patient" />
+                    <button
+                      type="button"
+                      onClick={() => setShowAssignPanel(false)}
+                      className="mt-0 w-auto bg-transparent px-0 py-0 text-xs font-semibold text-slate-500"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <div className="space-y-2">
                     {allPatients
                       .filter((p) => !p.assigned_clinician_id)
+                      .filter((p) => {
+                        const search = patientSearch.trim().toLowerCase();
+                        if (!search) return true;
+                        return p.name.toLowerCase().includes(search) || p.conditions.some((c) => c.toLowerCase().includes(search));
+                      })
                       .map((p) => (
                         <button
                           key={p.user_id}
                           type="button"
                           onClick={() => void handleAssign(p.user_id)}
-                          className="mt-0 flex w-full items-center justify-between rounded-xl border border-[#E9EEF7] bg-white px-3 py-2 text-left"
+                          className="mt-0 flex w-full items-center justify-between rounded-xl border border-[#E9EEF7] bg-slate-50 px-3 py-2 text-left"
                         >
                           <div>
                             <p className="font-semibold text-[#1F2A37]">{p.name}</p>
@@ -551,41 +971,102 @@ export default function ClinicianDashboardPage() {
                           <BadgePill label="Assign" tone="blue" />
                         </button>
                       ))}
+                    {allPatients.filter((p) => !p.assigned_clinician_id).length === 0 ? (
+                      <p className="text-sm text-[#667085]">All available patients are already assigned.</p>
+                    ) : null}
                   </div>
-                </ChartCard>
+                </div>
               ) : null}
 
               <div className="space-y-2">
-                {patients.map((patient) => (
-                  <article key={patient.user_id} className="rounded-2xl border border-[#E9EEF7] bg-white p-3 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+                {remainingPatients.map((patient) => (
+                  <article key={patient.summary.user_id} className={`rounded-xl border border-slate-100 bg-white p-4 shadow-sm ${patient.flagged ? "" : "opacity-90"}`}>
                     <div className="flex items-start justify-between gap-3">
+                      <div className="flex gap-3">
+                        <div className={`grid h-12 w-12 place-items-center rounded-full border-2 border-slate-50 bg-gradient-to-br ${patientAvatarTone(patient.summary.user_id)} text-sm font-bold text-[#1F2A37]`}>
+                          {patientInitials(patient.summary.name)}
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold leading-none text-[#1F2A37]">{patient.summary.name}</h3>
+                          <p className="mt-1 text-xs text-slate-500">Age {patient.summary.age}</p>
+                        </div>
+                      </div>
+                      <span className={`rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${
+                        patient.riskTone === "red"
+                          ? "bg-red-100 text-red-600"
+                          : patient.riskTone === "amber"
+                            ? "bg-amber-100 text-amber-600"
+                            : "bg-emerald-100 text-emerald-600"
+                      }`}>
+                        {patient.riskLabel}
+                      </span>
+                    </div>
+
+                    {patient.summary.conditions.length > 0 ? (
+                      <div className="mb-4 mt-3">
+                        <p className="mb-1 text-xs font-medium text-slate-700">Diagnoses</p>
+                        <div className="flex flex-wrap gap-1">
+                          {patient.summary.conditions.map((condition) => (
+                            <span key={`${patient.summary.user_id}-${condition}`} className="rounded bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">
+                              {condition}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="grid grid-cols-3 gap-2 border-t border-slate-50 py-3">
+                      <div className="text-center">
+                        <p className="text-[10px] font-semibold uppercase text-slate-400">Adherence</p>
+                        <p className={`text-sm font-bold ${
+                          patient.riskTone === "red" ? "text-red-500" : patient.riskTone === "amber" ? "text-amber-500" : "text-emerald-500"
+                        }`}>{patient.adherencePct ?? 0}%</p>
+                      </div>
+                      <div className="border-x border-slate-50 text-center">
+                        <p className="text-[10px] font-semibold uppercase text-slate-400">Medications</p>
+                        <p className="text-sm font-bold text-[#1F2A37]">{patient.summary.medication_count} meds</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[10px] font-semibold uppercase text-slate-400">Follow-up</p>
+                        <p className="text-sm font-bold text-[#1F2A37]">{patient.summary.appointment_count} appt</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 flex items-stretch gap-2">
                       <button
                         type="button"
                         onClick={() => {
-                          setSelectedPatientId(patient.user_id);
+                          setSelectedPatientId(patient.summary.user_id);
                           setTab("care-plan");
                         }}
-                        className="mt-0 flex-1 bg-transparent p-0 text-left"
+                        className={`mt-0 flex h-11 flex-1 items-center justify-center rounded-lg px-4 text-sm font-semibold ${
+                          patient.riskTone === "red"
+                            ? "bg-[#3670e2] text-white"
+                            : "bg-slate-100 text-slate-700"
+                        }`}
                       >
-                        <p className="text-lg font-semibold text-[#1F2A37]">{patient.name}</p>
-                        <p className="text-sm text-[#667085]">Age {patient.age} • {(patient.conditions ?? []).join(", ") || "No conditions"}</p>
-                        <p className="text-xs text-[#98A2B3]">{patient.medication_count} meds • {patient.appointment_count} follow-ups</p>
+                        View Care Plan
                       </button>
                       <button
                         type="button"
-                        onClick={() => void handleUnassign(patient.user_id)}
-                        className="mt-0 inline-flex w-auto items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-600"
+                        onClick={() => void handleUnassign(patient.summary.user_id)}
+                        className="mt-0 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-600"
+                        aria-label={`Remove ${patient.summary.name}`}
                       >
-                        <Trash2 size={13} />
+                        <Trash2 size={14} />
                       </button>
                     </div>
                   </article>
                 ))}
 
-                {!loading && patients.length === 0 ? (
-                  <ChartCard>
-                    <p className="text-sm text-[#667085]">No assigned patients yet. Use Assign to start a care plan.</p>
-                  </ChartCard>
+                {!loading && remainingPatients.length === 0 ? (
+                  <div className="rounded-xl border border-slate-100 bg-white p-4 text-sm text-[#667085] shadow-sm">
+                    {patients.length === 0
+                      ? "No assigned patients yet. Use the add button to start a care plan."
+                      : filteredPatients.length > 0
+                        ? "All matching patients are already shown in the priority watchlist."
+                        : "No patients match the current search or filter."}
+                  </div>
                 ) : null}
               </div>
             </>
@@ -593,11 +1074,6 @@ export default function ClinicianDashboardPage() {
 
           {tab === "care-plan" ? (
             <>
-              <div className="flex items-center justify-between">
-                <h2 className="text-3xl font-bold text-[#1F2A37]">Care Plan</h2>
-                {selectedPatient ? <BadgePill label={selectedPatient.name} tone="blue" /> : null}
-              </div>
-
               {!selectedPatientId ? (
                 <ChartCard>
                   <p className="text-sm text-[#667085]">Select a patient in Patients tab to set up their care plan.</p>
@@ -608,47 +1084,148 @@ export default function ClinicianDashboardPage() {
 
               {selectedPatientId && detail ? (
                 <>
-                  <SummaryCard title="Patient Profile" icon={<UserRound size={16} className="text-[#3B6EF5]" />}>
-                    <p className="mb-2 text-xs text-[#667085]">Clinician-owned profile for care-plan setup.</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <label className="text-xs font-semibold text-[#667085]">Name
-                        <input className="mt-1 w-full rounded-lg border border-[#D9E3F5] bg-white px-2 py-2 text-sm" value={profileForm.name} onChange={(e) => setProfileForm((p) => ({ ...p, name: e.target.value }))} />
-                      </label>
-                      <label className="text-xs font-semibold text-[#667085]">Age
-                        <input type="number" className="mt-1 w-full rounded-lg border border-[#D9E3F5] bg-white px-2 py-2 text-sm" value={profileForm.age} onChange={(e) => setProfileForm((p) => ({ ...p, age: e.target.value }))} />
-                      </label>
-                      <label className="text-xs font-semibold text-[#667085]">Timezone
-                        <input className="mt-1 w-full rounded-lg border border-[#D9E3F5] bg-white px-2 py-2 text-sm" value={profileForm.timezone} onChange={(e) => setProfileForm((p) => ({ ...p, timezone: e.target.value }))} />
-                      </label>
-                      <label className="text-xs font-semibold text-[#667085]">Language
-                        <input className="mt-1 w-full rounded-lg border border-[#D9E3F5] bg-white px-2 py-2 text-sm" value={profileForm.language_preference} onChange={(e) => setProfileForm((p) => ({ ...p, language_preference: e.target.value }))} />
-                      </label>
+                  <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+                      <div className="relative">
+                        <div className={`grid h-24 w-24 place-items-center rounded-full border-2 border-white bg-gradient-to-br shadow-sm ${patientAvatarTone(selectedPatientId)} text-xl font-bold text-[#1F2A37]`}>
+                          {patientInitials(profileForm.name || selectedPatient?.name || detail.patient.name)}
+                        </div>
+                        <span className="absolute bottom-1 right-1 h-5 w-5 rounded-full border-2 border-white bg-green-500" />
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <h2 className="text-[1.55rem] font-bold tracking-tight text-slate-900">{profileForm.name || detail.patient.name}</h2>
+                          <button
+                            type="button"
+                            onClick={() => setIsProfileEditorOpen((value) => !value)}
+                            className="mt-0 inline-flex w-auto items-center gap-1 bg-transparent px-0 py-0 text-sm font-semibold text-[#3670e2] hover:underline"
+                          >
+                            <PencilLine size={14} />
+                            {isProfileEditorOpen ? "Hide Profile" : "Update Profile"}
+                          </button>
+                        </div>
+                        <p className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-500">
+                          <span className="inline-flex items-center gap-1">
+                            <Cake size={12} className="text-slate-400" />
+                            {profileForm.age || detail.patient.age} years old
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <Languages size={12} className="text-slate-400" />
+                            {profileForm.language_preference || detail.patient.language_preference || "English"}
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <MapPin size={12} className="text-slate-400" />
+                            {profileForm.timezone || detail.patient.timezone || "Asia/Singapore"}
+                          </span>
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="mt-2 grid grid-cols-1 gap-2">
-                      <label className="text-xs font-semibold text-[#667085]">Sex / Gender
-                        <input className="mt-1 w-full rounded-lg border border-[#D9E3F5] bg-white px-2 py-2 text-sm" value={profileForm.sex} onChange={(e) => setProfileForm((p) => ({ ...p, sex: e.target.value }))} />
-                      </label>
-                      <label className="text-xs font-semibold text-[#667085]">Background notes
-                        <textarea className="mt-1 w-full rounded-lg border border-[#D9E3F5] bg-white px-2 py-2 text-sm" value={profileForm.backgroundNotes} onChange={(e) => setProfileForm((p) => ({ ...p, backgroundNotes: e.target.value }))} />
-                      </label>
-                      <label className="text-xs font-semibold text-[#667085]">Caregiver / support context
-                        <textarea className="mt-1 w-full rounded-lg border border-[#D9E3F5] bg-white px-2 py-2 text-sm" value={profileForm.caregiverContext} onChange={(e) => setProfileForm((p) => ({ ...p, caregiverContext: e.target.value }))} />
-                      </label>
+                    {isProfileEditorOpen ? (
+                      <div className="mt-4 space-y-4">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <label className="text-xs font-semibold text-[#667085]">Name
+                            <input className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" value={profileForm.name} onChange={(e) => setProfileForm((p) => ({ ...p, name: e.target.value }))} />
+                          </label>
+                          <label className="text-xs font-semibold text-[#667085]">Age
+                            <input type="number" className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" value={profileForm.age} onChange={(e) => setProfileForm((p) => ({ ...p, age: e.target.value }))} />
+                          </label>
+                          <label className="text-xs font-semibold text-[#667085]">Timezone
+                            <input className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" value={profileForm.timezone} onChange={(e) => setProfileForm((p) => ({ ...p, timezone: e.target.value }))} />
+                          </label>
+                          <label className="text-xs font-semibold text-[#667085]">Language
+                            <input className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" value={profileForm.language_preference} onChange={(e) => setProfileForm((p) => ({ ...p, language_preference: e.target.value }))} />
+                          </label>
+                          <label className="sm:col-span-2 text-xs font-semibold text-[#667085]">Sex / Gender
+                            <input className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" value={profileForm.sex} onChange={(e) => setProfileForm((p) => ({ ...p, sex: e.target.value }))} />
+                          </label>
+                          <label className="sm:col-span-2 text-xs font-semibold text-[#667085]">Background notes
+                            <textarea className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" value={profileForm.backgroundNotes} onChange={(e) => setProfileForm((p) => ({ ...p, backgroundNotes: e.target.value }))} />
+                          </label>
+                          <label className="sm:col-span-2 text-xs font-semibold text-[#667085]">Caregiver / support context
+                            <textarea className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm" value={profileForm.caregiverContext} onChange={(e) => setProfileForm((p) => ({ ...p, caregiverContext: e.target.value }))} />
+                          </label>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const didSave = await saveProfile();
+                              if (didSave) setIsProfileEditorOpen(false);
+                            }}
+                            disabled={profileSaving}
+                            className="mt-0 inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#3670e2] px-4 py-3 text-sm font-semibold text-white"
+                          >
+                            <Save size={14} />
+                            {profileSaving ? "Saving..." : "Save Profile"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsProfileEditorOpen(false)}
+                            className="mt-0 inline-flex flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </section>
+
+                  <section className="space-y-3">
+                    <div className="flex items-center justify-between px-1">
+                      <h3 className="text-[16px] font-semibold text-slate-800">Medical Conditions</h3>
+                      <button
+                        type="button"
+                        onClick={() => setIsConditionsEditorOpen((value) => !value)}
+                        className="mt-0 w-auto bg-transparent px-0 py-0 text-sm font-medium text-slate-500 transition-colors hover:text-[#3670e2]"
+                      >
+                        {isConditionsEditorOpen ? "Hide Conditions" : "Edit Conditions"}
+                      </button>
                     </div>
-
-                    <button type="button" onClick={() => void saveProfile()} disabled={profileSaving} className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-xl bg-[#3B6EF5] px-3 py-2 text-sm font-semibold text-white">
-                      <Save size={14} /> {profileSaving ? "Saving..." : "Save Profile"}
-                    </button>
-                  </SummaryCard>
-
-                  <SummaryCard title="Conditions" icon={<ShieldAlert size={16} className="text-[#3B6EF5]" />}>
-                    <p className="text-xs text-[#667085]">Add one or more conditions, comma separated.</p>
-                    <textarea className="mt-2 w-full rounded-lg border border-[#D9E3F5] bg-white px-2 py-2 text-sm" value={conditionsText} onChange={(e) => setConditionsText(e.target.value)} />
-                    <button type="button" onClick={() => void saveConditions()} disabled={conditionsSaving} className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-xl bg-[#3B6EF5] px-3 py-2 text-sm font-semibold text-white">
-                      <Save size={14} /> {conditionsSaving ? "Saving..." : "Save Conditions"}
-                    </button>
-                  </SummaryCard>
+                    <div className="flex flex-wrap gap-2">
+                      {(detail.patient.conditions ?? []).length > 0 ? (
+                        (detail.patient.conditions ?? []).map((condition) => (
+                          <span key={condition} className="inline-flex items-center gap-2 rounded-lg border border-[#3670e2]/20 bg-[#3670e2]/10 px-3 py-1.5 text-sm font-medium text-[#3670e2]">
+                            <ShieldAlert size={14} />
+                            {condition}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-sm text-slate-500">No conditions recorded yet.</span>
+                      )}
+                    </div>
+                    {isConditionsEditorOpen ? (
+                      <div className="space-y-3">
+                        <textarea
+                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm"
+                          value={conditionsText}
+                          onChange={(e) => setConditionsText(e.target.value)}
+                          placeholder="Add one or more conditions, comma separated."
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const didSave = await saveConditions();
+                              if (didSave) setIsConditionsEditorOpen(false);
+                            }}
+                            disabled={conditionsSaving}
+                            className="mt-0 inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#3670e2] px-4 py-3 text-sm font-semibold text-white"
+                          >
+                            <Save size={14} />
+                            {conditionsSaving ? "Saving..." : "Save Conditions"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsConditionsEditorOpen(false)}
+                            className="mt-0 inline-flex flex-1 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </section>
 
                   <SummaryCard title="Medications" icon={<Pill size={16} className="text-[#3B6EF5]" />}>
                     <div className="grid grid-cols-2 gap-2">
@@ -767,13 +1344,6 @@ export default function ClinicianDashboardPage() {
 
           {tab === "outcomes" ? (
             <>
-              <div className="flex items-center justify-between">
-                <h2 className="text-3xl font-bold text-[#1F2A37]">Outcomes</h2>
-                <button type="button" onClick={() => void loadOutcomes()} className="mt-0 inline-flex w-auto items-center gap-1 rounded-xl bg-[#3B6EF5] px-3 py-2 text-sm font-semibold text-white">
-                  <FileText size={14} /> Refresh
-                </button>
-              </div>
-
               {!selectedPatientId ? (
                 <ChartCard>
                   <p className="text-sm text-[#667085]">Select a patient in Patients tab to review outcomes.</p>
@@ -902,10 +1472,30 @@ export default function ClinicianDashboardPage() {
           ) : null}
         </section>
 
+        {tab === "patients" ? (
+          <div
+            className="pointer-events-none fixed bottom-[calc(6.75rem+env(safe-area-inset-bottom))] z-40"
+            style={floatingBounds ? { left: `${floatingBounds.left}px`, width: `${floatingBounds.width}px` } : { left: 0, right: 0 }}
+          >
+            <div className="mx-auto flex w-full max-w-md justify-end px-6">
+              <button
+                type="button"
+                onClick={() => setShowAssignPanel((value) => !value)}
+                className="pointer-events-auto grid h-14 w-14 place-items-center rounded-full bg-[#3670e2] text-white shadow-[0_12px_28px_rgba(54,112,226,0.28)]"
+                style={{ marginTop: 0 }}
+                aria-label={showAssignPanel ? "Close assign patient panel" : "Open assign patient panel"}
+              >
+                <Plus size={22} strokeWidth={2.3} />
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         <TabBar
           tabs={navTabs}
           active={tab}
           containerRef={shellRef}
+          variant="patient"
           onTabChange={(value) => setTab(value as ClinicianTab)}
         />
       </div>
