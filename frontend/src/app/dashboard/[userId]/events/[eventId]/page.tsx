@@ -216,7 +216,7 @@ export default function EventDetailsPage() {
             >
               <ArrowLeft size={22} />
             </button>
-            <h1 className="text-[1.9rem] font-bold leading-none tracking-tight text-slate-900">Event Details</h1>
+            <h1 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Event Details</h1>
           </div>
           <p className="text-[0.77rem] text-slate-600">
             View full activity details and manage your participation.
