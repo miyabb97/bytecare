@@ -90,6 +90,64 @@ function safeMessage(error: unknown): string {
   return "Something went wrong.";
 }
 
+function renderAIMarkdown(text: string, accentColor: string = "#6366F1") {
+  return text.split("\n").map((line, idx) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed === "---") return null;
+    // ### headers
+    if (trimmed.startsWith("### ")) {
+      return (
+        <h4 key={idx} className="mb-1 mt-4 text-sm font-bold text-[#1F2A37]">
+          {trimmed.slice(4).replace(/\*\*/g, "")}
+        </h4>
+      );
+    }
+    // **bold headers** (standalone)
+    if (trimmed.startsWith("**") && trimmed.endsWith("**")) {
+      return (
+        <h4 key={idx} className="mb-1 mt-4 text-sm font-bold text-[#1F2A37]">
+          {trimmed.replace(/\*\*/g, "")}
+        </h4>
+      );
+    }
+    // numbered section headers like "1. **Panel Overview**"
+    if (/^\d+\.\s*\*\*/.test(trimmed)) {
+      return (
+        <h4 key={idx} className="mb-1 mt-4 text-sm font-bold text-[#1F2A37]">
+          {trimmed.replace(/\*\*/g, "")}
+        </h4>
+      );
+    }
+    // bullet points
+    if (trimmed.startsWith("- ") || trimmed.startsWith("• ") || trimmed.startsWith("* ")) {
+      return (
+        <div key={idx} className="ml-3 flex items-start gap-2 py-0.5">
+          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: accentColor }} />
+          <span className="text-sm leading-relaxed text-[#475467]">
+            {trimmed.slice(2).replace(/\*\*/g, "")}
+          </span>
+        </div>
+      );
+    }
+    // inline bold within text
+    const parts = trimmed.split(/\*\*(.*?)\*\*/g);
+    if (parts.length > 1) {
+      return (
+        <p key={idx} className="text-sm leading-relaxed text-[#475467]">
+          {parts.map((part, i) =>
+            i % 2 === 1 ? <strong key={i} className="font-semibold text-[#1F2A37]">{part}</strong> : part
+          )}
+        </p>
+      );
+    }
+    return (
+      <p key={idx} className="text-sm leading-relaxed text-[#475467]">
+        {trimmed}
+      </p>
+    );
+  });
+}
+
 function computePatientAdherence(detail: ClinicianPatientDetail | null): number | null {
   const counts = detail?.mee?.counts;
   if (!counts) return null;
@@ -1585,12 +1643,8 @@ export default function ClinicianDashboardPage() {
                               {aiOverview.provider.toUpperCase()}
                             </span>
                           </div>
-                          <div className="space-y-2 text-sm leading-relaxed text-[#475467]">
-                            {aiOverview.summary.split("\n").map((line, index) => {
-                              const trimmed = line.trim().replace(/\*\*/g, "");
-                              if (!trimmed) return null;
-                              return <p key={index}>{trimmed}</p>;
-                            })}
+                          <div className="space-y-1">
+                            {renderAIMarkdown(aiOverview.summary, "#6366F1")}
                           </div>
                         </div>
                       ) : null}
@@ -1676,12 +1730,8 @@ export default function ClinicianDashboardPage() {
                                 {aiSummary.provider.toUpperCase()}
                               </span>
                             </div>
-                            <div className="space-y-2 text-sm leading-relaxed text-[#475467]">
-                              {aiSummary.summary.split("\n").map((line, index) => {
-                                const trimmed = line.trim().replace(/\*\*/g, "");
-                                if (!trimmed) return null;
-                                return <p key={index}>{trimmed}</p>;
-                              })}
+                            <div className="space-y-1">
+                              {renderAIMarkdown(aiSummary.summary, "#3670e2")}
                             </div>
                           </div>
                         ) : null}
@@ -2626,40 +2676,8 @@ export default function ClinicianDashboardPage() {
                         {aiOverview.provider.toUpperCase()}
                       </span>
                     </div>
-                    <div className="prose prose-sm max-w-none text-[#344054]">
-                      {aiOverview.summary.split("\n").map((line, idx) => {
-                        const trimmed = line.trim();
-                        if (!trimmed) return <br key={idx} />;
-                        if (trimmed.startsWith("**") && trimmed.endsWith("**")) {
-                          return (
-                            <h4 key={idx} className="mb-1 mt-4 text-sm font-bold text-[#1F2A37]">
-                              {trimmed.replace(/\*\*/g, "")}
-                            </h4>
-                          );
-                        }
-                        if (/^\d+\.\s*\*\*/.test(trimmed)) {
-                          return (
-                            <h4 key={idx} className="mb-1 mt-4 text-sm font-bold text-[#1F2A37]">
-                              {trimmed.replace(/\*\*/g, "")}
-                            </h4>
-                          );
-                        }
-                        if (trimmed.startsWith("- ") || trimmed.startsWith("• ")) {
-                          return (
-                            <div key={idx} className="ml-3 flex items-start gap-2 py-0.5">
-                              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#6366F1]" />
-                              <span className="text-sm leading-relaxed text-[#475467]">
-                                {trimmed.slice(2).replace(/\*\*/g, "")}
-                              </span>
-                            </div>
-                          );
-                        }
-                        return (
-                          <p key={idx} className="text-sm leading-relaxed text-[#475467]">
-                            {trimmed.replace(/\*\*/g, "")}
-                          </p>
-                        );
-                      })}
+                    <div className="space-y-1">
+                      {renderAIMarkdown(aiOverview.summary, "#6366F1")}
                     </div>
                   </div>
                 </div>
@@ -2748,12 +2766,8 @@ export default function ClinicianDashboardPage() {
                           {aiSummary.provider.toUpperCase()}
                         </span>
                       </div>
-                      <div className="space-y-2 text-sm leading-relaxed text-[#475467]">
-                        {aiSummary.summary.split("\n").map((line, idx) => {
-                          const trimmed = line.trim().replace(/\*\*/g, "");
-                          if (!trimmed) return null;
-                          return <p key={idx}>{trimmed}</p>;
-                        })}
+                      <div className="space-y-1">
+                        {renderAIMarkdown(aiSummary.summary, "#3670e2")}
                       </div>
                     </div>
                   ) : null}
@@ -2761,252 +2775,6 @@ export default function ClinicianDashboardPage() {
               )}
             </>
           ) : null}
-
-          {tab === "ai-insights" ? (
-              <>
-                {/* ── Section 1: Panel Overview (all patients) ── */}
-                <SummaryCard
-                  title="Panel Overview"
-                  icon={<BrainCircuit size={16} className="text-[#6366F1]" />}
-                >
-                  <p className="text-xs text-[#667085]">
-                    Generate an AI-powered overview across all assigned patients — highlights priority patients, panel trends, and recommended focus areas.
-                  </p>
-                  <button
-                    type="button"
-                    disabled={aiOverviewLoading}
-                    onClick={async () => {
-                      setAiOverviewLoading(true);
-                      setAiOverviewError(null);
-                      setAiOverview(null);
-                      try {
-                        const result = await api.clinicianGetAIOverview(accountId);
-                        setAiOverview(result);
-                      } catch (err) {
-                        setAiOverviewError(safeMessage(err));
-                      } finally {
-                        setAiOverviewLoading(false);
-                      }
-                    }}
-                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] px-4 py-3 text-sm font-semibold text-white shadow-md transition-all hover:shadow-lg disabled:opacity-60"
-                  >
-                    {aiOverviewLoading ? (
-                      <>
-                        <RefreshCw size={14} className="animate-spin" />
-                        Generating Overview...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={14} />
-                        {aiOverview ? "Regenerate Panel Overview" : "Generate Panel Overview"}
-                      </>
-                    )}
-                  </button>
-                </SummaryCard>
-
-                {aiOverviewError ? (
-                  <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-                    <p className="text-sm font-semibold text-red-700">Failed to generate overview</p>
-                    <p className="mt-1 text-xs text-red-600">{aiOverviewError}</p>
-                  </div>
-                ) : null}
-
-                {aiOverviewLoading ? (
-                  <div className="space-y-3">
-                    {[1, 2, 3].map((i) => (
-                      <div key={i} className="animate-pulse rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-                        <div className="mb-3 h-4 w-1/3 rounded bg-slate-200" />
-                        <div className="space-y-2">
-                          <div className="h-3 w-full rounded bg-slate-100" />
-                          <div className="h-3 w-5/6 rounded bg-slate-100" />
-                          <div className="h-3 w-4/6 rounded bg-slate-100" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-
-                {aiOverview && !aiOverviewLoading ? (
-                  <div className="space-y-3">
-                    <div className="rounded-xl border border-[#6366F1]/20 bg-gradient-to-br from-[#F5F3FF] to-white p-5 shadow-sm">
-                      <div className="mb-3 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <BrainCircuit size={18} className="text-[#6366F1]" />
-                          <h3 className="text-base font-bold text-[#1F2A37]">
-                            Panel Overview — {aiOverview.patient_count} Patient{aiOverview.patient_count !== 1 ? "s" : ""}
-                          </h3>
-                        </div>
-                        <span className="rounded-full bg-[#6366F1]/10 px-2.5 py-0.5 text-[10px] font-semibold text-[#6366F1]">
-                          {aiOverview.provider.toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="prose prose-sm max-w-none text-[#344054]">
-                        {aiOverview.summary.split("\n").map((line, idx) => {
-                          const trimmed = line.trim();
-                          if (!trimmed) return <br key={idx} />;
-                          if (trimmed.startsWith("**") && trimmed.endsWith("**")) {
-                            return (
-                              <h4 key={idx} className="mb-1 mt-4 text-sm font-bold text-[#1F2A37]">
-                                {trimmed.replace(/\*\*/g, "")}
-                              </h4>
-                            );
-                          }
-                          if (/^\d+\.\s*\*\*/.test(trimmed)) {
-                            return (
-                              <h4 key={idx} className="mb-1 mt-4 text-sm font-bold text-[#1F2A37]">
-                                {trimmed.replace(/\*\*/g, "")}
-                              </h4>
-                            );
-                          }
-                          if (trimmed.startsWith("- ") || trimmed.startsWith("• ")) {
-                            return (
-                              <div key={idx} className="ml-3 flex items-start gap-2 py-0.5">
-                                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#6366F1]" />
-                                <span className="text-sm leading-relaxed text-[#475467]">
-                                  {trimmed.slice(2).replace(/\*\*/g, "")}
-                                </span>
-                              </div>
-                            );
-                          }
-                          return (
-                            <p key={idx} className="text-sm leading-relaxed text-[#475467]">
-                              {trimmed.replace(/\*\*/g, "")}
-                            </p>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                {/* ── Divider ── */}
-                <div className="my-2 border-t border-slate-200" />
-
-                {/* ── Section 2: Individual Patient AI Summary ── */}
-                {!selectedPatientId ? (
-                  <ChartCard>
-                    <p className="text-sm text-[#667085]">Select a patient in the Patients tab to generate an individual AI summary.</p>
-                  </ChartCard>
-                ) : (
-                  <>
-                    <SummaryCard
-                      title="Individual Patient Insights"
-                      icon={<Sparkles size={16} className="text-[#3B6EF5]" />}
-                    >
-                      <p className="text-xs text-[#667085]">
-                        Generate a detailed AI clinical summary, risk assessment, and recommendations for the selected patient.
-                      </p>
-                      <button
-                        type="button"
-                        disabled={aiLoading}
-                        onClick={async () => {
-                          if (!selectedPatientId) return;
-                          setAiLoading(true);
-                          setAiError(null);
-                          setAiSummary(null);
-                          try {
-                            const result = await api.clinicianGetAISummary(accountId, selectedPatientId);
-                            setAiSummary(result);
-                          } catch (err) {
-                            setAiError(safeMessage(err));
-                          } finally {
-                            setAiLoading(false);
-                          }
-                        }}
-                        className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#3670e2] to-[#6366F1] px-4 py-3 text-sm font-semibold text-white shadow-md transition-all hover:shadow-lg disabled:opacity-60"
-                      >
-                        {aiLoading ? (
-                          <>
-                            <RefreshCw size={14} className="animate-spin" />
-                            Generating Insights...
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles size={14} />
-                            {aiSummary ? "Regenerate Insights" : "Generate Patient Insights"}
-                          </>
-                        )}
-                      </button>
-                    </SummaryCard>
-
-                    {aiError ? (
-                      <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-                        <p className="text-sm font-semibold text-red-700">Failed to generate insights</p>
-                        <p className="mt-1 text-xs text-red-600">{aiError}</p>
-                      </div>
-                    ) : null}
-
-                    {aiLoading ? (
-                      <div className="space-y-3">
-                        {[1, 2, 3].map((i) => (
-                          <div key={i} className="animate-pulse rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-                            <div className="mb-3 h-4 w-1/3 rounded bg-slate-200" />
-                            <div className="space-y-2">
-                              <div className="h-3 w-full rounded bg-slate-100" />
-                              <div className="h-3 w-5/6 rounded bg-slate-100" />
-                              <div className="h-3 w-4/6 rounded bg-slate-100" />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-
-                    {aiSummary && !aiLoading ? (
-                      <div className="space-y-3">
-                        <div className="rounded-xl border border-[#3670e2]/20 bg-gradient-to-br from-[#EEF2FF] to-white p-5 shadow-sm">
-                          <div className="mb-3 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <BrainCircuit size={18} className="text-[#3670e2]" />
-                              <h3 className="text-base font-bold text-[#1F2A37]">
-                                AI Summary — {aiSummary.patient_name}
-                              </h3>
-                            </div>
-                            <span className="rounded-full bg-[#3670e2]/10 px-2.5 py-0.5 text-[10px] font-semibold text-[#3670e2]">
-                              {aiSummary.provider.toUpperCase()}
-                            </span>
-                          </div>
-                          <div className="prose prose-sm max-w-none text-[#344054]">
-                            {aiSummary.summary.split("\n").map((line, idx) => {
-                              const trimmed = line.trim();
-                              if (!trimmed) return <br key={idx} />;
-                              if (trimmed.startsWith("**") && trimmed.endsWith("**")) {
-                                return (
-                                  <h4 key={idx} className="mb-1 mt-4 text-sm font-bold text-[#1F2A37]">
-                                    {trimmed.replace(/\*\*/g, "")}
-                                  </h4>
-                                );
-                              }
-                              if (/^\d+\.\s*\*\*/.test(trimmed)) {
-                                return (
-                                  <h4 key={idx} className="mb-1 mt-4 text-sm font-bold text-[#1F2A37]">
-                                    {trimmed.replace(/\*\*/g, "")}
-                                  </h4>
-                                );
-                              }
-                              if (trimmed.startsWith("- ") || trimmed.startsWith("• ")) {
-                                return (
-                                  <div key={idx} className="ml-3 flex items-start gap-2 py-0.5">
-                                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#3670e2]" />
-                                    <span className="text-sm leading-relaxed text-[#475467]">
-                                      {trimmed.slice(2).replace(/\*\*/g, "")}
-                                    </span>
-                                  </div>
-                                );
-                              }
-                              return (
-                                <p key={idx} className="text-sm leading-relaxed text-[#475467]">
-                                  {trimmed.replace(/\*\*/g, "")}
-                                </p>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-                  </>
-                )}
-              </>
-            ) : null}
 
             {tab === "profile" ? (
               <SummaryCard title="Clinician Account" icon={<UserRound size={16} className="text-[#3B6EF5]" />}>

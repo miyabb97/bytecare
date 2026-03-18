@@ -235,7 +235,7 @@ def get_panel_ai_overview(account_id: str, db: Session = Depends(get_db)):
                 "prior_score": prior_score,
                 "delta": round(current_score - prior_score, 1),
                 "taken": current_counts["taken"],
-                "missed": current_counts["missed"],
+                "missed": current_counts["not_taken"],
                 "late": current_counts["late"],
             },
             "drift": drift,

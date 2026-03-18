@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import time
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -138,15 +139,78 @@ Keep the language professional but concise. Use Singapore healthcare context whe
 
 
 # ---------------------------------------------------------------------------
-# LLM callers — MeraLion primary (same pattern as conversation_agent)
+# LLM callers — Gemini primary, MeraLion / Groq / OpenAI fallbacks
 # ---------------------------------------------------------------------------
 
+def _call_gemini(prompt: str, context: str) -> str:
+    """Call Google Gemini API (free tier) with retry for rate limits."""
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY not configured")
+
+    model = "gemini-2.5-flash"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+
+    payload = json.dumps({
+        "contents": [{
+            "parts": [{"text": f"{prompt}\n\n--- PATIENT DATA ---\n{context}"}]
+        }],
+        "generationConfig": {
+            "temperature": 0.4,
+            "topP": 0.9,
+            "maxOutputTokens": 2048,
+        },
+    }).encode("utf-8")
+
+    last_exc: Optional[Exception] = None
+    for attempt in range(3):
+        request = Request(
+            url=url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=30) as resp:
+                raw = resp.read().decode("utf-8")
+            parsed = json.loads(raw)
+            candidates = parsed.get("candidates", [])
+            if not candidates:
+                raise RuntimeError("Gemini returned no candidates")
+            parts = candidates[0].get("content", {}).get("parts", [])
+            if not parts:
+                raise RuntimeError("Gemini returned empty parts")
+            return parts[0].get("text", "").strip()
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")
+            last_exc = RuntimeError(f"Gemini failed ({exc.code}): {detail}")
+            if exc.code == 429 and attempt < 2:
+                time.sleep(2 * (attempt + 1))
+                continue
+            raise last_exc from exc
+        except (URLError, TimeoutError, socket.timeout) as exc:
+            raise RuntimeError(f"Gemini failed: {exc}") from exc
+    raise last_exc or RuntimeError("Gemini failed after retries")
+    return parts[0].get("text", "").strip()
+
+
 def _call_meralion(instruction: str) -> str:
-    """Call MeraLion using the same pattern as conversation_agent / medication_education_agent."""
+    """Call MeraLion with retry + exponential backoff for 429 rate limits."""
     client = MeralionClient()
     if not client.enabled:
         raise MeralionClientError("MERALION_API_KEY is not set.")
-    return client.chat(instruction, hyperparameters={"temperature": 0.4, "topP": 0.9})
+
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            return client.chat(instruction, hyperparameters={"temperature": 0.4, "topP": 0.9})
+        except MeralionClientError as exc:
+            err_msg = str(exc)
+            if "429" in err_msg and attempt < max_retries - 1:
+                wait = (attempt + 1) * 3  # 3s, 6s, 9s
+                time.sleep(wait)
+                continue
+            raise
 
 
 def _call_groq(prompt: str, context: str) -> str:
@@ -237,7 +301,17 @@ def _llm_generate(system_prompt: str, context: str) -> Tuple[str, str]:
     """Try all providers in order. Returns (text, provider_name)."""
     errors: List[str] = []
 
-    # 1) MeraLion first (primary)
+    # 1) Gemini first (free tier, most reliable right now)
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if gemini_key:
+        try:
+            text = _call_gemini(system_prompt, context)
+            if text and text.strip():
+                return text.strip(), "gemini"
+        except Exception as exc:
+            errors.append(f"Gemini: {exc}")
+
+    # 2) MeraLion fallback
     try:
         instruction = f"{system_prompt}\n\n--- PATIENT DATA ---\n{context}"
         text = _call_meralion(instruction)
@@ -246,7 +320,7 @@ def _llm_generate(system_prompt: str, context: str) -> Tuple[str, str]:
     except Exception as exc:
         errors.append(f"MeraLion: {exc}")
 
-    # 2) Groq fallback
+    # 3) Groq fallback
     groq_key = os.getenv("GROQ_API_KEY", "").strip()
     if groq_key:
         try:
@@ -256,7 +330,7 @@ def _llm_generate(system_prompt: str, context: str) -> Tuple[str, str]:
         except Exception as exc:
             errors.append(f"Groq: {exc}")
 
-    # 3) OpenAI fallback
+    # 4) OpenAI fallback
     openai_key = os.getenv("OPENAI_API_KEY", "").strip()
     if openai_key:
         try:
