@@ -13,7 +13,7 @@ from app.models import Medication, User
 SUPPLY_MAP = {
     "Mdm Lim": 50,
     "Mr Ong": 50,
-    "Mrs Wong": 30,
+    "Mrs Wong": 15,
 }
 
 with SessionLocal() as db:

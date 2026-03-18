@@ -23,17 +23,21 @@ On Mac/Linux:
 pkill -f uvicorn
 ```
 
-**Step 2 — Delete the database:**
+**Step 2 — Delete the database (all 3 files):**
 
 On Windows CMD:
 ```
 del backend\bytecare.db
+del backend\bytecare.db-wal
+del backend\bytecare.db-shm
 ```
 
 On Mac/Linux:
 ```
-rm backend/bytecare.db
+rm backend/bytecare.db backend/bytecare.db-wal backend/bytecare.db-shm
 ```
+
+> **Important:** You must delete the `-wal` and `-shm` files too. If left behind, SQLite will apply the old WAL to the new database on next startup and wipe the seeded supply quantities back to 0.
 
 **Step 3 — Restart the backend:**
 

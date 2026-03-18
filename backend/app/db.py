@@ -212,6 +212,7 @@ def _seed_demo_patients(db) -> None:
                 schedule_json=json.dumps(med["schedule"]),
                 time_window_minutes=med.get("time_window_minutes", 120),
                 criticality=med.get("criticality", "medium"),
+                total_supply=med.get("total_supply", 0),
                 created_at=_dt.utcnow().isoformat(),
             ))
 
