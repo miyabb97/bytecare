@@ -30,9 +30,9 @@ def _scheduled_datetimes_last_7_days(med: Dict[str, Any]) -> List[datetime]:
     return sorted(result)
 
 
-def _avg_mes_last_7_days(user_id: str) -> float:
-    """Compute user's average MES over the last 7 full days."""
-    today = datetime.now().date()
+def _avg_mes_last_7_days(user_id: str) -> Optional[float]:
+    """Compute user's average MES over the last 7 full days. Returns None if no data."""
+    today = datetime.utcnow().date()
     lower = today - timedelta(days=7)
     upper = today - timedelta(days=1)
 
@@ -49,7 +49,7 @@ def _avg_mes_last_7_days(user_id: str) -> float:
             values.append(float(item.mes))
 
     if not values:
-        return 100.0
+        return None  # No data — do not treat as perfect adherence
     return round(sum(values) / len(values), 2)
 
 
@@ -63,28 +63,37 @@ def detect_adherence_drift(user_id: str) -> Dict[str, Any]:
         meds = [m.to_dict() for m in db.query(Medication).filter_by(user_id=user_id).all()]
         dose_events = [e.to_dict() for e in db.query(DoseEvent).filter_by(user_id=user_id).all()]
 
-    today = datetime.now().date()
+    today = datetime.utcnow().date()
     lower = today - timedelta(days=7)
     upper = today - timedelta(days=1)
 
-    missed_doses = 0
-    late_doses = 0
+    # Count not_taken directly from DB (includes legacy missed/skipped)
+    not_taken_doses = sum(
+        1 for ev in dose_events
+        if ev.get("response_status") in ("not_taken", "missed", "skipped")
+        or ev.get("event_type") in ("dose_not_taken", "dose_missed", "dose_skipped")
+        and lower <= datetime.fromisoformat(ev["timestamp"]).date() <= upper
+    )
 
+    # Count late doses by matching only taken/late events to scheduled slots
+    late_doses = 0
     for med in meds:
         med_id = med.get("medication_id")
         scheduled = _scheduled_datetimes_last_7_days(med)
-        events = [
+        # Only consider confirmed intake events (not snoozed/not_taken)
+        intake_events = [
             datetime.fromisoformat(ev["timestamp"])
             for ev in dose_events
             if ev.get("medication_id") == med_id
+            and ev.get("response_status") in ("taken", "late")
             and lower <= datetime.fromisoformat(ev["timestamp"]).date() <= upper
         ]
-        used = [False] * len(events)
+        used = [False] * len(intake_events)
 
         for scheduled_dt in scheduled:
             candidate_idx = -1
             candidate_diff = None
-            for idx, event_dt in enumerate(events):
+            for idx, event_dt in enumerate(intake_events):
                 if used[idx] or event_dt.date() != scheduled_dt.date():
                     continue
                 diff = abs((event_dt - scheduled_dt).total_seconds())
@@ -93,41 +102,38 @@ def detect_adherence_drift(user_id: str) -> Dict[str, Any]:
                     candidate_idx = idx
 
             if candidate_idx == -1:
-                missed_doses += 1
-                continue
+                continue  # not_taken already counted separately above
 
             used[candidate_idx] = True
-            event_dt = events[candidate_idx]
+            event_dt = intake_events[candidate_idx]
             minutes_late = (event_dt - scheduled_dt).total_seconds() / 60
             if minutes_late > 120:
                 late_doses += 1
 
     avg_mes = _avg_mes_last_7_days(user_id)
 
+    total_issues = not_taken_doses + late_doses
     trigger_scores = {
-        "missed_doses": (missed_doses / 3) if missed_doses >= 3 else 0,
-        "late_doses": (late_doses / 2) if late_doses >= 2 else 0,
-        "low_mes": ((60 - avg_mes) / 60) if avg_mes < 60 else 0,
+        "not_taken_doses": not_taken_doses,
+        "late_doses": late_doses,
     }
     trigger = max(trigger_scores, key=trigger_scores.get)
 
-    drift_detected = missed_doses >= 3 or late_doses >= 2 or avg_mes < 60
-    if not drift_detected:
-        severity = "green"
-    elif missed_doses >= 6 or late_doses >= 4 or avg_mes < 40:
+    if total_issues >= 10:
         severity = "red"
-    elif missed_doses >= 4 or late_doses >= 3 or avg_mes < 50:
-        severity = "orange"
-    else:
+    elif total_issues >= 5:
         severity = "yellow"
+    else:
+        severity = "green"
+    drift_detected = severity != "green"
 
     return {
         "drift_detected": drift_detected,
         "severity": severity,
         "trigger": trigger,
         "details": {
-            "missed_doses": missed_doses,
+            "not_taken_doses": not_taken_doses,
             "late_doses": late_doses,
-            "avg_mes": avg_mes,
+            "avg_mes": avg_mes,  # None when no MES data available
         },
     }

@@ -41,11 +41,14 @@ function loadAccount(router: ReturnType<typeof useRouter>, setAccount: (value: A
 
 function calcAdherence(detail: CaregiverPatientDetail) {
   const events = detail.dose_events;
-  const taken = events.filter(e => e.response_status === "taken" || ['pillbox_open','tap_confirm','voice_confirm'].includes(e.event_type)).length;
-  const missed = events.filter(e => e.response_status === "missed").length;
-  const late = events.filter(e => e.response_status === "late").length;
-  const total = taken + missed + late;
-  const pct = total > 0 ? Math.round((taken / total) * 100) : 100;
+  const taken = events.filter(e => e.response_status === "taken" || ['tap_confirm','voice_confirm'].includes(e.event_type)).length;
+  const late = events.filter(e => e.response_status === "late" || e.event_type === "dose_late").length;
+  const missed = events.filter(e =>
+    ["not_taken", "missed", "skipped"].includes(e.response_status) ||
+    ["dose_not_taken", "dose_missed", "dose_skipped"].includes(e.event_type)
+  ).length;
+  const total = taken + late + missed;
+  const pct = total > 0 ? Math.round(((taken + 0.5 * late) / total) * 100) : 100;
   return { taken, missed, late, pct };
 }
 
@@ -58,7 +61,7 @@ function getRisk(pct: number): { label: string; tone: "red" | "yellow" | "succes
 function getMissedMedNames(detail: CaregiverPatientDetail): string[] {
   const ids = [...new Set(
     detail.dose_events
-      .filter(e => e.response_status === "missed")
+      .filter(e => ["not_taken", "missed", "skipped"].includes(e.response_status))
       .map(e => e.medication_id)
   )];
   return ids.map(id => detail.medications.find(m => m.medication_id === id)?.name).filter(Boolean) as string[];
@@ -102,9 +105,9 @@ function formatShortDate(iso?: string | null) {
 
 function computeMedStats(detail: CaregiverPatientDetail, medId: string) {
   const events = detail.dose_events.filter(e => e.medication_id === medId);
-  const taken = events.filter(e => e.response_status === "taken" || ['pillbox_open','tap_confirm','voice_confirm'].includes(e.event_type)).length;
-  const missed = events.filter(e => e.response_status === "missed").length;
-  const late = events.filter(e => e.response_status === "late").length;
+  const taken = events.filter(e => e.response_status === "taken" || ['tap_confirm','voice_confirm'].includes(e.event_type)).length;
+  const missed = events.filter(e => ["not_taken", "missed", "skipped"].includes(e.response_status)).length;
+  const late = events.filter(e => e.response_status === "late" || e.event_type === "dose_late").length;
   const lastTaken = events
     .filter(e => e.response_status === "taken")
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0];
@@ -123,7 +126,7 @@ function computeTrend(detail: CaregiverPatientDetail) {
     dayEnd.setHours(23,59,59,999);
     const count = detail.dose_events.filter(ev => {
       const t = new Date(ev.timestamp || '');
-      return t >= dayStart && t <= dayEnd && ev.response_status === 'missed';
+      return t >= dayStart && t <= dayEnd && ['not_taken', 'missed', 'skipped'].includes(ev.response_status);
     }).length;
     days.push(count);
   }
@@ -776,6 +779,26 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                   </section>
                 )}
               </section>
+
+              {/* Prominent banner when caregiver_alert fired within last 2 days */}
+              {(() => {
+                const latestAlert = detail.interventions.find(iv => iv.action_type === "caregiver_alert");
+                if (!latestAlert) return null;
+                const daysDiff = (Date.now() - new Date(latestAlert.timestamp).getTime()) / (1000 * 60 * 60 * 24);
+                if (daysDiff > 2) return null;
+                return (
+                  <div className="flex items-start gap-3 rounded-xl bg-red-50 border border-red-200 px-4 py-3">
+                    <Siren size={16} className="text-red-500 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-[13px] font-bold text-red-700">Action Required</p>
+                      <p className="text-[12px] text-red-600">
+                        {latestAlert.message || "This patient's medication adherence needs your attention."}
+                      </p>
+                      <p className="text-[11px] text-red-400 mt-0.5">{new Date(latestAlert.timestamp).toLocaleDateString("en-SG")}</p>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Recent system alerts from orchestrator */}
               {detail.interventions.length > 0 && (

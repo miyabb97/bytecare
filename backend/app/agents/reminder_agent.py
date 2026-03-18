@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from app.db import SessionLocal
-from app.models import ChatMessage, Medication, MedicationBehaviorPattern, User
+from app.models import ChatMessage, DoseEvent, Medication, MedicationBehaviorPattern, User
 
 
 def set_medication_reminder(
@@ -151,6 +151,50 @@ def _next_scheduled_time(
     return min(candidates) if candidates else None
 
 
+def _expire_snoozed_events(user_id: str) -> None:
+    """Convert snoozed events whose calendar day has passed to not_taken.
+
+    A patient can snooze and still take the dose any time before midnight.
+    Only if midnight passes with no subsequent taken/late event is the
+    snoozed event converted to not_taken.
+    """
+    from datetime import timezone
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    with SessionLocal() as db:
+        snoozed = db.query(DoseEvent).filter_by(user_id=user_id, response_status="snoozed").all()
+        changed = False
+        for ev in snoozed:
+            ref = ev.scheduled_for or ev.timestamp
+            if not ref:
+                continue
+            try:
+                scheduled_dt = datetime.fromisoformat(ref)
+            except Exception:
+                continue
+            end_of_day = datetime.combine(scheduled_dt.date(), datetime.max.time())
+            if now <= end_of_day:
+                continue  # still within the same day — patient can still take it
+            # Check if a taken/late event was recorded for the same slot after the snooze
+            taken_after = (
+                db.query(DoseEvent)
+                .filter(
+                    DoseEvent.user_id == user_id,
+                    DoseEvent.medication_id == ev.medication_id,
+                    DoseEvent.response_status.in_(["taken", "late"]),
+                    DoseEvent.timestamp > ev.timestamp,
+                    DoseEvent.scheduled_for == ev.scheduled_for,
+                )
+                .first()
+            )
+            if not taken_after:
+                ev.response_status = "not_taken"
+                ev.event_type = "dose_not_taken"
+                changed = True
+        if changed:
+            db.commit()
+
+
 def check_and_fire_reminders(user_id: str) -> Dict[str, Any]:
     """Check medications with reminder preferences and inject chat messages.
 
@@ -163,6 +207,9 @@ def check_and_fire_reminders(user_id: str) -> Dict[str, Any]:
         fired   list of dicts describing each fired reminder
         checked int  number of medications checked
     """
+    # Expire any snoozed events whose day has ended
+    _expire_snoozed_events(user_id)
+
     with SessionLocal() as db:
         user = db.query(User).filter_by(user_id=user_id).first()
         if not user:
@@ -174,6 +221,8 @@ def check_and_fire_reminders(user_id: str) -> Dict[str, Any]:
         two_hours_ago = (now - timedelta(hours=2)).isoformat(timespec="seconds")
 
         # Load learned patterns for adaptive anchor times
+        # Pick weekday vs weekend learned_time based on today
+        is_weekend = now.weekday() >= 5
         patterns = (
             db.query(MedicationBehaviorPattern)
             .filter_by(patient_id=user_id)
@@ -182,26 +231,55 @@ def check_and_fire_reminders(user_id: str) -> Dict[str, Any]:
         # Build per-medication adaptive overrides: {med_id: {schedule_time: display_time}}
         adaptive_by_med: Dict[str, Dict[str, str]] = {}
         for p in patterns:
-            if p.learned_time and (p.sample_count or 0) >= 3 and p.schedule_time:
-                if p.medication_id not in adaptive_by_med:
-                    adaptive_by_med[p.medication_id] = {}
-                adaptive_by_med[p.medication_id][p.schedule_time] = p.learned_time
+            if not p.schedule_time:
+                continue
+            # Choose the right learned_time for today
+            if is_weekend and p.learned_time_weekend and (p.sample_count_weekend or 0) >= 3:
+                chosen_time = p.learned_time_weekend
+            elif p.learned_time and (p.sample_count or 0) >= 3:
+                chosen_time = p.learned_time
+            else:
+                continue
+            if p.medication_id not in adaptive_by_med:
+                adaptive_by_med[p.medication_id] = {}
+            adaptive_by_med[p.medication_id][p.schedule_time] = chosen_time
+
+        # Bandit-based adaptive offset selection
+        from app.services.reminder_bandit import select_offset as bandit_select_offset
 
         fired: List[Dict[str, Any]] = []
 
         for med in meds:
-            offset = getattr(med, "reminder_offset_minutes", None)
-            if not offset:
+            base_offset = getattr(med, "reminder_offset_minutes", None)
+            if not base_offset:
                 continue
 
             schedule = med.schedule or {}
+            times_list: List[str] = schedule.get("times", [])
             overrides = adaptive_by_med.get(med.medication_id)
             next_time = _next_scheduled_time(schedule, adaptive_overrides=overrides)
             if not next_time:
                 continue
 
+            # Use Thompson Sampling to pick the best offset for this slot
+            next_sched_hhmm = next_time.strftime("%H:%M")
+            # Only use bandit if we can identify the schedule slot
+            matching_sched = next_sched_hhmm
+            for t in times_list:
+                if overrides and t in overrides and overrides[t] == next_sched_hhmm:
+                    matching_sched = t
+                    break
+                if t == next_sched_hhmm:
+                    matching_sched = t
+                    break
+
+            offset = bandit_select_offset(
+                db, user_id, med.medication_id, matching_sched
+            )
+
             minutes_until = (next_time - now).total_seconds() / 60
             is_adaptive = overrides is not None and len(overrides) > 0
+            bandit_offset = offset  # track which offset the bandit chose
 
             # Fire window: between (offset) and (offset - 2) minutes before dose
             if offset - 2 <= minutes_until <= offset:
@@ -248,6 +326,7 @@ def check_and_fire_reminders(user_id: str) -> Dict[str, Any]:
                         "medication": med.name,
                         "scheduled_at": next_time.isoformat(),
                         "reminder_text": reminder_text,
+                        "bandit_offset": bandit_offset,
                     }
                 )
 

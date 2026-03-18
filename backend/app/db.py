@@ -93,6 +93,16 @@ def init_db():
             if col_name not in med_cols:
                 conn.execute(text(f"ALTER TABLE medications ADD COLUMN {col_name} TEXT DEFAULT {col_default}"))
 
+        # MedicationBehaviorPattern weekend columns
+        bp_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(medication_behavior_patterns)"))]
+        for col_name, col_default in [
+            ("learned_time_weekend", "NULL"),
+            ("sample_count_weekend", "0"),
+            ("average_deviation_minutes_weekend", "0"),
+        ]:
+            if col_name not in bp_cols:
+                conn.execute(text(f"ALTER TABLE medication_behavior_patterns ADD COLUMN {col_name} TEXT DEFAULT {col_default}"))
+
         conn.commit()
 
     db = SessionLocal()

@@ -19,9 +19,10 @@ export type DriftResponse = {
   severity: string;
   trigger: string;
   details: {
-    missed_doses: number;
+    not_taken_doses: number;
+    missed_doses?: number;
     late_doses: number;
-    avg_mes: number;
+    avg_mes: number | null;
   };
 };
 
@@ -201,7 +202,7 @@ export type DoseEventItem = {
   event_type: string;
   source: string;
   scheduled_for: string;
-  response_status: "taken" | "skipped" | "snoozed" | "missed" | "late" | "";
+  response_status: "taken" | "late" | "snoozed" | "not_taken" | "missed" | "skipped" | "";
   timestamp: string;
   created_at: string;
 };
@@ -215,18 +216,60 @@ export type AdaptiveTimingItem = {
   medication_name: string;
   schedule_time: string;
   learned_time: string | null;
+  learned_time_weekday: string | null;
+  learned_time_weekend: string | null;
   display_time: string;
   sample_count: number;
+  sample_count_weekday: number;
+  sample_count_weekend: number;
   average_deviation_minutes: number;
   smart_reminder_time: string | null;
   routine_type: string;
   timing_status: string;
-  confidence: "learned" | "default";
+  confidence: "learned" | "learned_weekend" | "default";
+  is_weekend: boolean;
 };
 
 export type AdaptiveTimingResponse = {
   user_id: string;
   items: AdaptiveTimingItem[];
+};
+
+export type LearningEvidenceSample = {
+  date: string;
+  day: string;
+  time: string;
+  status: string;
+};
+
+export type BanditArmStat = {
+  offset_minutes: number;
+  alpha: number;
+  beta: number;
+  times_selected: number;
+  win_rate: number;
+};
+
+export type LearningEvidenceMed = {
+  medication_id: string;
+  medication_name: string;
+  schedule_time: string;
+  weekday_samples: LearningEvidenceSample[];
+  weekend_samples: LearningEvidenceSample[];
+  weekday_median: string | null;
+  weekend_median: string | null;
+  weekday_count: number;
+  weekend_count: number;
+  bandit_arms: BanditArmStat[];
+  best_offset: number | null;
+  best_win_rate: number | null;
+};
+
+export type LearningEvidenceResponse = {
+  user_id: string;
+  lookback_days: number;
+  min_samples_needed: number;
+  medications: LearningEvidenceMed[];
 };
 
 export type Account = {
@@ -287,6 +330,10 @@ export const api = {
     apiRequest<DoseEventListResponse>(`/users/${userId}/dose-events?days=${days}`),
   getAdaptiveTiming: (userId: string) =>
     apiRequest<AdaptiveTimingResponse>(`/users/${userId}/adaptive-timing`),
+  getTimingInsight: (userId: string) =>
+    apiRequest<{ user_id: string; insight: string; source: string }>(`/users/${userId}/timing-insight`),
+  getLearningEvidence: (userId: string) =>
+    apiRequest<LearningEvidenceResponse>(`/users/${userId}/learning-evidence`),
   getCommunityEvents: (userId: string) =>
     apiRequest<CommunityResponse>(`/users/${userId}/community-events`),
   getAllCommunityEvents: (userId: string) =>
@@ -398,13 +445,22 @@ export const api = {
     data: {
       medication_ids: string[];
       scheduled_for: string;
-      response_status: "taken" | "skipped" | "snoozed" | "missed" | "late";
+      response_status: "taken" | "snoozed" | "not_taken";
       source?: string;
     }
   ) =>
     apiRequest<DoseEventListResponse>(`/users/${userId}/dose-events/intake`, {
       method: "POST",
       body: JSON.stringify(data)
+    }),
+  patchDoseEvent: (
+    userId: string,
+    eventId: string,
+    response_status: "taken" | "snoozed" | "not_taken"
+  ) =>
+    apiRequest<DoseEventItem>(`/users/${userId}/dose-events/${eventId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ response_status })
     }),
   deleteDoseEvent: (userId: string, eventId: string) =>
     apiRequest<{ status: string; event_id: string }>(`/users/${userId}/dose-events/${eventId}`, {
@@ -727,7 +783,7 @@ export type MEEScoreResponse = {
   score: number;
   explanation: string;
   period_days: number;
-  counts: { taken: number; missed: number; late: number; skipped: number; snoozed: number };
+  counts: { taken: number; late: number; not_taken: number; snoozed: number; missed?: number; skipped?: number };
   total_events: number;
   computed_at: string;
 };

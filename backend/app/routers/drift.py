@@ -21,7 +21,7 @@ def get_drift(user_id: str):
     """Get adherence drift signal for a user, including risk level."""
     result = detect_adherence_drift(user_id)
     # Add risk_level mapping requested by the spec
-    avg_mes = result.get("details", {}).get("avg_mes", 100)
+    avg_mes = result.get("details", {}).get("avg_mes") or 100
     if avg_mes > 80:
         risk_level = "LOW"
     elif avg_mes >= 50:

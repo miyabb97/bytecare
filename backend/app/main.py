@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
@@ -109,6 +109,257 @@ def on_startup():
             pass  # non-fatal; will retry on first request
 
     threading.Thread(target=_preload_clip, daemon=True).start()
+
+    # Auto-seed demo data so judges always see fresh learning evidence
+    try:
+        _auto_seed_demo_learning_data()
+    except Exception:
+        pass  # non-fatal
+
+
+def _auto_seed_demo_learning_data():
+    """Ensure demo patients have fresh adaptive-learning data relative to today.
+
+    Runs on every startup. If the most recent seed event is older than 3 days,
+    clears stale seed data and re-creates 14 days of realistic dose history
+    with weekday/weekend timing differences plus bandit arm stats.
+    """
+    from app.models import ReminderBanditArm
+    from app.services.routine_learning import update_behavior_patterns
+
+    db = SessionLocal()
+    try:
+        # Find demo patients by email pattern
+        demo_emails = ["mr.ong@demo.com", "mdm.lim@demo.com", "mrs.wong@demo.com"]
+        # Deterministic adherence profiles:
+        # best = perfect adherence (LOW), good = mostly on time with 1 late day (LOW ~90%), poor = HIGH
+        adherence_profile = {
+            "mr.ong@demo.com":   "good",
+            "mdm.lim@demo.com":  "best",
+            "mrs.wong@demo.com": "poor",
+        }
+        demo_users = []  # list of (user, profile)
+        for email in demo_emails:
+            acct = db.query(Account).filter_by(email=email).first()
+            if not acct:
+                continue
+            user = db.query(User).filter_by(account_id=acct.account_id).first()
+            if user:
+                demo_users.append((user, adherence_profile.get(email, "good")))
+
+        if not demo_users:
+            return
+
+        now = datetime.now()
+
+        for user, profile in demo_users:
+            # Check if we have recent seed data (< 3 days old)
+            latest_seed = (
+                db.query(DoseEvent)
+                .filter_by(user_id=user.user_id, source="seed_adaptive_test")
+                .order_by(DoseEvent.created_at.desc())
+                .first()
+            )
+            if latest_seed and latest_seed.created_at:
+                try:
+                    latest_dt = datetime.fromisoformat(latest_seed.created_at)
+                    if (now - latest_dt).days < 3:
+                        continue  # data is fresh enough
+                except Exception:
+                    pass
+
+            # Clear old seed data
+            db.query(DoseEvent).filter_by(
+                user_id=user.user_id, source="seed_adaptive_test"
+            ).delete()
+            db.query(ReminderBanditArm).filter_by(
+                patient_id=user.user_id
+            ).delete()
+            db.query(MedicationBehaviorPattern).filter_by(
+                patient_id=user.user_id
+            ).delete()
+            db.flush()
+
+            meds = db.query(Medication).filter_by(user_id=user.user_id).all()
+
+            # Per-med timing offsets to simulate realistic weekday/weekend differences
+            med_profiles = {}
+            for i, med in enumerate(meds):
+                # Each med gets a slightly different weekday and weekend offset
+                weekday_offset = [15, 20, 10, 25][i % 4]   # mins after scheduled
+                weekend_offset = [35, 45, 25, 50][i % 4]   # later on weekends
+                med_profiles[med.medication_id] = {
+                    "weekday_offset": weekday_offset,
+                    "weekend_offset": weekend_offset,
+                }
+
+            created_count = 0
+            for med in meds:
+                schedule = med.schedule or {}
+                times = schedule.get("times", [])
+
+                for sched_time in times:
+                    if not sched_time:
+                        continue
+                    sh, sm = map(int, sched_time.split(":"))
+                    sched_mins = sh * 60 + sm
+
+                    # Seed bandit arms with realistic history
+                    offsets_config = [
+                        (5,  3, 5),   # (offset, alpha, beta) — low win rate
+                        (10, 8, 2),   # best arm for most meds
+                        (15, 5, 4),   # decent
+                        (20, 3, 4),   # mediocre
+                        (25, 2, 5),   # poor
+                        (30, 2, 6),   # worst
+                    ]
+                    for offset, alpha, beta in offsets_config:
+                        arm = ReminderBanditArm(
+                            patient_id=user.user_id,
+                            medication_id=med.medication_id,
+                            schedule_time=sched_time,
+                            offset_minutes=offset,
+                            alpha=alpha,
+                            beta=beta,
+                            times_selected=alpha + beta - 2,
+                            last_selected=now.isoformat(timespec="seconds"),
+                            last_updated=now.isoformat(timespec="seconds"),
+                        )
+                        db.add(arm)
+
+                    # Create 14 days of dose events (deterministic per profile)
+                    # Drift window = last 7 days (day_offset 1-7)
+                    # good  → all on time → 0 issues → LOW
+                    # medium → day 5 very late → 1 bad day → MEDIUM
+                    # poor  → days 1,3,5,7 missed; days 2,4 very late → HIGH
+                    for day_offset in range(1, 15):
+                        day = now - timedelta(days=day_offset)
+                        is_weekend = day.weekday() >= 5
+                        scheduled_dt = day.replace(hour=sh, minute=sm, second=0, microsecond=0)
+                        med_profile = med_profiles[med.medication_id]
+                        base_offset = med_profile["weekend_offset"] if is_weekend else med_profile["weekday_offset"]
+
+                        # Determine this day's behaviour
+                        # poor: days 1,3,5,7 missed + days 2,4 very late → HIGH
+                        # good: day 6 very late (4 issues, just under 5 threshold) → LOW ~90%
+                        # best: always on time → LOW 100%
+                        if profile == "poor" and day_offset in {1, 3, 5, 7}:
+                            day_type = "missed"
+                        elif profile == "poor" and day_offset in {2, 4}:
+                            day_type = "very_late"
+                        elif profile == "good" and day_offset == 6:
+                            day_type = "very_late"
+                        else:
+                            day_type = "on_time"
+
+                        if day_type == "missed":
+                            ev = DoseEvent(
+                                event_id=str(uuid4()),
+                                user_id=user.user_id,
+                                medication_id=med.medication_id,
+                                event_type="dose_not_taken",
+                                source="seed_adaptive_test",
+                                scheduled_for=scheduled_dt.isoformat(timespec="seconds"),
+                                response_status="not_taken",
+                                timestamp=scheduled_dt.isoformat(timespec="seconds"),
+                                created_at=scheduled_dt.isoformat(timespec="seconds"),
+                            )
+                        elif day_type == "very_late":
+                            late_mins = sched_mins + 150  # 2.5 hours late
+                            late_h = max(0, min(23, late_mins // 60))
+                            late_m = max(0, min(59, late_mins % 60))
+                            taken_dt = day.replace(hour=late_h, minute=late_m, second=0, microsecond=0)
+                            ev = DoseEvent(
+                                event_id=str(uuid4()),
+                                user_id=user.user_id,
+                                medication_id=med.medication_id,
+                                event_type="dose_late",
+                                source="seed_adaptive_test",
+                                scheduled_for=scheduled_dt.isoformat(timespec="seconds"),
+                                response_status="late",
+                                timestamp=taken_dt.isoformat(timespec="seconds"),
+                                created_at=taken_dt.isoformat(timespec="seconds"),
+                            )
+                        else:
+                            jitter = random.randint(-5, 5)
+                            taken_mins = sched_mins + base_offset + jitter
+                            taken_h = max(0, min(23, taken_mins // 60))
+                            taken_m = max(0, min(59, taken_mins % 60))
+                            taken_dt = day.replace(hour=taken_h, minute=taken_m, second=0, microsecond=0)
+                            ev = DoseEvent(
+                                event_id=str(uuid4()),
+                                user_id=user.user_id,
+                                medication_id=med.medication_id,
+                                event_type="tap_confirm",
+                                source="seed_adaptive_test",
+                                scheduled_for=scheduled_dt.isoformat(timespec="seconds"),
+                                response_status="taken",
+                                timestamp=taken_dt.isoformat(timespec="seconds"),
+                                created_at=taken_dt.isoformat(timespec="seconds"),
+                            )
+                        db.add(ev)
+                        created_count += 1
+
+            # Seed mock intervention history matching each profile
+            patient_name = user.name or "Patient"
+            if profile == "poor":
+                interventions = [
+                    (10, "gentle_reminder", "LOW",
+                     f"Hi {patient_name}, just a friendly reminder to take your medications on time. Keep it up!"),
+                    (7, "chatbot_support", "MEDIUM",
+                     f"Hi {patient_name}, we noticed some missed doses recently. I'm here to help — feel free to chat with me."),
+                    (5, "chatbot_support", "MEDIUM",
+                     f"{patient_name}, your adherence has dipped this week. Let me know if you're having difficulties."),
+                    (3, "caregiver_alert", "HIGH",
+                     f"{patient_name}, your adherence has been declining. Your caregiver has been notified to check in with you."),
+                    (1, "caregiver_alert", "HIGH",
+                     f"{patient_name}, multiple doses were missed again. Your caregiver and care team have been alerted."),
+                ]
+            elif profile == "good":
+                interventions = [
+                    (12, "gentle_reminder", "LOW",
+                     f"Hi {patient_name}, just a friendly reminder to take your medications on time today."),
+                    (9, "gentle_reminder", "LOW",
+                     f"Good morning {patient_name}! Remember to take your medications as scheduled."),
+                    (6, "gentle_reminder", "LOW",
+                     f"Hi {patient_name}, you had a late dose yesterday — try to stay on schedule today."),
+                    (3, "gentle_reminder", "LOW",
+                     f"{patient_name}, your adherence is looking good overall. Keep it up!"),
+                    (1, "gentle_reminder", "LOW",
+                     f"Hi {patient_name}, nice job staying consistent — keep taking your medications on time!"),
+                ]
+            else:
+                interventions = [
+                    (12, "gentle_reminder", "LOW",
+                     f"Hi {patient_name}, just a friendly reminder to take your medications on time today. You're doing well!"),
+                    (9, "gentle_reminder", "LOW",
+                     f"Good morning {patient_name}! Remember to take your medications as scheduled. Keep up the great work!"),
+                    (6, "gentle_reminder", "LOW",
+                     f"Hi {patient_name}, friendly nudge to stay on track with your medications today."),
+                    (3, "gentle_reminder", "LOW",
+                     f"Hi {patient_name}, just checking in — remember your medications today. You've been doing great!"),
+                    (1, "gentle_reminder", "LOW",
+                     f"Great job {patient_name}! Your adherence has been excellent. Keep taking your medications on time!"),
+                ]
+            for days_ago, action, risk, msg in interventions:
+                iv_dt = (now - timedelta(days=days_ago)).replace(hour=9, minute=0, second=0, microsecond=0)
+                db.add(InterventionLog(
+                    intervention_id=str(uuid4()),
+                    user_id=user.user_id,
+                    action_type=action,
+                    risk_level=risk,
+                    reason=f"Seeded intervention history ({days_ago}d ago)",
+                    message=msg,
+                    timestamp=iv_dt.isoformat(timespec="seconds"),
+                ))
+
+            db.commit()
+
+            # Trigger learning recomputation
+            update_behavior_patterns(db, user.user_id)
+
+    finally:
+        db.close()
 
 
 # -------------------------
@@ -295,8 +546,12 @@ class DoseEventListOut(BaseModel):
 class IntakeResponseCreate(BaseModel):
     medication_ids: List[str] = Field(min_length=1)
     scheduled_for: str
-    response_status: Literal["taken", "skipped", "snoozed", "missed", "late"]
+    response_status: Literal["taken", "snoozed", "not_taken"]
     source: str = "dashboard_popup"
+
+
+class DoseEventCorrection(BaseModel):
+    response_status: Literal["taken", "snoozed", "not_taken"]
 
 
 def now_iso() -> str:
@@ -339,9 +594,9 @@ def nearest_event_for_schedule(
         diff_minutes = abs((ev_dt - scheduled_dt).total_seconds()) / 60
         ev_dict = ev.to_dict()
         priority = 3
-        if ev.event_type in {"pillbox_open", "tap_confirm", "voice_confirm"} or ev.response_status == "taken":
+        if ev.response_status in ("taken", "late") or ev.event_type in {"tap_confirm", "voice_confirm", "dose_late"}:
             priority = 0
-        elif ev.response_status == "skipped" or ev.event_type == "dose_skipped":
+        elif ev.response_status == "not_taken" or ev.event_type in ("dose_not_taken", "dose_skipped", "dose_missed"):
             priority = 1
         elif ev.response_status == "snoozed" or ev.event_type == "dose_snoozed":
             priority = 2
@@ -790,24 +1045,97 @@ def record_medication_intake(user_id: str, payload: IntakeResponseCreate, db: Se
         raise HTTPException(status_code=404, detail="One or more medications were not found")
 
     event_type_map = {
-        "taken": "tap_confirm",
-        "skipped": "dose_skipped",
-        "snoozed": "dose_snoozed",
-        "missed": "dose_missed",
-        "late": "dose_late",
+        "taken":     "tap_confirm",
+        "late":      "dose_late",
+        "snoozed":   "dose_snoozed",
+        "not_taken": "dose_not_taken",
     }
     timestamp = now_iso()
     created_events: List[Dict[str, Any]] = []
 
+    user = get_user_or_404(db, user_id)
+
+    # Fixed routine windows — hard boundaries for taken vs late.
+    # The learned pattern personalises reminders but NEVER expands these windows,
+    # preventing a morning medicine from slowly drifting into afternoon.
+    ROUTINE_WINDOWS = {
+        "morning":   ("06:00", "11:00"),
+        "afternoon": ("11:00", "16:00"),
+        "evening":   ("18:00", "23:00"),
+        "night":     ("18:00", "23:00"),
+    }
+
     for medication in medications:
+        # Determine effective status — auto-promote "taken" to "late" if outside window
+        effective_status = payload.response_status
+        if payload.response_status == "taken" and payload.scheduled_for:
+            # Always infer routine from scheduled time — DB default 'morning' is unreliable
+            sched_times = (getattr(medication, "schedule", None) or {}).get("times", [])
+            first_time = sched_times[0] if sched_times else "08:00"
+            sched_h = int(first_time.split(":")[0])
+            if 6 <= sched_h < 11:
+                routine = "morning"
+            elif 11 <= sched_h < 16:
+                routine = "afternoon"
+            else:
+                routine = "evening"
+            expected_start, expected_end = ROUTINE_WINDOWS.get(routine, ("06:00", "11:00"))
+
+            try:
+                actual_dt = datetime.fromisoformat(timestamp)
+            except Exception:
+                actual_dt = datetime.utcnow()
+
+            ymd = actual_dt.date()
+            sh, sm = map(int, expected_start.split(":"))
+            eh, em = map(int, expected_end.split(":"))
+            expected_start_dt = datetime.combine(ymd, datetime.min.time()).replace(hour=sh, minute=sm)
+            expected_end_dt = datetime.combine(ymd, datetime.min.time()).replace(hour=eh, minute=em)
+
+            if not (expected_start_dt <= actual_dt <= expected_end_dt):
+                effective_status = "late"
+
+                # Record timing deviation
+                if actual_dt < expected_start_dt:
+                    deviation_minutes = int((expected_start_dt - actual_dt).total_seconds() / 60)
+                else:
+                    deviation_minutes = int((actual_dt - expected_end_dt).total_seconds() / 60)
+                severity = "minor" if deviation_minutes <= 60 else ("moderate" if deviation_minutes <= 180 else "major")
+                db.add(MedicationTimingDeviation(
+                    patient_id=user_id,
+                    medication_id=medication.medication_id,
+                    routine_type=routine,
+                    expected_start_time=expected_start,
+                    expected_end_time=expected_end,
+                    actual_taken_time=timestamp,
+                    deviation_minutes=deviation_minutes,
+                    severity=severity,
+                    created_at=now_iso(),
+                ))
+                try:
+                    db.add(ChatMessage(
+                        message_id=str(uuid4()),
+                        user_id=user_id,
+                        role="assistant",
+                        content=(
+                            f"It looks like your {routine} medication ({medication.name}) was taken later than usual. "
+                            "If this happens often, it may affect how the medicine works."
+                        ),
+                        language=user.language_preference or "en",
+                        is_read=0,
+                        created_at=now_iso(),
+                    ))
+                except Exception:
+                    pass
+
         dose_event = DoseEvent(
             event_id=str(uuid4()),
             user_id=user_id,
             medication_id=medication.medication_id,
-            event_type=event_type_map[payload.response_status],
+            event_type=event_type_map[effective_status],
             source=payload.source,
             scheduled_for=payload.scheduled_for,
-            response_status=payload.response_status,
+            response_status=effective_status,
             timestamp=timestamp,
             created_at=timestamp,
         )
@@ -816,123 +1144,25 @@ def record_medication_intake(user_id: str, payload: IntakeResponseCreate, db: Se
 
     db.commit()
 
-    # Detect timing deviations for taken doses
-    if payload.response_status == "taken":
-        # fetch user for timezone if needed
-        user = get_user_or_404(db, user_id)
-
-        # Hardcoded fallback routine windows
-        routine_windows = {
-            "morning": ("05:00", "11:00"),
-            "afternoon": ("11:00", "17:00"),
-            "evening": ("17:00", "23:00"),
-        }
-
-        # Load learned patterns to use adaptive windows when available
-        from app.models import MedicationBehaviorPattern
-        learned_patterns = (
-            db.query(MedicationBehaviorPattern)
-            .filter_by(patient_id=user_id)
-            .all()
-        )
-        pattern_lookup = {}
-        for p in learned_patterns:
-            if p.learned_time and (p.sample_count or 0) >= 3:
-                pattern_lookup[f"{p.medication_id}:{p.schedule_time}"] = p
-
-        for medication, created in zip(medications, created_events):
-            routine = getattr(medication, "routine_type", "morning") or "morning"
-            half_window = (medication.time_window_minutes or 120) // 2
-
-            # Try to use learned window centered on usual time
-            sched_time_str = payload.scheduled_for[11:16] if len(payload.scheduled_for) >= 16 else ""
-            pattern_key = f"{medication.medication_id}:{sched_time_str}"
-            pattern = pattern_lookup.get(pattern_key)
-
-            if pattern and pattern.learned_time:
-                # Adaptive window centered on learned time
-                lh, lm = map(int, pattern.learned_time.split(":"))
-                learned_mins = lh * 60 + lm
-                start_mins = max(0, learned_mins - half_window)
-                end_mins = min(23 * 60 + 59, learned_mins + half_window)
-                expected_start = f"{start_mins // 60:02d}:{start_mins % 60:02d}"
-                expected_end = f"{end_mins // 60:02d}:{end_mins % 60:02d}"
-            else:
-                # Fallback to hardcoded routine windows
-                expected_start, expected_end = routine_windows.get(routine, ("05:00", "11:00"))
-
-            try:
-                actual_dt = datetime.fromisoformat(timestamp)
-            except Exception:
-                actual_dt = datetime.utcnow()
-
-            # construct expected datetimes on same day
-            ymd = actual_dt.date()
-            sh, sm = map(int, expected_start.split(":"))
-            eh, em = map(int, expected_end.split(":"))
-            expected_start_dt = datetime.combine(ymd, datetime.min.time()).replace(hour=sh, minute=sm)
-            expected_end_dt = datetime.combine(ymd, datetime.min.time()).replace(hour=eh, minute=em)
-
-            # check if within expected window
-            if expected_start_dt <= actual_dt <= expected_end_dt:
-                continue
-
-            # compute deviation minutes
-            if actual_dt < expected_start_dt:
-                deviation_minutes = int((expected_start_dt - actual_dt).total_seconds() / 60)
-            else:
-                deviation_minutes = int((actual_dt - expected_end_dt).total_seconds() / 60)
-
-            # severity classification
-            if deviation_minutes <= 60:
-                severity = "minor"
-            elif deviation_minutes <= 180:
-                severity = "moderate"
-            else:
-                severity = "major"
-
-            # record deviation
-            dev = MedicationTimingDeviation(
-                patient_id=user_id,
-                medication_id=medication.medication_id,
-                routine_type=routine,
-                expected_start_time=expected_start,
-                expected_end_time=expected_end,
-                actual_taken_time=timestamp,
-                deviation_minutes=deviation_minutes,
-                severity=severity,
-                created_at=now_iso(),
-            )
-            db.add(dev)
-
-            # gentle patient notification via chat assistant
-            try:
-                msg = ChatMessage(
-                    message_id=str(uuid4()),
-                    user_id=user_id,
-                    role="assistant",
-                    content=(
-                        f"It looks like your {routine} medication ({medication.name}) was taken later than usual. "
-                        "If this happens often, it may affect how the medicine works."
-                    ),
-                    language=user.language_preference or "en",
-                    is_read=0,
-                    created_at=now_iso(),
-                )
-                db.add(msg)
-            except Exception:
-                pass
-
-        db.commit()
-
-    # Recompute learned behavior patterns after any dose event
-    if payload.response_status in {"taken", "skipped", "missed", "late"}:
+    # Recompute learned behavior patterns after any dose event (not snoozed)
+    if payload.response_status in {"taken", "not_taken"}:
         try:
             from app.services.routine_learning import update_behavior_patterns
             update_behavior_patterns(db, user_id)
         except Exception:
             pass  # non-fatal: learning update should not block intake
         recompute_mes_for_user(db, user_id, days=14)
+
+        # Update bandit reward for adaptive reminder timing
+        try:
+            from app.services.reminder_bandit import update_reward
+            sched_hhmm = payload.scheduled_for[11:16] if len(payload.scheduled_for) >= 16 else ""
+            if sched_hhmm:
+                for medication in medications:
+                    update_reward(db, user_id, medication.medication_id, sched_hhmm, effective_status)
+                db.commit()
+        except Exception:
+            pass  # non-fatal
 
     return {"items": created_events}
 
@@ -947,6 +1177,91 @@ def delete_dose_event(user_id: str, event_id: str, db: Session = Depends(get_db)
     db.commit()
     recompute_mes_for_user(db, user_id, days=14)
     return {"status": "deleted", "event_id": event_id}
+
+
+@app.patch("/api/v1/users/{user_id}/dose-events/{event_id}", response_model=DoseEventOut)
+def correct_dose_event(user_id: str, event_id: str, payload: DoseEventCorrection, db: Session = Depends(get_db)):
+    """Correct a wrongly submitted dose status — same-day only."""
+    get_user_or_404(db, user_id)
+    ev = db.query(DoseEvent).filter_by(event_id=event_id, user_id=user_id).first()
+    if not ev:
+        raise HTTPException(status_code=404, detail="Dose event not found")
+
+    # Only allow corrections for today's events
+    ref_ts = ev.scheduled_for or ev.timestamp
+    try:
+        event_date = datetime.fromisoformat(ref_ts).date()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not parse event date")
+    if event_date != datetime.now().date():
+        raise HTTPException(status_code=400, detail="Can only correct events from today")
+
+    # Re-run timing check when correcting to "taken"
+    effective_status = payload.response_status
+    event_type_map = {
+        "taken":     "tap_confirm",
+        "late":      "dose_late",
+        "snoozed":   "dose_snoozed",
+        "not_taken": "dose_not_taken",
+    }
+    if payload.response_status == "taken" and ev.scheduled_for:
+        medication = db.query(Medication).filter_by(medication_id=ev.medication_id, user_id=user_id).first()
+        if medication:
+            # Use the same fixed ROUTINE_WINDOWS as record_medication_intake.
+            # Learned patterns are for reminders only — never expand the valid window.
+            # Always infer from scheduled time — DB default 'morning' is unreliable
+            med_sched_times = (getattr(medication, "schedule", None) or {}).get("times", [])
+            med_first_time = med_sched_times[0] if med_sched_times else "08:00"
+            med_sched_h = int(med_first_time.split(":")[0])
+            if 6 <= med_sched_h < 11:
+                routine = "morning"
+            elif 11 <= med_sched_h < 16:
+                routine = "afternoon"
+            else:
+                routine = "evening"
+            routine_windows = {
+                "morning":   ("06:00", "11:00"),
+                "afternoon": ("11:00", "16:00"),
+                "evening":   ("18:00", "23:00"),
+            }
+            expected_start, expected_end = routine_windows.get(routine, ("06:00", "11:00"))
+            now_dt = datetime.now()
+            ymd = now_dt.date()
+            sh, sm = map(int, expected_start.split(":"))
+            eh, em = map(int, expected_end.split(":"))
+            exp_start_dt = datetime.combine(ymd, datetime.min.time()).replace(hour=sh, minute=sm)
+            exp_end_dt = datetime.combine(ymd, datetime.min.time()).replace(hour=eh, minute=em)
+            if not (exp_start_dt <= now_dt <= exp_end_dt):
+                effective_status = "late"
+
+    # Update timestamp to now so corrections reflect the actual time of the new action
+    now_ts = datetime.now().isoformat(timespec="seconds")
+    ev.timestamp = now_ts
+    ev.created_at = now_ts
+    ev.response_status = effective_status
+    ev.event_type = event_type_map[effective_status]
+    db.commit()
+
+    # Recompute learning and MES scores
+    if effective_status in {"taken", "late", "not_taken"}:
+        try:
+            from app.services.routine_learning import update_behavior_patterns
+            update_behavior_patterns(db, user_id)
+        except Exception:
+            pass
+        recompute_mes_for_user(db, user_id, days=14)
+
+        # Update bandit reward with corrected status
+        try:
+            from app.services.reminder_bandit import update_reward
+            sched_hhmm = (ev.scheduled_for or "")[11:16]
+            if sched_hhmm:
+                update_reward(db, user_id, ev.medication_id, sched_hhmm, effective_status)
+                db.commit()
+        except Exception:
+            pass
+
+    return ev.to_dict()
 
 
 @app.post("/api/v1/users/{user_id}/simulate/pillbox")

@@ -7,6 +7,7 @@ reminders, planner, and UI.
 Key rules:
   - Minimum 3 valid samples before adapting (cold-start protection)
   - Uses median (robust to one-off outliers)
+  - Segments weekday vs weekend patterns (elderly patients often differ)
   - Never modifies the prescribed schedule
   - Falls back to schedule_time when insufficient data
 """
@@ -25,6 +26,14 @@ LOOKBACK_DAYS = 14
 # Doses taken more than this many minutes from the scheduled time are
 # considered outliers and excluded from the learned-time computation.
 MAX_DEVIATION_FOR_LEARNING = 120  # 2 hours
+
+# Day-of-week grouping: Monday=0..Friday=4 → weekday, Saturday=5..Sunday=6 → weekend
+def _is_weekend(iso_timestamp: str) -> Optional[bool]:
+    """Return True if the timestamp falls on Saturday/Sunday, False for weekday, None on error."""
+    try:
+        return datetime.fromisoformat(iso_timestamp).weekday() >= 5
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -83,8 +92,12 @@ def compute_learned_timing(
     medication_id: str,
     schedule_time: str,
     max_deviation: int = MAX_DEVIATION_FOR_LEARNING,
+    weekend_only: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Compute the learned usual time for a specific medication + schedule slot.
+
+    Args:
+        weekend_only: None = all days, True = weekends only, False = weekdays only.
 
     Returns dict with learned_time (HH:MM or None), sample_count,
     average_deviation_minutes, and flagged_count (doses outside window).
@@ -109,11 +122,15 @@ def compute_learned_timing(
     for ev in events:
         if not _schedule_time_matches(ev.scheduled_for, schedule_time):
             continue
+        # Day-of-week filter
+        if weekend_only is not None:
+            ev_weekend = _is_weekend(ev.timestamp)
+            if ev_weekend is None or ev_weekend != weekend_only:
+                continue
         mins = _extract_time_mins(ev.timestamp)
         if mins is not None:
             deviation = abs(mins - schedule_mins)
             if deviation > max_deviation:
-                # Dose taken too far from schedule — flag it, don't learn from it
                 flagged_count += 1
                 continue
             taken_minutes.append(mins)
@@ -170,7 +187,10 @@ def update_behavior_patterns(db: Session, user_id: str) -> List[Dict[str, Any]]:
                 continue
 
             max_dev = med.time_window_minutes or MAX_DEVIATION_FOR_LEARNING
-            timing = compute_learned_timing(db, user_id, med.medication_id, sched_time, max_deviation=max_dev)
+            # Compute weekday timing (Mon-Fri)
+            timing = compute_learned_timing(db, user_id, med.medication_id, sched_time, max_deviation=max_dev, weekend_only=False)
+            # Compute weekend timing (Sat-Sun)
+            timing_weekend = compute_learned_timing(db, user_id, med.medication_id, sched_time, max_deviation=max_dev, weekend_only=True)
 
             # Count late and missed doses for this slot
             late_count = 0
@@ -182,7 +202,7 @@ def update_behavior_patterns(db: Session, user_id: str) -> List[Dict[str, Any]]:
                     continue
                 if ev.response_status == "late":
                     late_count += 1
-                elif ev.response_status == "missed":
+                elif ev.response_status in ("not_taken", "missed", "skipped"):
                     missed_count += 1
 
             # Upsert pattern row
@@ -208,6 +228,9 @@ def update_behavior_patterns(db: Session, user_id: str) -> List[Dict[str, Any]]:
             pattern.learned_time = timing["learned_time"]
             pattern.sample_count = timing["sample_count"]
             pattern.average_deviation_minutes = timing["average_deviation_minutes"]
+            pattern.learned_time_weekend = timing_weekend["learned_time"]
+            pattern.sample_count_weekend = timing_weekend["sample_count"]
+            pattern.average_deviation_minutes_weekend = timing_weekend["average_deviation_minutes"]
             pattern.late_dose_count = late_count
             pattern.missed_dose_count = missed_count
             pattern.last_updated = now_str
@@ -249,8 +272,10 @@ def get_adaptive_times(db: Session, user_id: str) -> List[Dict[str, Any]]:
     """Return adaptive timing entries for all of a user's medications.
 
     Each entry corresponds to one medication + one schedule-time slot.
+    Automatically selects weekday vs weekend learned time based on today.
     """
     meds = db.query(Medication).filter_by(user_id=user_id).all()
+    is_today_weekend = datetime.now().weekday() >= 5
 
     # Load all patterns for this user in one query
     patterns = (
@@ -278,36 +303,68 @@ def get_adaptive_times(db: Session, user_id: str) -> List[Dict[str, Any]]:
             key = f"{med.medication_id}:{sched_time}"
             pattern = pattern_map.get(key)
 
-            learned_time = None
-            sample_count = 0
-            avg_dev = 0
+            learned_time_weekday = None
+            learned_time_weekend = None
+            sample_count_weekday = 0
+            sample_count_weekend = 0
+            avg_dev_weekday = 0
+            avg_dev_weekend = 0
             confidence = "default"
 
-            if pattern and pattern.learned_time and (pattern.sample_count or 0) >= MIN_SAMPLES:
-                learned_time = pattern.learned_time
-                sample_count = pattern.sample_count or 0
-                avg_dev = pattern.average_deviation_minutes or 0
-                confidence = "learned"
-            elif pattern:
-                sample_count = pattern.sample_count or 0
-                avg_dev = pattern.average_deviation_minutes or 0
+            if pattern:
+                sample_count_weekday = int(pattern.sample_count or 0)
+                avg_dev_weekday = int(pattern.average_deviation_minutes or 0)
+                sample_count_weekend = int(pattern.sample_count_weekend or 0)
+                avg_dev_weekend = int(pattern.average_deviation_minutes_weekend or 0)
 
-            display_time = learned_time if learned_time else sched_time
+                if pattern.learned_time and sample_count_weekday >= MIN_SAMPLES:
+                    learned_time_weekday = pattern.learned_time
+                if pattern.learned_time_weekend and sample_count_weekend >= MIN_SAMPLES:
+                    learned_time_weekend = pattern.learned_time_weekend
+
+            # Pick the right learned time for today
+            if is_today_weekend and learned_time_weekend:
+                active_learned_time = learned_time_weekend
+                active_sample_count = sample_count_weekend
+                active_avg_dev = avg_dev_weekend
+                confidence = "learned_weekend"
+            elif not is_today_weekend and learned_time_weekday:
+                active_learned_time = learned_time_weekday
+                active_sample_count = sample_count_weekday
+                active_avg_dev = avg_dev_weekday
+                confidence = "learned"
+            elif learned_time_weekday:
+                # Weekend but no weekend data yet — fall back to weekday pattern
+                active_learned_time = learned_time_weekday
+                active_sample_count = sample_count_weekday
+                active_avg_dev = avg_dev_weekday
+                confidence = "learned"
+            else:
+                active_learned_time = None
+                active_sample_count = sample_count_weekday
+                active_avg_dev = avg_dev_weekday
+
+            display_time = active_learned_time if active_learned_time else sched_time
             smart_reminder = _compute_smart_reminder_time(display_time, reminder_offset)
-            timing_status = _compute_timing_status(avg_dev, sample_count)
+            timing_status = _compute_timing_status(active_avg_dev, active_sample_count)
 
             items.append({
                 "medication_id": med.medication_id,
                 "medication_name": med.name,
                 "schedule_time": sched_time,
-                "learned_time": learned_time,
+                "learned_time": active_learned_time,
+                "learned_time_weekday": learned_time_weekday,
+                "learned_time_weekend": learned_time_weekend,
                 "display_time": display_time,
-                "sample_count": sample_count,
-                "average_deviation_minutes": avg_dev,
+                "sample_count": active_sample_count,
+                "sample_count_weekday": sample_count_weekday,
+                "sample_count_weekend": sample_count_weekend,
+                "average_deviation_minutes": active_avg_dev,
                 "smart_reminder_time": smart_reminder,
                 "routine_type": routine,
                 "timing_status": timing_status,
                 "confidence": confidence,
+                "is_weekend": is_today_weekend,
             })
 
     return items

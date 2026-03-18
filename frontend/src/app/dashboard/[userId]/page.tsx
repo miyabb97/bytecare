@@ -36,7 +36,8 @@ import {
   User,
   Volume2,
   XCircle,
-  Utensils
+  Utensils,
+  Sparkles
 } from "lucide-react";
 import {
   api,
@@ -57,13 +58,16 @@ import {
   type MedicationListResponse,
   type MEEScoreResponse,
   type NextActionResponse,
+  type OrchestrateResponse,
   type NutritionScanResult,
   type RefillStatusItem,
   type ReportSummaryResponse,
   type TCMResponse,
   type UserProfile,
   type VoiceAgentResponse,
-  type VoiceResponse
+  type VoiceResponse,
+  type LearningEvidenceResponse,
+  type LearningEvidenceMed,
 } from "../../../lib/api";
 
 type Tab = "home" | "chat" | "events" | "health" | "profile";
@@ -78,7 +82,7 @@ type ChatMessage = {
   navigation?: { label: string; route: string; tab?: string } | null;
 };
 
-type ReminderResponseStatus = "taken" | "skipped" | "snoozed" | "missed" | "late";
+type ReminderResponseStatus = "taken" | "snoozed" | "not_taken";
 type ReminderMedication = Pick<MedicationItem, "medication_id" | "name" | "dose_text">;
 type ReminderGroup = {
   scheduled_for: string;
@@ -206,16 +210,29 @@ function getRiskLevel(score?: number | null): "HIGH" | "MEDIUM" | "LOW" {
   return "LOW";
 }
 
+function friendlyActionLabel(action?: string | null): string {
+  switch (action) {
+    case "gentle_reminder":  return "Gentle reminder sent";
+    case "chatbot_support":  return "Support message sent";
+    case "caregiver_alert":  return "Caregiver alerted";
+    case "none":             return "On track";
+    default:                 return action?.replace(/_/g, " ") ?? "Reminder needed";
+  }
+}
+
 function getAdherenceRate(counts?: {
   taken: number;
-  missed: number;
+  not_taken: number;
   late: number;
-  skipped: number;
+  missed?: number;
+  skipped?: number;
+  snoozed?: number;
 } | null): number {
   if (!counts) return 0;
-  const total = counts.taken + counts.missed + counts.late + counts.skipped;
+  const notTaken = (counts.not_taken ?? 0) + (counts.missed ?? 0) + (counts.skipped ?? 0);
+  const total = counts.taken + counts.late + notTaken;
   if (total <= 0) return 0;
-  return Math.round((counts.taken / total) * 100);
+  return Math.round(((counts.taken + 0.5 * counts.late) / total) * 100);
 }
 
 function intakeStatusMeta(status: string | null | undefined) {
@@ -237,7 +254,7 @@ function intakeStatusMeta(status: string | null | undefined) {
     };
   }
   return {
-    label: normalized === "skipped" ? "Skipped" : "Missed",
+    label: "Not Taken",
     icon: XCircle,
     iconClass: "text-red-500",
     chipClass: "bg-red-50 text-red-600",
@@ -322,9 +339,9 @@ function formatScheduledLabel(scheduledFor: string): string {
 }
 
 function formatReminderStatusLabel(status: ReminderResponseStatus | string): string {
-  if (status === "snoozed") {
-    return "Take later";
-  }
+  if (status === "snoozed") return "Take later";
+  if (status === "not_taken") return "Not taken";
+  if (status === "late") return "Late";
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
@@ -678,11 +695,16 @@ export default function DashboardPage() {
 
   // --- Phase 11: MEE / Adherence / Unread count ---
   const [meeScore, setMeeScore] = useState<MEEScoreResponse | null>(null);
+  const [orchestrateResult, setOrchestrateResult] = useState<OrchestrateResponse | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [adherenceTracking, setAdherenceTracking] = useState<Record<string, string>>({});
 
   // --- Adaptive Timing state ---
   const [adaptiveTiming, setAdaptiveTiming] = useState<AdaptiveTimingItem[]>([]);
+  const [timingInsight, setTimingInsight] = useState<string | null>(null);
+  const [timingInsightLoading, setTimingInsightLoading] = useState(false);
+  const [learningEvidence, setLearningEvidence] = useState<LearningEvidenceResponse | null>(null);
+  const [learningEvidenceOpen, setLearningEvidenceOpen] = useState(false);
 
   // --- Medication Supply / Refill reminder state ---
   const [refillStatus, setRefillStatus] = useState<RefillStatusItem[] | null>(null);
@@ -783,6 +805,12 @@ export default function DashboardPage() {
 
     if (adaptiveRes.status === "fulfilled") {
       setAdaptiveTiming(adaptiveRes.value.items ?? []);
+      // Fetch timing insight and learning evidence once adaptive data is loaded
+      if ((adaptiveRes.value.items ?? []).some(i => i.confidence === "learned" || i.confidence === "learned_weekend")) {
+        setTimingInsightLoading(true);
+        api.getTimingInsight(userId).then(res => setTimingInsight(res.insight)).catch(() => {}).finally(() => setTimingInsightLoading(false));
+        api.getLearningEvidence(userId).then(setLearningEvidence).catch(() => {});
+      }
     } else {
       setAdaptiveTiming([]);
     }
@@ -819,6 +847,7 @@ export default function DashboardPage() {
       // Load MEE score + unread count
       api.getMEEScore(userId).then(setMeeScore).catch(() => { });
       api.getUnreadCount(userId).then((res) => setUnreadCount(res.unread_count)).catch(() => { });
+      api.postOrchestrate(userId).then(setOrchestrateResult).catch(() => { });
     }
   }, [loadDashboard, loadDoseEvents, userId]);
 
@@ -949,7 +978,7 @@ export default function DashboardPage() {
   }, [adaptiveTiming]);
 
   // Build today's dose slots for the home tab overview
-  type TodayDoseSlot = { med: MedicationItem; scheduledFor: string; timeLabel: string; status: string | null };
+  type TodayDoseSlot = { med: MedicationItem; scheduledFor: string; timeLabel: string; status: string | null; eventId: string | null };
   const todayDoseSlots = useMemo(() => {
     const timezone = userProfile?.timezone || "Asia/Singapore";
     const { date } = getClockParts(timezone);
@@ -959,7 +988,7 @@ export default function DashboardPage() {
         if (!t) continue;
         const scheduledFor = buildScheduledFor(date, t);
         const ev = latestDoseEventBySlot.get(`${med.medication_id}:${scheduledFor}`);
-        slots.push({ med, scheduledFor, timeLabel: t, status: ev?.response_status ?? null });
+        slots.push({ med, scheduledFor, timeLabel: t, status: ev?.response_status ?? null, eventId: ev?.event_id ?? null });
       }
     }
     slots.sort((a, b) => a.scheduledFor.localeCompare(b.scheduledFor));
@@ -991,10 +1020,45 @@ export default function DashboardPage() {
         });
       }
       api.getMEEScore(userId).then(setMeeScore).catch(() => { });
+      api.getLearningEvidence(userId).then(setLearningEvidence).catch(() => {});
       // Trigger orchestration pipeline so the flow
       // patient action → MEE/risk → intervention → chat message works end-to-end
       api.postOrchestrate(userId)
-        .then(() => api.getUnreadCount(userId))
+        .then((res) => { setOrchestrateResult(res); return api.getUnreadCount(userId); })
+        .then((res) => setUnreadCount(res.unread_count))
+        .catch(() => { });
+    } catch { /* ignore */ } finally {
+      setQuickMarkLoading(null);
+    }
+  }
+
+  async function handleCorrectDose(slot: TodayDoseSlot, newStatus: ReminderResponseStatus) {
+    if (!userId) return;
+    // Find the existing event ID — prefer undoEvents (just created), then slot.eventId from DB
+    const key = `${slot.med.medication_id}:${slot.scheduledFor}`;
+    const undo = undoEvents.get(key);
+    const eventId = undo?.eventId ?? slot.eventId;
+    if (!eventId) {
+      // No existing event to correct — fall back to creating a new one
+      return handleQuickMark(slot, newStatus);
+    }
+    setQuickMarkLoading(key);
+    try {
+      const updated = await api.patchDoseEvent(userId, eventId, newStatus);
+      // Replace the event in local state
+      setDoseEvents((current) =>
+        current.map((ev) => (ev.event_id === eventId ? updated : ev))
+      );
+      // Update undo tracking to reflect the corrected event
+      setUndoEvents((prev) => {
+        const next = new Map(prev);
+        next.set(key, { eventId, status: updated.response_status });
+        return next;
+      });
+      api.getMEEScore(userId).then(setMeeScore).catch(() => { });
+      api.getLearningEvidence(userId).then(setLearningEvidence).catch(() => {});
+      api.postOrchestrate(userId)
+        .then((res) => { setOrchestrateResult(res); return api.getUnreadCount(userId); })
         .then((res) => setUnreadCount(res.unread_count))
         .catch(() => { });
     } catch { /* ignore */ } finally {
@@ -1018,6 +1082,7 @@ export default function DashboardPage() {
         return next;
       });
       api.getMEEScore(userId).then(setMeeScore).catch(() => { });
+      api.getLearningEvidence(userId).then(setLearningEvidence).catch(() => {});
     } catch { /* ignore */ } finally {
       setQuickMarkLoading(null);
     }
@@ -1056,7 +1121,7 @@ export default function DashboardPage() {
         const scheduledFor = buildScheduledFor(date, scheduledTime);
         const latestEvent = latestDoseEventBySlot.get(`${medication.medication_id}:${scheduledFor}`);
 
-        if (latestEvent?.response_status === "taken" || latestEvent?.response_status === "skipped") {
+        if (latestEvent?.response_status === "taken" || latestEvent?.response_status === "not_taken" || latestEvent?.response_status === "late") {
           continue;
         }
 
@@ -1660,8 +1725,9 @@ export default function DashboardPage() {
       setDoseEvents((current) => [...response.items, ...current]);
       setReminderGroup(null);
       void loadDashboard();
-      // Refresh adherence score after recording a dose event
+      // Refresh adherence score and learning evidence after recording a dose event
       api.getMEEScore(userId).then(setMeeScore).catch(() => { });
+      api.getLearningEvidence(userId).then(setLearningEvidence).catch(() => {});
     } catch (error) {
       setReminderError(safeMessage(error));
     } finally {
@@ -1694,8 +1760,8 @@ export default function DashboardPage() {
     });
     if (responseStatus === "taken") {
       setAppReminderNotice("You marked timer reminder as Taken.");
-    } else if (responseStatus === "skipped") {
-      setAppReminderNotice("You marked timer reminder as Skip.");
+    } else if (responseStatus === "not_taken") {
+      setAppReminderNotice("You marked timer reminder as Not Taken.");
     } else if (responseStatus === "snoozed") {
       setAppReminderNotice(`You marked timer reminder as Not yet (${SNOOZE_MINUTES} min).`);
     }
@@ -1851,7 +1917,7 @@ export default function DashboardPage() {
                   <Pill className="text-[#3670e2]" size={18} />
                   <h3 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Medication Adherence</h3>
                   {meeScore ? (() => {
-                    const riskLevel = getRiskLevel(meeScore.score);
+                    const riskLevel = (orchestrateResult?.risk_level?.toUpperCase() as "HIGH" | "MEDIUM" | "LOW") ?? getRiskLevel(meeScore.score);
                     return (
                       <span className={`ml-auto rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${riskLevel === "HIGH" ? "bg-red-100 text-red-600" : riskLevel === "MEDIUM" ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"}`}>
                         {riskLevel} Risk
@@ -1865,7 +1931,7 @@ export default function DashboardPage() {
                 </div>
 
                 {meeScore ? (() => {
-                  const riskLevel = getRiskLevel(meeScore.score);
+                  const riskLevel = (orchestrateResult?.risk_level?.toUpperCase() as "HIGH" | "MEDIUM" | "LOW") ?? getRiskLevel(meeScore.score);
                   const adherenceRate = getAdherenceRate(meeScore.counts);
                   const radius = 28;
                   const circumference = 2 * Math.PI * radius;
@@ -1885,21 +1951,19 @@ export default function DashboardPage() {
 
                       {/* Stats */}
                       <div className="flex flex-1 flex-col gap-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] text-slate-500">Taken</span>
-                          <span className="text-[11px] font-bold text-slate-800">{meeScore.counts.taken}</span>
+                        <div className="flex items-center gap-2 text-[11px] flex-wrap">
+                          <span className="text-slate-500">Taken <span className="font-bold text-slate-800">{meeScore.counts.taken}</span></span>
+                          <span className="text-slate-300">·</span>
+                          <span className="text-slate-500">Late <span className="font-bold text-amber-500">{meeScore.counts.late}</span></span>
+                          <span className="text-slate-300">·</span>
+                          <span className="text-slate-500">Not Taken <span className="font-bold text-red-500">{meeScore.counts.not_taken}</span></span>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] text-slate-500">Missed</span>
-                          <span className="text-[11px] font-bold text-red-500">{meeScore.counts.missed}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] text-slate-500">Risk Score</span>
-                          <span className="text-[11px] font-bold text-slate-800">{Math.round(meeScore.score)}%</span>
-                        </div>
+                        <p className="text-[10px] text-slate-400 italic leading-snug">
+                          {riskLevel === "LOW" ? "Great adherence — keep it up!" : riskLevel === "MEDIUM" ? "Some doses were missed or late — stay on track." : "Multiple missed doses — your care team has been notified."}
+                        </p>
                         <div className="flex items-center justify-between">
                           <span className="text-[11px] text-slate-500">Next action</span>
-                          <span className="text-[11px] font-semibold text-blue-600 truncate max-w-[130px]">{nextAction?.next_action ?? "Reminder needed"}</span>
+                          <span className="text-[11px] font-semibold text-blue-600 truncate max-w-[130px]">{friendlyActionLabel(orchestrateResult?.action_type ?? nextAction?.next_action)}</span>
                         </div>
                       </div>
                     </div>
@@ -1926,7 +1990,7 @@ export default function DashboardPage() {
                       const undoInfo = undoEvents.get(key);
                       const effectiveStatus = timerResponseByMedId.get(slot.med.medication_id) ?? slot.status;
                       const adaptive = adaptiveMap.get(`${slot.med.medication_id}:${slot.timeLabel}`);
-                      const isLearned = adaptive?.confidence === "learned";
+                      const isLearned = adaptive?.confidence === "learned" || adaptive?.confidence === "learned_weekend";
                       const dropdownUp = slotIdx >= todayDoseSlots.length - 3;
                       // Check if this dose is still in the future (can't mark yet)
                       const nowDate = new Date();
@@ -1938,7 +2002,13 @@ export default function DashboardPage() {
                             <p className="truncate text-sm font-semibold text-slate-800">{slot.med.name}</p>
                             <p className="text-xs text-slate-500">{slot.timeLabel} &middot; {slot.med.dose_text}</p>
                             {isLearned && adaptive.learned_time && adaptive.learned_time !== slot.timeLabel ? (
-                              <p className="mt-0.5 text-xs text-slate-400">Usually around {adaptive.learned_time} &middot; {adaptive.timing_status}</p>
+                              <p className="mt-0.5 text-xs text-slate-400">
+                                Usually around {adaptive.learned_time}
+                                {adaptive.learned_time_weekday && adaptive.learned_time_weekend && adaptive.learned_time_weekday !== adaptive.learned_time_weekend
+                                  ? ` (${adaptive.is_weekend ? "weekend" : "weekday"})`
+                                  : ""}
+                                {" "}&middot; {adaptive.timing_status}
+                              </p>
                             ) : null}
                             {userMentionedReminderSeconds ? (
                               <p className="mt-0.5 text-xs font-medium text-blue-500">Reminder in {formatTimerLabel(userMentionedReminderSeconds)}</p>
@@ -1956,7 +2026,7 @@ export default function DashboardPage() {
                                   disabled={isLoading}
                                   onClick={() => setOpenDropdownKey(openDropdownKey === key ? null : key)}
                                   className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold transition active:scale-95 ${effectiveStatus === "taken" ? "bg-emerald-100 text-emerald-600"
-                                      : effectiveStatus === "skipped" ? "bg-orange-50 text-orange-600"
+                                      : effectiveStatus === "not_taken" ? "bg-orange-50 text-orange-600"
                                         : effectiveStatus === "snoozed" ? "bg-blue-100 text-blue-600"
                                           : effectiveStatus === "late" ? "bg-amber-100 text-amber-600"
                                             : "bg-red-100 text-red-600"
@@ -1967,19 +2037,18 @@ export default function DashboardPage() {
                                 </button>
                                 {openDropdownKey === key && (
                                   <div className={`absolute right-0 z-50 min-w-[110px] overflow-hidden rounded-xl border border-slate-200 bg-gray-50 shadow-md ${dropdownUp ? "bottom-full mb-1" : "top-full mt-1"}`}>
-                                    {(["taken", "missed", "late", "snoozed"] as ReminderResponseStatus[])
+                                    {(["taken", "not_taken", "snoozed"] as ReminderResponseStatus[])
                                       .filter((s) => s !== effectiveStatus)
                                       .map((s) => (
                                         <button
                                           key={s}
                                           type="button"
                                           disabled={isLoading}
-                                          onClick={() => { setOpenDropdownKey(null); void handleQuickMark(slot, s); }}
+                                          onClick={() => { setOpenDropdownKey(null); void handleCorrectDose(slot, s); }}
                                           style={{ background: "none", marginTop: 0, borderRadius: 0, padding: "0.5rem 1rem" }}
                                           className={`block w-full text-left text-xs font-medium outline-none transition hover:bg-slate-200 ${s === "taken" ? "text-emerald-700"
                                             : s === "snoozed" ? "text-blue-600"
-                                              : s === "late" ? "text-amber-700"
-                                                : "text-red-700"
+                                              : "text-red-700"
                                             }`}
                                         >
                                           Mark as {formatReminderStatusLabel(s)}
@@ -2016,7 +2085,7 @@ export default function DashboardPage() {
                               </button>
                               {openDropdownKey === key && (
                                 <div className={`absolute right-0 z-50 min-w-[110px] overflow-hidden rounded-xl border border-slate-200 bg-gray-50 shadow-md ${dropdownUp ? "bottom-full mb-1" : "top-full mt-1"}`}>
-                                  {(["taken", "missed", "late", "snoozed"] as ReminderResponseStatus[]).map((s) => (
+                                  {(["taken", "not_taken", "snoozed"] as ReminderResponseStatus[]).map((s) => (
                                     <button
                                       key={s}
                                       type="button"
@@ -2025,8 +2094,7 @@ export default function DashboardPage() {
                                       style={{ background: "none", marginTop: 0, borderRadius: 0, padding: "0.5rem 1rem" }}
                                       className={`block w-full text-left text-xs font-medium outline-none transition hover:bg-slate-200 ${s === "taken" ? "text-emerald-700"
                                         : s === "snoozed" ? "text-blue-600"
-                                          : s === "late" ? "text-amber-700"
-                                            : "text-red-700"
+                                          : "text-red-700"
                                         }`}
                                     >
                                       Mark as {formatReminderStatusLabel(s)}
@@ -3107,57 +3175,29 @@ export default function DashboardPage() {
                 </div>
               </section>
 
-              {adaptiveTiming.length > 0 && (
-                <section className="space-y-3">
-                  <div className="flex items-center gap-3 px-1">
-                    <Clock3 className="text-[#3670e2]" size={24} />
-                    <h2 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Medication Timing</h2>
-                  </div>
-                  <div className="rounded-[2rem] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
-                    <div className="space-y-4">
-                      {adaptiveTiming.map((item) => {
-                        const isLearned = item.confidence === "learned";
-                        return (
-                          <div key={`${item.medication_id}:${item.schedule_time}`} className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-4">
-                            <h4 className="text-sm font-semibold text-slate-900">{item.medication_name}</h4>
-                            <div className="mt-2 space-y-1.5">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[11px] text-slate-500">Recommended</span>
-                                <span className="text-[11px] font-semibold text-slate-700">{item.schedule_time}</span>
-                              </div>
-                              {isLearned && item.learned_time ? (
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[11px] text-slate-500">Usual time</span>
-                                  <span className="text-[11px] font-semibold text-slate-700">around {item.learned_time}</span>
-                                </div>
-                              ) : null}
-                              {item.smart_reminder_time ? (
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[11px] text-slate-500">Smart reminder</span>
-                                  <span className="text-[11px] font-semibold text-blue-600">around {item.smart_reminder_time}</span>
-                                </div>
-                              ) : null}
-                              <div className="flex items-center justify-between">
-                                <span className="text-[11px] text-slate-500">Status</span>
-                                <span className={`text-[11px] font-semibold ${isLearned && item.average_deviation_minutes <= 30 ? "text-emerald-600" : isLearned && item.average_deviation_minutes <= 60 ? "text-amber-600" : isLearned ? "text-red-500" : "text-slate-400"}`}>
-                                  {item.timing_status}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </section>
-              )}
-
               <section className="space-y-3">
                 <div className="flex items-center gap-3 px-1">
                   <Pill className="text-[#3670e2]" size={24} />
-                  <h2 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Medication Tracking</h2>
+                  <h2 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Medication Schedule & Timing</h2>
                 </div>
                 <div className="rounded-[2rem] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
+
+                  {/* AI Insight */}
+                  {(timingInsight || timingInsightLoading) && (
+                    <div className="mb-5 rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-indigo-50 p-4">
+                      <div className="mb-2 flex items-center gap-2">
+                        <Sparkles className="text-blue-500" size={16} />
+                        <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-blue-600">AI Routine Insight</span>
+                      </div>
+                      {timingInsightLoading ? (
+                        <p className="text-xs leading-relaxed text-slate-400 animate-pulse">Analysing your medication routine...</p>
+                      ) : (
+                        <p className="text-xs leading-relaxed text-slate-700">{timingInsight}</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Recent History */}
                   <div className="space-y-3">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Recent History</p>
                     <div className="scrollbar-hide flex gap-3 overflow-x-auto pb-2">
@@ -3181,20 +3221,60 @@ export default function DashboardPage() {
                     </div>
                   </div>
 
+                  {/* Daily Schedule + Learned Timing (combined) */}
                   <div className="mt-6 space-y-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Daily Schedule</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Daily Schedule & Timing</p>
                     <div className="space-y-3">
-                      {allMeds.length > 0 ? allMeds.map((med) => (
-                        <div key={med.medication_id} className="flex gap-4 rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-4">
-                          <div className="w-12 pt-0.5 text-xs font-semibold text-slate-500">{med.schedule.times[0] ?? "--:--"}</div>
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <h5 className="text-sm font-semibold text-slate-900">{med.name}</h5>
-                            <p className="text-xs leading-relaxed text-slate-500">
-                              {med.dose_text} · {med.schedule.frequency} · {med.schedule.times.join(", ")}
-                            </p>
+                      {allMeds.length > 0 ? allMeds.map((med) => {
+                        const schedTime = med.schedule.times[0] ?? "--:--";
+                        const adaptive = adaptiveTiming.find(
+                          (a) => a.medication_id === med.medication_id && a.schedule_time === schedTime
+                        );
+                        const isLearned = adaptive && (adaptive.confidence === "learned" || adaptive.confidence === "learned_weekend");
+                        const hasWeekendDiff = adaptive?.learned_time_weekday && adaptive?.learned_time_weekend && adaptive.learned_time_weekday !== adaptive.learned_time_weekend;
+                        return (
+                          <div key={med.medication_id} className="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-4">
+                            <div className="flex gap-4">
+                              <div className="w-12 pt-0.5 text-xs font-semibold text-slate-500">{schedTime}</div>
+                              <div className="min-w-0 flex-1 space-y-1">
+                                <h5 className="text-sm font-semibold text-slate-900">{med.name}</h5>
+                                <p className="text-xs leading-relaxed text-slate-500">
+                                  {med.dose_text} · {med.schedule.frequency}
+                                </p>
+                              </div>
+                            </div>
+                            {isLearned && adaptive ? (
+                              <div className="mt-3 border-t border-slate-200 pt-3 space-y-1.5">
+                                {hasWeekendDiff ? (
+                                  <div className="flex items-center gap-4">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[10px] text-slate-400">Weekday</span>
+                                      <span className="text-[11px] font-semibold text-slate-700">{adaptive.learned_time_weekday}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[10px] text-slate-400">Weekend</span>
+                                      <span className="text-[11px] font-semibold text-slate-700">{adaptive.learned_time_weekend}</span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[10px] text-slate-400">Usually around</span>
+                                    <span className="text-[11px] font-semibold text-slate-700">{adaptive.learned_time}</span>
+                                  </div>
+                                )}
+                                <div className="flex items-center justify-between">
+                                  {adaptive.smart_reminder_time ? (
+                                    <span className="text-[10px] font-medium text-blue-600">Smart reminder ~{adaptive.smart_reminder_time}</span>
+                                  ) : <span />}
+                                  <span className={`text-[10px] font-semibold ${adaptive.average_deviation_minutes <= 30 ? "text-emerald-600" : adaptive.average_deviation_minutes <= 60 ? "text-amber-600" : "text-red-500"}`}>
+                                    {adaptive.timing_status}
+                                  </span>
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
-                        </div>
-                      )) : (
+                        );
+                      }) : (
                         <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
                           No medications recorded yet.
                         </div>
@@ -3204,6 +3284,147 @@ export default function DashboardPage() {
                 </div>
               </section>
 
+              {/* Learning Evidence — show judges how the system learned */}
+              {learningEvidence && learningEvidence.medications.length > 0 && (
+                <section className="space-y-3">
+                  <div className="flex items-center gap-3 px-1">
+                    <Brain className="text-[#3670e2]" size={24} />
+                    <h2 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">How ByteCare Learns</h2>
+                  </div>
+                  <div className="rounded-[2rem] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
+
+                    {/* Expandable toggle */}
+                    <button
+                      type="button"
+                      onClick={() => setLearningEvidenceOpen(!learningEvidenceOpen)}
+                      className="flex w-full items-center justify-between rounded-xl bg-slate-50 px-4 py-3 text-left transition hover:bg-slate-100"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">Routine Learning & Smart Reminders</p>
+                        <p className="mt-0.5 text-[11px] text-slate-500">
+                          Based on {learningEvidence.lookback_days} days of data · {learningEvidence.min_samples_needed}+ samples needed to learn
+                        </p>
+                      </div>
+                      <ChevronRight size={18} className={`text-slate-400 transition-transform ${learningEvidenceOpen ? "rotate-90" : ""}`} />
+                    </button>
+
+                    {learningEvidenceOpen && (
+                      <div className="mt-4 space-y-6">
+                        {learningEvidence.medications.map((med) => (
+                          <div key={`${med.medication_id}:${med.schedule_time}`} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                            <h4 className="text-sm font-semibold text-slate-900">{med.medication_name}</h4>
+                            <p className="text-[10px] text-slate-400">Scheduled at {med.schedule_time}</p>
+
+                            {/* Day-of-Week Pattern Learning */}
+                            <div className="mt-3">
+                              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500 mb-2">Timing Pattern Learning</p>
+
+                              {/* Weekday samples */}
+                              <div className="mb-2">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-[10px] font-semibold text-slate-600">Weekdays</span>
+                                  <span className="text-[10px] text-slate-400">({med.weekday_count} doses recorded)</span>
+                                  {med.weekday_median && (
+                                    <span className="ml-auto rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                                      Learned: {med.weekday_median}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-1">
+                                  {med.weekday_samples.map((s, i) => (
+                                    <div
+                                      key={i}
+                                      className={`rounded-lg px-2 py-1 text-[9px] font-mono ${s.status === "taken" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-amber-50 text-amber-700 border border-amber-200"}`}
+                                      title={`${s.day} ${s.date}`}
+                                    >
+                                      {s.time}
+                                      <span className="ml-1 text-[8px] opacity-60">{s.day}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Weekend samples */}
+                              <div className="mb-2">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-[10px] font-semibold text-slate-600">Weekends</span>
+                                  <span className="text-[10px] text-slate-400">({med.weekend_count} doses recorded)</span>
+                                  {med.weekend_median ? (
+                                    <span className="ml-auto rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">
+                                      Learned: {med.weekend_median}
+                                    </span>
+                                  ) : (
+                                    <span className="ml-auto text-[10px] text-slate-400 italic">
+                                      Need {learningEvidence.min_samples_needed - med.weekend_count} more
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-1">
+                                  {med.weekend_samples.length > 0 ? med.weekend_samples.map((s, i) => (
+                                    <div
+                                      key={i}
+                                      className={`rounded-lg px-2 py-1 text-[9px] font-mono ${s.status === "taken" ? "bg-blue-50 text-blue-700 border border-blue-200" : "bg-amber-50 text-amber-700 border border-amber-200"}`}
+                                      title={`${s.day} ${s.date}`}
+                                    >
+                                      {s.time}
+                                      <span className="ml-1 text-[8px] opacity-60">{s.day}</span>
+                                    </div>
+                                  )) : (
+                                    <span className="text-[10px] text-slate-400 italic">No weekend data yet</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Thompson Sampling Bandit Arms */}
+                            {med.bandit_arms.length > 0 && (
+                              <div className="mt-4 border-t border-slate-200 pt-3">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-500 mb-2">
+                                  Reinforcement Learning — Reminder Offset
+                                </p>
+                                <p className="text-[10px] text-slate-400 mb-2">
+                                  Thompson Sampling tries different reminder times and learns which works best
+                                </p>
+                                <div className="space-y-1.5">
+                                  {med.bandit_arms.map((arm) => {
+                                    const isBest = arm.offset_minutes === med.best_offset;
+                                    const barWidth = Math.max(8, arm.win_rate);
+                                    return (
+                                      <div key={arm.offset_minutes} className="flex items-center gap-2">
+                                        <span className={`w-14 text-right text-[10px] font-mono ${isBest ? "font-bold text-blue-700" : "text-slate-500"}`}>
+                                          {arm.offset_minutes} min
+                                        </span>
+                                        <div className="flex-1 h-5 bg-slate-100 rounded-full overflow-hidden relative">
+                                          <div
+                                            className={`h-full rounded-full transition-all ${isBest ? "bg-gradient-to-r from-blue-500 to-indigo-500" : "bg-slate-300"}`}
+                                            style={{ width: `${barWidth}%` }}
+                                          />
+                                          <span className={`absolute inset-y-0 flex items-center text-[9px] font-bold ${barWidth > 50 ? "right-2 text-white" : "left-2 text-slate-600"}`} style={{ left: barWidth > 50 ? undefined : `${barWidth + 2}%` }}>
+                                            {arm.win_rate}%
+                                          </span>
+                                        </div>
+                                        <span className="w-16 text-[9px] text-slate-400">
+                                          {arm.alpha}W / {arm.beta}L
+                                        </span>
+                                        {isBest && (
+                                          <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[8px] font-bold text-blue-700">BEST</span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                                <p className="mt-2 text-[10px] text-slate-500">
+                                  Current winner: <span className="font-bold text-blue-700">{med.best_offset} min</span> before dose ({med.best_win_rate}% success rate)
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
 
             </>
           ) : null}
@@ -3473,10 +3694,10 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   className="skip-button"
-                  onClick={() => void handleReminderResponse("skipped")}
+                  onClick={() => void handleReminderResponse("not_taken")}
                   disabled={reminderBusy}
                 >
-                  {reminderBusy ? "Saving..." : "Skip"}
+                  {reminderBusy ? "Saving..." : "Not taking it"}
                 </button>
                 <button
                   type="button"
@@ -3539,10 +3760,10 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   className="skip-button"
-                  onClick={() => void handleTimerReminderResponse("skipped")}
+                  onClick={() => void handleTimerReminderResponse("not_taken")}
                   disabled={reminderBusy}
                 >
-                  {reminderBusy ? "Saving..." : "No / Skip"}
+                  {reminderBusy ? "Saving..." : "Not taking it"}
                 </button>
                 <button
                   type="button"
