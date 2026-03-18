@@ -233,17 +233,27 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
   const [bottomNavBounds, setBottomNavBounds] = useState<{ left: number; width: number } | null>(null);
 
   useEffect(() => {
+    if (!account) return;
+
     const update = () => {
       const shell = shellRef.current;
       if (!shell) return;
       const rect = shell.getBoundingClientRect();
       setBottomNavBounds({ left: rect.left, width: rect.width });
     };
+
     update();
+    const raf1 = window.requestAnimationFrame(update);
+    const raf2 = window.requestAnimationFrame(() => window.requestAnimationFrame(update));
     window.addEventListener("resize", update);
     window.addEventListener("scroll", update, { passive: true });
-    return () => { window.removeEventListener("resize", update); window.removeEventListener("scroll", update); };
-  }, []);
+    return () => {
+      window.cancelAnimationFrame(raf1);
+      window.cancelAnimationFrame(raf2);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update);
+    };
+  }, [account]);
 
   useEffect(() => {
     if (!account) return;
@@ -316,7 +326,7 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
           </div>
         </header>
 
-        <section className="space-y-4 px-4 pb-8 pt-5">
+        <section key={activeTab} className="tc-motion-stack space-y-4 px-4 pb-8 pt-5">
 
           {/* ══ HOME TAB ══ */}
           {activeTab === "home" && <>
@@ -1108,7 +1118,7 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                   <h2 className="text-[1.65rem] font-bold leading-tight tracking-tight text-slate-900">
                     {account.name}
                   </h2>
-                  <p className="mt-1 text-sm font-medium text-slate-500">Caregiver · ID: {accountId}</p>
+                  <p className="mt-1 text-sm font-medium text-slate-500">Caregiver</p>
                 </div>
               </section>
 
@@ -1145,15 +1155,13 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                   </div>
                   <div className="space-y-3">
                     {patients.map(p => (
-                      <div key={p.user_id} className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-slate-900">{p.name}</p>
-                          <p className="text-[12px] text-slate-500">Age {p.age} · {p.medication_count} medication{p.medication_count !== 1 ? "s" : ""}</p>
-                        </div>
+                      <div key={p.user_id} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5">
+                        <p className="text-sm font-medium text-slate-900">{p.name}</p>
+                        <p className="text-[12px] text-slate-500">Age {p.age} · {p.medication_count} medication{p.medication_count !== 1 ? "s" : ""}</p>
                         <button
                           type="button"
                           onClick={() => { setActiveTab("home"); setSelectedId(p.user_id); }}
-                          className="rounded-full bg-[#EEF4FF] px-3 py-1 text-[12px] font-semibold text-[#3B6EF5]"
+                          className="mt-2 rounded-full bg-[#EEF4FF] py-1.5 text-[12px] font-semibold text-[#3B6EF5]"
                         >
                           View
                         </button>
@@ -1194,7 +1202,11 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
         <div
           ref={bottomNavRef}
           className="pointer-events-none fixed bottom-0 z-50 pb-[max(env(safe-area-inset-bottom),0px)]"
-          style={bottomNavBounds ? { left: `${bottomNavBounds.left}px`, width: `${bottomNavBounds.width}px` } : undefined}
+          style={
+            bottomNavBounds
+              ? { left: `${bottomNavBounds.left}px`, width: `${bottomNavBounds.width}px` }
+              : { left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: "28rem" }
+          }
         >
           <div className="w-full">
             <nav className="tc-bottom-nav pointer-events-auto flex w-full items-center justify-between border-t border-slate-200 bg-white px-6 pb-6 pt-2">

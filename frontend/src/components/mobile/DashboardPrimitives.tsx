@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode, type RefObject } from "react";
+import { useLayoutEffect, useState, type ReactNode, type RefObject } from "react";
 
 export type BadgeTone = "red" | "yellow" | "blue" | "neutral" | "success";
 
@@ -157,7 +157,7 @@ export function TabBar({
 }) {
   const [bounds, setBounds] = useState<{ left: number; width: number } | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const updateBounds = () => {
       const element = containerRef?.current;
       if (!element) {
@@ -169,9 +169,15 @@ export function TabBar({
     };
 
     updateBounds();
+    const raf1 = window.requestAnimationFrame(updateBounds);
+    const raf2 = window.requestAnimationFrame(() => window.requestAnimationFrame(updateBounds));
+    const settleTimer = window.setTimeout(updateBounds, 140);
 
     window.addEventListener("resize", updateBounds);
     window.addEventListener("scroll", updateBounds, { passive: true });
+    window.addEventListener("orientationchange", updateBounds);
+    window.addEventListener("load", updateBounds);
+    window.visualViewport?.addEventListener("resize", updateBounds);
 
     const element = containerRef?.current;
     const resizeObserver =
@@ -184,8 +190,14 @@ export function TabBar({
     }
 
     return () => {
+      window.cancelAnimationFrame(raf1);
+      window.cancelAnimationFrame(raf2);
+      window.clearTimeout(settleTimer);
       window.removeEventListener("resize", updateBounds);
       window.removeEventListener("scroll", updateBounds);
+      window.removeEventListener("orientationchange", updateBounds);
+      window.removeEventListener("load", updateBounds);
+      window.visualViewport?.removeEventListener("resize", updateBounds);
       resizeObserver?.disconnect();
     };
   }, [containerRef]);
@@ -193,7 +205,11 @@ export function TabBar({
   return (
     <div
       className={`${variant === "patient" ? "pointer-events-none fixed bottom-0 z-50 pb-[max(env(safe-area-inset-bottom),0px)]" : "fixed bottom-0 z-30"}`}
-      style={bounds ? { left: `${bounds.left}px`, width: `${bounds.width}px` } : { left: 0, right: 0 }}
+      style={
+        bounds
+          ? { left: `${bounds.left}px`, width: `${bounds.width}px` }
+          : { left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: "28rem" }
+      }
     >
       <nav
         className={`flex w-full border-t border-[#E9EEF7] bg-white ${

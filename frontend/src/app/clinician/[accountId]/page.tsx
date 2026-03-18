@@ -950,7 +950,7 @@ export default function ClinicianDashboardPage() {
           </header>
 
           <section className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-[1400px] space-y-6 p-8">
+            <div key={tab} className="tc-motion-stack mx-auto w-full max-w-[1400px] space-y-6 p-8">
               {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
 
               {tab === "patients" ? (
@@ -1936,7 +1936,7 @@ export default function ClinicianDashboardPage() {
             />
           )}
 
-          <section className="space-y-4 px-3 pb-8 pt-4">
+          <section key={tab} className="tc-motion-stack space-y-4 px-3 pb-8 pt-4">
             {error ? <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
 
             {tab === "patients" ? (
