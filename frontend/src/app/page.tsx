@@ -31,7 +31,16 @@ export default function SelectUserPage() {
   }, []);
 
   useEffect(() => {
-    if (authChecked && !account) {
+    if (!authChecked) return;
+    if (!account) {
+      router.replace("/auth/signin");
+    } else if (account.role === "caregiver") {
+      router.replace(`/caregiver/${account.account_id}`);
+    } else if (account.role === "clinician") {
+      router.replace(`/clinician/${account.account_id}`);
+    } else if (account.role === "admin") {
+      router.replace(`/admin/${account.account_id}`);
+    } else {
       router.replace("/auth/signin");
     }
   }, [authChecked, account, router]);
