@@ -116,7 +116,7 @@ def run_orchestrator(user_id: str, custom_message: Optional[str] = None) -> Dict
 
         reason = (
             f"MEE score={mee['score']}; drift_severity={drift['severity']}; "
-            f"missed={mee['counts']['missed']}; late={mee['counts']['late']}; "
+            f"not_taken={mee['counts']['not_taken']}; late={mee['counts']['late']}; "
             f"risk={risk_level}"
         )
 

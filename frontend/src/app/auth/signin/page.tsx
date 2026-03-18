@@ -131,22 +131,59 @@ export default function SignInPage() {
 
             <div style={{ marginTop: "1rem" }}>
               <p className="muted" style={{ marginBottom: "0.5rem" }}>Quick login:</p>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                {[
-                  { label: "Mdm Lim", email: "mdm.lim@demo.com", password: "demo123" },
-                  { label: "Grace Lim", email: "grace.lim@demo.com", password: "demo123" },
-                  { label: "Dr Chan", email: "drchan@bytecare.com", password: "clinician123" },
-                ].map((demo) => (
-                  <button
-                    key={demo.email}
-                    type="button"
-                    className="secondary-button"
-                    style={{ textAlign: "left", padding: "0.4rem 0.75rem", fontSize: "0.8rem" }}
-                    onClick={() => { setEmail(demo.email); setPassword(demo.password); }}
-                  >
-                    {demo.label} <span className="muted" style={{ fontSize: "0.75rem" }}>{demo.email}</span>
-                  </button>
-                ))}
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                {/* --- Mdm Lim & Caregiver --- */}
+                <p className="muted" style={{ fontSize: "0.7rem", margin: 0, fontWeight: 600 }}>Mdm Lim (72, Diabetes/Hypertension)</p>
+                <div style={{ display: "flex", gap: "0.4rem" }}>
+                  {[
+                    { label: "Patient", email: "mdm.lim@demo.com", password: "demo123" },
+                    { label: "Caregiver (Grace)", email: "grace.lim@demo.com", password: "demo123" },
+                  ].map((demo) => (
+                    <button key={demo.email} type="button" className="secondary-button"
+                      style={{ flex: 1, textAlign: "center", padding: "0.35rem 0.5rem", fontSize: "0.75rem" }}
+                      onClick={() => { setEmail(demo.email); setPassword(demo.password); }}>
+                      {demo.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* --- Mr Ong & Caregiver --- */}
+                <p className="muted" style={{ fontSize: "0.7rem", margin: 0, fontWeight: 600 }}>Mr Ong (65, AFib/Warfarin)</p>
+                <div style={{ display: "flex", gap: "0.4rem" }}>
+                  {[
+                    { label: "Patient", email: "mr.ong@demo.com", password: "demo123" },
+                    { label: "Caregiver (Daniel)", email: "daniel.ong@demo.com", password: "demo123" },
+                  ].map((demo) => (
+                    <button key={demo.email} type="button" className="secondary-button"
+                      style={{ flex: 1, textAlign: "center", padding: "0.35rem 0.5rem", fontSize: "0.75rem" }}
+                      onClick={() => { setEmail(demo.email); setPassword(demo.password); }}>
+                      {demo.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* --- Mrs Wong & Caregiver --- */}
+                <p className="muted" style={{ fontSize: "0.7rem", margin: 0, fontWeight: 600 }}>Mrs Wong (58, Hypertension/CKD)</p>
+                <div style={{ display: "flex", gap: "0.4rem" }}>
+                  {[
+                    { label: "Patient", email: "mrs.wong@demo.com", password: "demo123" },
+                    { label: "Caregiver (Angela)", email: "angela.wong@demo.com", password: "demo123" },
+                  ].map((demo) => (
+                    <button key={demo.email} type="button" className="secondary-button"
+                      style={{ flex: 1, textAlign: "center", padding: "0.35rem 0.5rem", fontSize: "0.75rem" }}
+                      onClick={() => { setEmail(demo.email); setPassword(demo.password); }}>
+                      {demo.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* --- Clinician --- */}
+                <p className="muted" style={{ fontSize: "0.7rem", margin: 0, fontWeight: 600 }}>Clinician</p>
+                <button type="button" className="secondary-button"
+                  style={{ textAlign: "center", padding: "0.35rem 0.5rem", fontSize: "0.75rem" }}
+                  onClick={() => { setEmail("drchan@bytecare.com"); setPassword("clinician123"); }}>
+                  Dr Chan
+                </button>
               </div>
             </div>
           </section>

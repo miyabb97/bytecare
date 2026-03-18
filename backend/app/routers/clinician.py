@@ -54,29 +54,26 @@ def _adherence_counts_for_window(db: Session, user_id: str, start_iso: str, end_
         query = query.filter(DoseEvent.timestamp < end_iso)
     events = query.all()
 
-    counts = {"taken": 0, "missed": 0, "late": 0, "skipped": 0}
+    counts = {"taken": 0, "late": 0, "not_taken": 0}
     for ev in events:
         status = (ev.response_status or "").lower().strip()
         event_type = (ev.event_type or "").lower().strip()
 
-        if status == "taken" or event_type in ("pillbox_open", "tap_confirm", "voice_confirm"):
+        if status == "taken" or event_type in ("tap_confirm", "voice_confirm"):
             counts["taken"] += 1
         elif status == "late" or event_type == "dose_late":
             counts["late"] += 1
-        elif status in ("missed", "skipped") or event_type in ("dose_missed", "dose_skipped"):
-            if status == "skipped" or event_type == "dose_skipped":
-                counts["skipped"] += 1
-            else:
-                counts["missed"] += 1
+        elif status in ("not_taken", "missed", "skipped") or event_type in ("dose_not_taken", "dose_missed", "dose_skipped"):
+            counts["not_taken"] += 1
 
     return counts
 
 
 def _adherence_score_from_counts(counts: Dict[str, int]) -> float:
-    """Compute adherence % from event counts, weighted for late confirmations."""
-    total = counts["taken"] + counts["missed"] + counts["late"] + counts["skipped"]
+    """Compute adherence % — unified formula: (taken + 0.5*late) / total."""
+    total = counts["taken"] + counts["late"] + counts["not_taken"]
     if total == 0:
-        return 0.0
+        return 100.0
     score = ((counts["taken"] + 0.5 * counts["late"]) / total) * 100.0
     return round(max(0.0, min(100.0, score)), 1)
 
@@ -489,7 +486,7 @@ def get_patient_weekly_summary(patient_user_id: str, account_id: str, db: Sessio
     # ---- Dose event breakdown (last 7 days) ----
     since_7d = current_start
     taken_count = current_counts["taken"]
-    missed_count = current_counts["missed"] + current_counts["skipped"]
+    missed_count = current_counts["not_taken"]
     late_count = current_counts["late"]
 
     # ---- Drift ----
@@ -688,7 +685,7 @@ def get_patient_ai_summary(patient_user_id: str, account_id: str, db: Session = 
             "prior_score": prior_score,
             "delta": round(current_score - prior_score, 1),
             "taken": current_counts["taken"],
-            "missed": current_counts["missed"],
+            "missed": current_counts["not_taken"],
             "late": current_counts["late"],
         },
         "drift": drift,

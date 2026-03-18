@@ -322,9 +322,12 @@ class MedicationBehaviorPattern(Base):
     medication_id = Column(String, nullable=False, index=True)
     routine_type = Column(String, nullable=True)
     schedule_time = Column(String, nullable=True)   # HH:MM prescribed slot this row tracks
-    learned_time = Column(String, nullable=True)    # HH:MM learned median time
-    sample_count = Column(Integer, default=0)       # number of valid "taken" samples
-    average_deviation_minutes = Column(Integer, default=0)
+    learned_time = Column(String, nullable=True)    # HH:MM learned median time (weekday)
+    sample_count = Column(Integer, default=0)       # number of valid "taken" samples (weekday)
+    average_deviation_minutes = Column(Integer, default=0)  # weekday avg deviation
+    learned_time_weekend = Column(String, nullable=True)    # HH:MM learned median time (weekend)
+    sample_count_weekend = Column(Integer, default=0)       # weekend sample count
+    average_deviation_minutes_weekend = Column(Integer, default=0)  # weekend avg deviation
     late_dose_count = Column(Integer, default=0)
     missed_dose_count = Column(Integer, default=0)
     last_updated = Column(String, nullable=True)
@@ -339,6 +342,9 @@ class MedicationBehaviorPattern(Base):
             "learned_time": self.learned_time,
             "sample_count": self.sample_count,
             "average_deviation_minutes": self.average_deviation_minutes,
+            "learned_time_weekend": self.learned_time_weekend,
+            "sample_count_weekend": self.sample_count_weekend,
+            "average_deviation_minutes_weekend": self.average_deviation_minutes_weekend,
             "late_dose_count": self.late_dose_count,
             "missed_dose_count": self.missed_dose_count,
             "last_updated": self.last_updated,
@@ -383,4 +389,40 @@ class MemoryCheckSession(Base):
             "insight": self.insight,
             "completed": bool(self.completed),
             "created_at": self.created_at,
+        }
+
+
+class ReminderBanditArm(Base):
+    """Thompson Sampling arm for adaptive reminder offset learning.
+
+    Each row represents one (patient, medication, schedule_time, offset) combination.
+    alpha/beta are the Beta distribution parameters:
+      - alpha = successes (dose taken on time after reminder)
+      - beta  = failures  (dose late or not_taken after reminder)
+    """
+    __tablename__ = "reminder_bandit_arms"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    patient_id = Column(String, nullable=False, index=True)
+    medication_id = Column(String, nullable=False, index=True)
+    schedule_time = Column(String, nullable=True)   # HH:MM
+    offset_minutes = Column(Integer, nullable=False)  # the arm's action (5, 10, 15, 20, 25, 30)
+    alpha = Column(Integer, default=1)   # prior success count (start at 1 for uniform prior)
+    beta = Column(Integer, default=1)    # prior failure count
+    times_selected = Column(Integer, default=0)
+    last_selected = Column(String, nullable=True)
+    last_updated = Column(String, nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "patient_id": self.patient_id,
+            "medication_id": self.medication_id,
+            "schedule_time": self.schedule_time,
+            "offset_minutes": self.offset_minutes,
+            "alpha": self.alpha,
+            "beta": self.beta,
+            "times_selected": self.times_selected,
+            "last_selected": self.last_selected,
+            "last_updated": self.last_updated,
         }

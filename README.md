@@ -78,24 +78,26 @@ npm run dev
 Frontend will run at: http://localhost:3000
 
 The frontend communicates with the FastAPI backend.
-wh
-## Seeding Demo Data
 
-To populate the system with demo data:
+## Resetting the Demo Database
 
-1. Ensure the backend server is already running.
-2. From the project root:
+Demo data is seeded automatically on backend startup — no script needed.
 
-```bash
-python scripts/seed_and_demo.py
+To reset to clean demo data (e.g. after code changes), you must stop the backend first as the DB file is locked while the server is running.
+
+**Windows:**
+```cmd
+taskkill /F /IM python.exe
+del backend\bytecare.db
 ```
 
-This will create a demo user "Mr Tan" with medications and related records.
+**Mac/Linux:**
+```bash
+pkill -f uvicorn
+rm backend/bytecare.db
+```
 
-After running the script:
-- Go to the frontend
-- Click **Refresh Users**
-- The demo user should appear
+Then restart the backend. The DB will be recreated and all demo data re-seeded automatically.
 
 ## Viewing the Database
 
@@ -109,36 +111,27 @@ To view the tables:
 
 ## Demo Accounts
 
-### Admin
+Demo patients and their caregivers are auto-seeded on first startup. 14 days of realistic dose history (with weekday/weekend timing differences and Thompson Sampling bandit data) is also auto-seeded so that adaptive learning features work immediately.
 
-| Email | Password | Role |
-|-------|----------|------|
-| admin@bytecare.com | admin123 | admin |
+### Patient–Caregiver Pairs
 
-### Caregiver
-
-| Email | Password | Role | Linked Patient |
-|-------|----------|------|----------------|
-| jon@email.com | 1234567 | caregiver | — |
-| grace.lim@demo.com | demo123 | caregiver | Mdm Lim |
-
-
+| Patient | Email | Password | Caregiver | Email | Password |
+|---------|-------|----------|-----------|-------|----------|
+| Mdm Lim (72, Diabetes/Hypertension) | mdm.lim@demo.com | demo123 | Grace Lim | grace.lim@demo.com | demo123 |
+| Mr Ong (65, AFib/Warfarin) | mr.ong@demo.com | demo123 | Daniel Ong | daniel.ong@demo.com | demo123 |
+| Mrs Wong (58, Hypertension/CKD) | mrs.wong@demo.com | demo123 | Angela Wong | angela.wong@demo.com | demo123 |
 
 ### Clinician
 
-| Email | Password | Role |
-|-------|----------|------|
-| drchan@bytecare.com| clinician123 | clinician |
+| Email | Password |
+|-------|----------|
+| drchan@bytecare.com | clinician123 |
 
-### Demo Patients
+### Admin
 
-Seed these via the **Load Demo Patients** button on the Home tab, or `POST /api/v1/demo/seed`.
-
-| Patient | Email | Password |
-|---------|-------|----------|
-| Mdm Lim (72, diabetes/hypertension) | mdm.lim@demo.com | demo123 |
-| Mr Ong (65, AFib/warfarin) | mr.ong@demo.com | demo123 |
-| Mrs Wong (58, hypertension/CKD) | mrs.wong@demo.com | demo123 |
+| Email | Password |
+|-------|----------|
+| admin@bytecare.com | admin123 |
 
 ## Tech Stack
 

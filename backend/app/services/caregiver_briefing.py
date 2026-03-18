@@ -11,7 +11,11 @@ from __future__ import annotations
 import json
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 from typing import Any, Dict, List, Optional
 
 from app.db import SessionLocal
@@ -41,7 +45,7 @@ def _gather_patient_context(account_id: str, patient_user_id: str) -> Dict[str, 
 
         meds = db.query(Medication).filter_by(user_id=patient_user_id).all()
 
-        now = datetime.utcnow()
+        now = _utcnow()
         since = (now - timedelta(days=7)).isoformat(timespec="seconds")
         dose_events = (
             db.query(DoseEvent)
@@ -64,18 +68,22 @@ def _gather_patient_context(account_id: str, patient_user_id: str) -> Dict[str, 
             .first()
         )
 
-        # Adherence stats
+        # Adherence stats — unified formula: (taken + 0.5*late) / total
         taken = sum(1 for e in dose_events if e.response_status == "taken")
-        missed = sum(1 for e in dose_events if e.response_status == "missed")
         late = sum(1 for e in dose_events if e.response_status == "late")
-        total = taken + missed + late
-        adherence_pct = round((taken / total) * 100) if total > 0 else 100
+        not_taken = sum(
+            1 for e in dose_events
+            if e.response_status in ("not_taken", "missed", "skipped")  # include legacy
+        )
+        total = taken + late + not_taken
+        adherence_pct = round(((taken + 0.5 * late) / total) * 100) if total > 0 else 100
+        missed = not_taken  # alias for downstream prompt/display use
 
         # Today's summary (for short daily briefing)
-        today_date = datetime.utcnow().date().isoformat()
+        today_date = _utcnow().date().isoformat()
         today_events = [e for e in dose_events if e.timestamp and e.timestamp.startswith(today_date)]
         today_taken = sum(1 for e in today_events if e.response_status == "taken")
-        today_missed = sum(1 for e in today_events if e.response_status == "missed")
+        today_missed = sum(1 for e in today_events if e.response_status in ("not_taken", "missed", "skipped"))
         today_late = sum(1 for e in today_events if e.response_status == "late")
         # Build a small human-readable today summary
         if today_events:
@@ -85,7 +93,8 @@ def _gather_patient_context(account_id: str, patient_user_id: str) -> Dict[str, 
 
         # Missed medication names (deduplicated)
         missed_ids = list(dict.fromkeys(
-            e.medication_id for e in dose_events if e.response_status == "missed"
+            e.medication_id for e in dose_events
+            if e.response_status in ("not_taken", "missed", "skipped")
         ))
         med_map = {m.medication_id: m.name for m in meds}
         missed_names = [med_map[mid] for mid in missed_ids if mid in med_map]
@@ -352,7 +361,7 @@ def _rule_based_actions(ctx: Dict[str, Any]) -> Dict[str, Any]:
     if ctx["next_appt"]:
         try:
             dt = datetime.fromisoformat(ctx["next_appt"]["datetime"])
-            days_away = (dt.date() - datetime.utcnow().date()).days
+            days_away = (dt.date() - _utcnow().date()).days
             if days_away <= 3:
                 actions.append({
                     "text": (
@@ -517,7 +526,7 @@ def generate_med_recommendations(account_id: str, patient_user_id: str, medicati
         from app.db import SessionLocal
         from app.models import DoseEvent
         with SessionLocal() as db:
-            since = (datetime.utcnow() - timedelta(days=7)).isoformat(timespec="seconds")
+            since = (_utcnow() - timedelta(days=7)).isoformat(timespec="seconds")
             med_events = db.query(DoseEvent).filter(DoseEvent.user_id == patient_user_id, DoseEvent.medication_id == medication_id, DoseEvent.timestamp >= since).order_by(DoseEvent.timestamp.desc()).all()
     except Exception:
         med_events = []
