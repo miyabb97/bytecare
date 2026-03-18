@@ -34,7 +34,6 @@ import {
   BadgePill,
   SectionTitle,
 } from "../../../components/mobile/DashboardPrimitives";
-import ConsequenceModalCompact from "../../../components/ConsequenceModalCompact";
 
 /* ────────────────────── helpers ────────────────────── */
 
@@ -289,7 +288,7 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
 
   const [medIndex, setMedIndex] = useState(0);
   useEffect(() => { setMedIndex(0); }, [detail]);
-  const [consequenceOpen, setConsequenceOpen] = useState(false);
+  const [refillPopup, setRefillPopup] = useState(false);
   const [pendingRefillMedId, setPendingRefillMedId] = useState<string | null>(null);
   const [showReschedule, setShowReschedule] = useState(false);
   const [rescheduleSlot, setRescheduleSlot] = useState<string | null>(null);
@@ -668,27 +667,29 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                               </span>
                               <div className="flex items-center gap-2">
                                 {status && status.tracking_enabled && (
-                                  <span className="text-[11px] text-[#98A2B3]">{status.doses_remaining} left{status.days_remaining ? ` (~${status.days_remaining}d)` : ''}</span>
+                                  <span className={`text-[11px] font-semibold ${status.is_low ? 'text-[#EF5A5A]' : 'text-[#98A2B3]'}`}>
+                                    {status.doses_remaining} left{status.days_remaining ? ` (~${status.days_remaining}d)` : ''}
+                                  </span>
                                 )}
-                                {status && status.needs_refill && (
+                                {status && status.is_low && (
                                   <button
                                     type="button"
                                     onClick={async () => {
                                       if (!selectedId) return;
+                                      if (requestedMedIds.includes(m.medication_id)) return;
                                       setActionLoading(m.medication_id);
                                       try {
                                         await api.requestRefill(selectedId, m.medication_id);
                                         const r = await api.getRefillStatus(selectedId);
                                         setRefillStatus(r.items);
                                         setRequestedMedIds((s) => Array.from(new Set([...s, m.medication_id])));
-                                        setActionSuccess(m.medication_id);
-                                        setTimeout(() => setActionSuccess(null), 2500);
+                                        setRefillPopup(true);
                                       } catch {} finally { setActionLoading(null); }
                                     }}
-                                    disabled={actionLoading === m.medication_id}
-                                    className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold text-white ${actionLoading === m.medication_id ? 'bg-[#172554] opacity-80' : 'bg-[#3B6EF5]'}`}
+                                    disabled={actionLoading === m.medication_id || requestedMedIds.includes(m.medication_id)}
+                                    className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold text-white ${requestedMedIds.includes(m.medication_id) ? 'bg-emerald-500' : actionLoading === m.medication_id ? 'bg-[#3B6EF5] opacity-60' : 'bg-[#3B6EF5]'}`}
                                   >
-                                    {actionLoading === m.medication_id ? '…' : (requestedMedIds.includes(m.medication_id) || actionSuccess === m.medication_id) ? 'Requested' : 'Refill'}
+                                    {actionLoading === m.medication_id ? '…' : requestedMedIds.includes(m.medication_id) ? 'Requested' : 'Order Refill'}
                                   </button>
                                 )}
                               </div>
@@ -781,13 +782,24 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                                   </button>
                                 )}
                               </div>
-                              {urgent && (
+                              {status && status.is_low && (
                                 <button
                                   type="button"
-                                  onClick={() => { setPendingRefillMedId(m.medication_id); setConsequenceOpen(true); }}
-                                  className="mt-3 w-full rounded-xl bg-[#EF5A5A] px-4 py-2 text-[13px] font-semibold text-white shadow-sm"
+                                  disabled={actionLoading === m.medication_id || requestedMedIds.includes(m.medication_id)}
+                                  onClick={async () => {
+                                    if (!selectedId || requestedMedIds.includes(m.medication_id)) return;
+                                    setActionLoading(m.medication_id);
+                                    try {
+                                      await api.requestRefill(selectedId, m.medication_id);
+                                      const r = await api.getRefillStatus(selectedId);
+                                      setRefillStatus(r.items);
+                                      setRequestedMedIds((s) => Array.from(new Set([...s, m.medication_id])));
+                                      setRefillPopup(true);
+                                    } catch {} finally { setActionLoading(null); }
+                                  }}
+                                  className={`mt-3 w-full rounded-xl px-4 py-2 text-[13px] font-semibold text-white shadow-sm ${requestedMedIds.includes(m.medication_id) ? 'bg-emerald-500' : 'bg-[#3B6EF5]'}`}
                                 >
-                                  Request urgent refill
+                                  {actionLoading === m.medication_id ? 'Requesting…' : requestedMedIds.includes(m.medication_id) ? 'Requested' : 'Order Refill'}
                                 </button>
                               )}
                             </>
@@ -808,24 +820,27 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                     })()}
                   </div>
 
-                  <ConsequenceModalCompact
-                    open={consequenceOpen}
-                    text={currentMed ? `Request urgent refill for ${currentMed.name}?` : 'Request urgent refill?'}
-                    onClose={() => { setConsequenceOpen(false); setPendingRefillMedId(null); }}
-                    onConfirm={async () => {
-                      if (!selectedId || !pendingRefillMedId) return;
-                      setConsequenceOpen(false);
-                      setActionLoading(pendingRefillMedId);
-                      try {
-                        await api.requestRefill(selectedId, pendingRefillMedId);
-                        const r = await api.getRefillStatus(selectedId);
-                        setRefillStatus(r.items);
-                        setRequestedMedIds((s) => Array.from(new Set([...s, pendingRefillMedId])));
-                        setActionSuccess(pendingRefillMedId);
-                        setTimeout(() => setActionSuccess(null), 2500);
-                      } catch {} finally { setActionLoading(null); setPendingRefillMedId(null); }
-                    }}
-                  />
+                  {/* Requested! popup */}
+                  {refillPopup && (
+                    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 px-6">
+                      <div className="w-full max-w-xs rounded-3xl bg-white p-6 shadow-2xl">
+                        <div className="flex flex-col items-center gap-3 text-center">
+                          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50">
+                            <CheckCircle2 className="text-emerald-500" size={32} />
+                          </div>
+                          <h3 className="text-lg font-bold text-slate-900">Requested!</h3>
+                          <p className="text-sm leading-relaxed text-slate-500">The refill request has been sent. The care team will arrange the medication soon.</p>
+                          <button
+                            type="button"
+                            className="mt-2 w-full rounded-2xl bg-[#3B6EF5] px-4 py-3 text-sm font-semibold text-white shadow-[0_10px_20px_rgba(59,110,245,0.2)] transition hover:bg-[#2f62ca]"
+                            onClick={() => setRefillPopup(false)}
+                          >
+                            Close
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </section>
 
