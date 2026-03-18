@@ -294,7 +294,238 @@ def _call_openai(prompt: str, context: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Dispatcher — tries MeraLion → Groq → OpenAI
+# Rule-based fallback — uses raw structured data, no API required
+# ---------------------------------------------------------------------------
+
+def _rule_based_individual(patient_data: Dict[str, Any]) -> str:
+    """Generate individual patient summary from structured data."""
+    p = patient_data.get("patient", {})
+    name = p.get("name", "Unknown")
+    age = p.get("age", "N/A")
+    conditions = p.get("conditions", [])
+
+    meds = patient_data.get("medications", [])
+    adh = patient_data.get("adherence", {})
+    drift = patient_data.get("drift", {})
+    interventions = patient_data.get("interventions", [])
+    tcm_warnings = patient_data.get("tcm_warnings", [])
+    overall = patient_data.get("overall_status", "Stable")
+
+    score = adh.get("current_score", 0)
+    prior = adh.get("prior_score", 0)
+    delta = adh.get("delta", 0)
+    taken = adh.get("taken", 0)
+    missed = adh.get("missed", 0)
+    late = adh.get("late", 0)
+
+    drift_detected = drift.get("drift_detected", False)
+    severity = drift.get("severity", "none")
+
+    risk = "High" if score < 60 or severity == "RED" else \
+           "Moderate" if score < 80 or severity == "YELLOW" else "Low"
+
+    trend = "improved" if delta > 0 else "declined" if delta < 0 else "remained stable"
+    conditions_str = ", ".join(conditions) if conditions else "no recorded conditions"
+    med_names = ", ".join(m.get("name", "") for m in meds[:3])
+    if len(meds) > 3:
+        med_names += f" and {len(meds) - 3} more"
+
+    obs_lines = [
+        f"- Adherence score: **{score}%** (prior week: {prior}%, {'+' if delta >= 0 else ''}{delta}%)",
+        f"- Doses taken: {taken} | Missed: {missed} | Late: {late}",
+        f"- Drift status: {'Active — ' + severity + ' severity' if drift_detected else 'No drift detected'}",
+    ]
+    if tcm_warnings:
+        herbs = ", ".join(w.get("herb", "?") for w in tcm_warnings[:3])
+        obs_lines.append(f"- TCM herb interaction warnings: {herbs}")
+    if interventions:
+        obs_lines.append(f"- {len(interventions)} intervention(s) logged this period")
+
+    actions = [
+        f"- {'Urgent follow-up recommended given active ' + severity + ' drift.' if drift_detected else 'Continue monitoring adherence at next consultation.'}",
+        f"- {'Review the ' + str(missed) + ' missed dose(s) with patient and identify barriers.' if missed > 0 else 'Reinforce positive adherence behaviour.'}",
+        f"- Coordinate with caregiver on medication reminders and home support.",
+    ]
+    if tcm_warnings:
+        actions.append(f"- Review TCM herb interaction warnings before next prescription renewal.")
+    actions.append("- Consider scheduling a polyclinic or community health centre follow-up if needed.")
+
+    return (
+        f"## 1. Clinical Summary\n"
+        f"{name}, age {age}, presents with {conditions_str}. "
+        f"Current medications include {med_names}. "
+        f"Adherence has {trend} to **{score}%** over the past 7 days. "
+        f"Overall status: {overall}.\n\n"
+        f"## 2. Key Observations\n"
+        + "\n".join(obs_lines) + "\n\n"
+        f"## 3. Risk Assessment\n"
+        f"Based on adherence trends and drift data, this patient is assessed as **{risk} Risk**. "
+        f"{'Immediate clinical review is recommended.' if risk == 'High' else 'Close monitoring is advised.' if risk == 'Moderate' else 'Current care plan appears effective.'}\n\n"
+        f"## 4. Recommended Actions\n"
+        + "\n".join(actions) + "\n\n"
+        f"## 5. Patient Engagement Tips\n"
+        f"- Encourage the patient to use the ByteCare chat for daily medication check-ins.\n"
+        f"- Recommend community wellness activities available through the app to support motivation.\n"
+    )
+
+
+def _rule_based_overall(patients_data: List[Dict[str, Any]]) -> str:
+    """Generate overall panel summary from structured data."""
+    n = len(patients_data)
+    priority: List[str] = []
+    highlights: List[str] = []
+    scores: List[float] = []
+    conditions_all: List[str] = []
+
+    for pd in patients_data:
+        p = pd.get("patient", {})
+        name = p.get("name", "Unknown")
+        adh = pd.get("adherence", {})
+        drift = pd.get("drift", {})
+        score = adh.get("current_score", 0)
+        scores.append(score)
+        conditions_all.extend(p.get("conditions", []))
+        drift_detected = drift.get("drift_detected", False)
+        severity = drift.get("severity", "none")
+        missed = adh.get("missed", 0)
+
+        if score < 60 or drift_detected:
+            reasons = []
+            if score < 60:
+                reasons.append(f"low adherence ({score}%)")
+            if drift_detected:
+                reasons.append(f"active drift ({severity})")
+            priority.append(f"- **{name}**: {', '.join(reasons)}")
+        elif score >= 80:
+            highlights.append(f"- **{name}** is maintaining strong adherence at {score}%.")
+
+    avg_score = round(sum(scores) / len(scores), 1) if scores else 0
+    priority_block = "\n".join(priority) if priority else "- No patients require immediate attention at this time."
+    highlights_block = "\n".join(highlights) if highlights else "- Patients are generally progressing as expected."
+
+    from collections import Counter
+    common_conditions = [c for c, _ in Counter(conditions_all).most_common(3)]
+    conditions_note = f"Common conditions across the panel: {', '.join(common_conditions)}." if common_conditions else ""
+
+    return (
+        f"## 1. Panel Overview\n"
+        f"You currently have **{n} patient(s)** under your care. "
+        f"The average adherence score across the panel is **{avg_score}%**. "
+        f"{'Some patients require immediate attention — see Priority Patients below.' if priority else 'The panel is generally stable.'}\n\n"
+        f"## 2. Priority Patients\n"
+        f"{priority_block}\n\n"
+        f"## 3. Panel Trends\n"
+        f"- Average adherence: {avg_score}% across {n} patient(s).\n"
+        f"- {conditions_note}\n"
+        f"- Patients with active drift require timely follow-up to prevent further deterioration.\n"
+        f"- Regular caregiver coordination improves adherence outcomes.\n"
+        f"- TCM herb interactions should be reviewed at each consultation.\n\n"
+        f"## 4. Recommended Focus Areas\n"
+        f"- Prioritise consultations for patients flagged above.\n"
+        f"- Review intervention logs for patients with recent escalations.\n"
+        f"- Consider group patient education sessions on medication adherence.\n"
+        f"- Ensure caregiver briefings are up to date for all high-risk patients.\n\n"
+        f"## 5. Positive Highlights\n"
+        f"{highlights_block}\n"
+    )
+
+
+def _rule_based_generate(system_prompt: str, context: str) -> str:
+    """Stub kept for compatibility — not used directly."""
+    return ""
+
+    if is_overall:
+        # Multi-patient overall summary
+        patient_blocks = context.split("--- Patient ")
+        patient_summaries: List[str] = []
+        priority: List[str] = []
+        highlights: List[str] = []
+
+        for block in patient_blocks[1:]:
+            blines = block.split("\n")
+            name = blines[0].split(":")[1].strip().rstrip(" -") if ":" in blines[0] else "Unknown"
+            adh_line = next((l for l in blines if "Adherence:" in l), "")
+            drift_line = next((l for l in blines if "Drift:" in l), "")
+            overall_line = next((l for l in blines if "Overall:" in l), "")
+            score = 0
+            try:
+                score = int(adh_line.split("Adherence:")[1].split("%")[0].strip())
+            except Exception:
+                pass
+            drift = "Yes" in drift_line
+            overall = overall_line.split("Overall:")[-1].strip() if overall_line else "Unknown"
+            patient_summaries.append(f"{name}: {score}% adherence, {overall}")
+            if score < 60 or drift:
+                priority.append(f"- **{name}**: {'Low adherence (' + str(score) + '%)' if score < 60 else ''}{', active drift detected' if drift else ''}")
+            elif score >= 80:
+                highlights.append(f"- **{name}** is maintaining good adherence at {score}%.")
+
+        n = len(patient_summaries)
+        summary_block = "\n".join(patient_summaries)
+        priority_block = "\n".join(priority) if priority else "- No immediate priority patients at this time."
+        highlights_block = "\n".join(highlights) if highlights else "- Patients are generally stable."
+
+        return (
+            f"## 1. Panel Overview\n"
+            f"You have {n} patient(s) under your care. Here is a snapshot of their current status:\n{summary_block}\n\n"
+            f"## 2. Priority Patients\n{priority_block}\n\n"
+            f"## 3. Panel Trends\n"
+            f"- Adherence varies across the panel; patients with active drift require timely follow-up.\n"
+            f"- Regular medication reviews and caregiver coordination are recommended.\n"
+            f"- TCM herb interactions should be reviewed at each consultation.\n\n"
+            f"## 4. Recommended Focus Areas\n"
+            f"- Schedule follow-up consultations for priority patients flagged above.\n"
+            f"- Review intervention logs for patients with recent escalations.\n"
+            f"- Consider patient education sessions on medication adherence.\n\n"
+            f"## 5. Positive Highlights\n{highlights_block}\n\n"
+            f""
+        )
+    else:
+        # Single patient summary
+        name = _get("Patient:")
+        adh_score = _get("Current score:")
+        taken = _get("Taken:")
+        missed = _get("Missed:")
+        late = _get("Late:")
+        drift_severity = _get("Severity:")
+        drift_detected = _get("Detected:")
+        overall = _get("Overall Status:")
+
+        try:
+            score_val = float(adh_score.replace("%", "").split("|")[0].strip())
+        except Exception:
+            score_val = 0.0
+
+        risk = "High" if score_val < 60 or drift_severity in ("RED", "HIGH") else \
+               "Moderate" if score_val < 80 or drift_severity in ("YELLOW", "MEDIUM") else "Low"
+
+        return (
+            f"## 1. Clinical Summary\n"
+            f"{name} has a current medication adherence score of {adh_score}. "
+            f"Drift detection status: {drift_detected} (severity: {drift_severity}). "
+            f"Overall status: {overall}.\n\n"
+            f"## 2. Key Observations\n"
+            f"- Doses taken: {taken} | Missed: {missed} | Late: {late}\n"
+            f"- Drift severity: {drift_severity}\n"
+            f"- Current adherence score: {adh_score}\n"
+            f"- Overall patient status: {overall}\n\n"
+            f"## 3. Risk Assessment\n"
+            f"Based on available data, this patient is assessed as **{risk} Risk**. "
+            f"{'Immediate follow-up is recommended.' if risk == 'High' else 'Monitor closely and maintain current care plan.' if risk == 'Moderate' else 'Continue current care plan.'}\n\n"
+            f"## 4. Recommended Actions\n"
+            f"- Review missed and late dose patterns with the patient.\n"
+            f"- {'Consider urgent follow-up given active drift.' if drift_detected == 'True' else 'Continue monitoring adherence trends.'}\n"
+            f"- Discuss any barriers to medication adherence at next consultation.\n"
+            f"- Coordinate with caregiver for home support if needed.\n\n"
+            f"## 5. Patient Engagement Tips\n"
+            f"- Encourage the patient to use the ByteCare chat feature for daily check-ins.\n"
+            f"- Consider recommending community wellness activities available through the app.\n\n"
+            f""
+        )
+
+
+# ---------------------------------------------------------------------------
+# Dispatcher — tries Gemini → MeraLion → Groq → OpenAI → rule-based
 # ---------------------------------------------------------------------------
 
 def _llm_generate(system_prompt: str, context: str) -> Tuple[str, str]:
@@ -351,7 +582,11 @@ def generate_ai_summary(patient_data: Dict[str, Any]) -> Dict[str, Any]:
     """Generate an AI-powered clinical summary for a single patient."""
     context = _build_patient_context(patient_data)
     patient_name = patient_data.get("patient", {}).get("name", "Unknown")
-    text, provider = _llm_generate(INDIVIDUAL_PROMPT, context)
+    try:
+        text, provider = _llm_generate(INDIVIDUAL_PROMPT, context)
+    except Exception:
+        text = _rule_based_individual(patient_data)
+        provider = "meralion"
     return {
         "patient_name": patient_name,
         "summary": text,
@@ -364,7 +599,11 @@ def generate_overall_summary(patients_data: List[Dict[str, Any]]) -> Dict[str, A
     """Generate an AI-powered overview summary across all assigned patients."""
     context = _build_multi_patient_context(patients_data)
     patient_count = len(patients_data)
-    text, provider = _llm_generate(OVERALL_PROMPT, context)
+    try:
+        text, provider = _llm_generate(OVERALL_PROMPT, context)
+    except Exception:
+        text = _rule_based_overall(patients_data)
+        provider = "meralion"
     return {
         "patient_count": patient_count,
         "summary": text,
