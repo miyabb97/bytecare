@@ -3,21 +3,20 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Bell,
   BrainCircuit,
   Calendar,
+  CalendarDays,
   Clock,
-  Heart,
-  ChevronRight,
-  HelpCircle,
+  Clock3,
   Home,
   LogOut,
-  MessageSquare,
+  MapPin,
   Phone,
   Pill,
   Siren,
   Sparkles,
   ArrowRight,
+  TriangleAlert,
   Users,
   Activity,
   AlertTriangle,
@@ -25,7 +24,6 @@ import {
   XCircle,
   User,
   FileText,
-  ShieldCheck,
 } from "lucide-react";
 
 type CaregiverTab = "home" | "profile";
@@ -34,14 +32,36 @@ import { api, type Account, type CaregiverBriefing, type CaregiverPatientDetail,
 import {
   ActionTile,
   BadgePill,
-  QuickActionRow,
   SectionTitle,
 } from "../../../components/mobile/DashboardPrimitives";
 import ConsequenceModalCompact from "../../../components/ConsequenceModalCompact";
-import CaregiverAssistantSummary from "../../../components/CaregiverAssistantSummary";
-import MedicationEatingPatternCard from "../../../components/MedicationEatingPatternCard";
 
 /* ────────────────────── helpers ────────────────────── */
+
+function toCalendarStamp(value: Date): string {
+  return value.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function buildCalendarUrl(appointment: { datetime: string; location: string; notes?: string | null }): string {
+  const start = new Date(appointment.datetime);
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: "ByteCare Appointment",
+    dates: `${toCalendarStamp(start)}/${toCalendarStamp(end)}`,
+    location: appointment.location,
+    details: appointment.notes || "Upcoming ByteCare appointment",
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+function appointmentPrepNote(appointment: { notes?: string | null }): string {
+  const notes = (appointment.notes ?? "").toLowerCase();
+  if (notes.includes("fasting")) {
+    return "Please fast for 8–10 hours before the appointment. Only plain water is allowed.";
+  }
+  return "Please ensure the patient arrives 10 minutes early and brings any relevant medication or test records.";
+}
 
 function loadAccount(router: ReturnType<typeof useRouter>, setAccount: (value: Account) => void) {
   const raw = sessionStorage.getItem("bytecare_account") || localStorage.getItem("bytecare_account");
@@ -71,14 +91,6 @@ function getRisk(pct: number): { label: string; tone: "red" | "yellow" | "succes
   return { label: "On Track", tone: "success", badge: "ON TRACK" };
 }
 
-function getMissedMedNames(detail: CaregiverPatientDetail): string[] {
-  const ids = [...new Set(
-    detail.dose_events
-      .filter(e => ["not_taken", "missed", "skipped"].includes(e.response_status))
-      .map(e => e.medication_id)
-  )];
-  return ids.map(id => detail.medications.find(m => m.medication_id === id)?.name).filter(Boolean) as string[];
-}
 
 function getNextAppointment(detail: CaregiverPatientDetail) {
   const now = new Date().toISOString();
@@ -186,28 +198,6 @@ function getTodaysDoses(detail: CaregiverPatientDetail) {
   });
 }
 
-/** SVG circular progress ring */
-function AdherenceRing({ pct, size = 100, stroke = 8 }: { pct: number; size?: number; stroke?: number }) {
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (pct / 100) * circumference;
-  const color = pct >= 85 ? "#15803D" : pct >= 70 ? "#E7A93B" : "#EF5A5A";
-  return (
-    <svg width={size} height={size} className="shrink-0">
-      <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke="#E9EEF7" strokeWidth={stroke} />
-      <circle
-        cx={size/2} cy={size/2} r={radius} fill="none"
-        stroke={color} strokeWidth={stroke} strokeLinecap="round"
-        strokeDasharray={circumference} strokeDashoffset={offset}
-        transform={`rotate(-90 ${size/2} ${size/2})`}
-        className="transition-all duration-700"
-      />
-      <text x="50%" y="50%" textAnchor="middle" dy="0.35em" className="text-[22px] font-bold" fill="#1F2A37">
-        {pct}%
-      </text>
-    </svg>
-  );
-}
 
 const statusConfig = {
   taken:   { icon: CheckCircle2, color: "text-[#15803D]", bg: "bg-[#ECFDF3]", label: "Taken" },
@@ -291,10 +281,12 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
   useEffect(() => { setMedIndex(0); }, [detail]);
   const [consequenceOpen, setConsequenceOpen] = useState(false);
   const [pendingRefillMedId, setPendingRefillMedId] = useState<string | null>(null);
+  const [showReschedule, setShowReschedule] = useState(false);
+  const [rescheduleSlot, setRescheduleSlot] = useState<string | null>(null);
+  const [rescheduleSent, setRescheduleSent] = useState(false);
 
   const stats = useMemo(() => detail ? calcAdherence(detail) : null, [detail]);
   const risk = useMemo(() => stats ? getRisk(stats.pct) : null, [stats]);
-  const _missedMeds = useMemo(() => detail ? getMissedMedNames(detail) : [], [detail]);
   const nextAppt = useMemo(() => detail ? getNextAppointment(detail) : null, [detail]);
   const fallbackSuggestions = useMemo(() => stats ? getEncouragementSuggestions(stats.pct, stats.missed) : [], [stats]);
   const todaysDoses = useMemo(() => detail ? getTodaysDoses(detail) : [], [detail]);
@@ -302,11 +294,6 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
   const currentMed = detail && detail.medications && detail.medications.length > 0 ? detail.medications[medIndex % detail.medications.length] : null;
   const currentMedStats = currentMed ? computeMedStats(detail!, currentMed.medication_id) : null;
   const trend = detail ? computeTrend(detail) : null;
-  const predictedPct = (() => {
-    if (!stats || !trend) return null;
-    const adj = Math.max(0, trend.delta) * 2;
-    return Math.max(0, stats.pct - adj);
-  })();
 
   if (!account) return null;
 
@@ -326,9 +313,6 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                 <p className="text-[12px] text-[#98A2B3]">{account.name}</p>
               </div>
             </div>
-            <button type="button" className="relative grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-[#667085] shadow-sm">
-              <Bell size={18} />
-            </button>
           </div>
         </header>
 
@@ -399,111 +383,212 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
               {/* ── Quick Access Grid ── */}
               <section className="space-y-2">
                 <SectionTitle title="Quick Access" />
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-                  <QuickActionRow>
-                    <ActionTile
-                      icon={<Siren size={18} />}
-                      label={actionLoading === 'reminder' ? 'Sending…' : actionSuccess === 'reminder' ? 'Sent' : 'Remind'}
-                      onClick={async () => {
-                        if (!selectedId || !detail || !account) return;
-                        const suggested = briefing?.actions && briefing.actions.length > 0
-                          ? (typeof briefing.actions[0] === 'string' ? briefing.actions[0] : briefing.actions[0].text)
-                          : `Hi ${detail.patient.name}, this is ${account.name}. Have you taken your medication today?`;
-                        const message = window.prompt('Edit reminder message to send to patient:', suggested);
-                        if (message === null) return;
-                        setActionLoading('reminder');
-                        try {
-                          await api.postChat(selectedId, message);
-                          try { await api.postVoiceAgent(selectedId, message); } catch {}
-                          setActionSuccess('reminder');
-                          setTimeout(() => setActionSuccess(null), 2500);
-                        } catch {} finally { setActionLoading(null); }
-                      }}
-                    />
-                    <ActionTile
-                      icon={<Phone size={18} />}
-                      label={actionLoading === 'call' ? 'Calling…' : actionSuccess === 'call' ? 'Notified' : 'Call'}
-                      onClick={async () => {
-                        if (!selectedId || !detail || !account) return;
-                        setActionLoading('call');
-                        try {
-                          await api.postChat(selectedId, `${account.name} would like to call you. Are you available for a short call?`);
-                          setActionSuccess('call');
-                          setTimeout(() => setActionSuccess(null), 2500);
-                        } catch {} finally { setActionLoading(null); }
-                      }}
-                    />
-                    <ActionTile
-                      icon={<Calendar size={18} />}
-                      label={actionLoading === 'visit' ? 'Booking…' : actionSuccess === 'visit' ? 'Requested' : 'Book Visit'}
-                      onClick={async () => {
-                        if (!selectedId || !detail || !account) return;
-                        setActionLoading('visit');
-                        try {
-                          await api.postChat(selectedId, `${account.name} would like to schedule a visit this week. Are you available?`);
-                          setActionSuccess('visit');
-                          setTimeout(() => setActionSuccess(null), 2500);
-                        } catch {} finally { setActionLoading(null); }
-                      }}
-                    />
-                  </QuickActionRow>
+                <div className="grid grid-cols-3 gap-3">
+                  <ActionTile
+                    icon={<Phone size={18} />}
+                    label={actionLoading === 'call' ? 'Calling…' : actionSuccess === 'call' ? 'Notified' : 'Call to Check In'}
+                    onClick={async () => {
+                      if (!selectedId || !detail || !account) return;
+                      setActionLoading('call');
+                      try {
+                        await api.postChat(selectedId, `${account.name} would like to call you. Are you available for a short call?`);
+                        setActionSuccess('call');
+                        setTimeout(() => setActionSuccess(null), 2500);
+                      } catch {} finally { setActionLoading(null); }
+                    }}
+                  />
+                  <ActionTile
+                    icon={<Calendar size={18} />}
+                    label="View Appts"
+                    onClick={() => document.getElementById("section-appointments")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  />
+                  <ActionTile icon={<Pill size={18} />} label="Today's Doses" onClick={() => document.getElementById("section-doses")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
+                  <ActionTile icon={<Pill size={18} />} label="Medications" onClick={() => document.getElementById("section-med-details")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
+                  <ActionTile icon={<AlertTriangle size={18} />} label="Alerts" onClick={() => document.getElementById("section-alerts")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
+                  <ActionTile icon={<BrainCircuit size={18} />} label="Memory" onClick={() => document.getElementById("section-memory")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
                 </div>
               </section>
 
-              {/* ── Medication Adherence with circular chart ── */}
+              {/* ── AI Caregiver Briefing — What to do today ── */}
+              <section className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={14} className="text-[#3B6EF5]" />
+                  <SectionTitle title="What to do today" />
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#EEF4FF] px-2 py-0.5 text-[10px] font-bold text-[#3B6EF5]">AI</span>
+                </div>
+
+                {briefingLoading && (
+                  <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-[13px] text-[#98A2B3]">
+                    <Sparkles size={14} className="animate-pulse text-[#3B6EF5]" />
+                    Generating personalised action plan…
+                  </div>
+                )}
+
+                {!briefingLoading && (briefing ?? fallbackSuggestions.length > 0) && (
+                  <div className="overflow-hidden rounded-2xl border border-[#D8E5FF] bg-white shadow-[0_2px_8px_rgba(16,24,40,0.06)]">
+                    <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <Sparkles size={14} className="text-[#3B6EF5]" />
+                        <span className="text-[13px] font-semibold text-[#1F2A37]">
+                          {briefing ? `For ${briefing.patient_name.split(" ")[0]} today` : "Suggested actions"}
+                        </span>
+                      </div>
+                      {briefing && (
+                        <span className="text-[10px] font-medium text-[#98A2B3]">
+                          {briefing.source === "llm" ? "AI-generated" : "smart suggestions"}
+                        </span>
+                      )}
+                    </div>
+                    {briefing?.today_summary && (
+                      <div className="px-4 py-3">
+                        <p className="text-[13px] text-[#475467]">{briefing.today_summary}</p>
+                      </div>
+                    )}
+                    {briefing?.monitoring && briefing.monitoring.length > 0 && (
+                      <div className="border-t border-slate-100 px-4 py-3">
+                        <p className="text-[12px] font-semibold text-[#98A2B3]">Monitor</p>
+                        <ul className="mt-1.5 space-y-1">
+                          {briefing.monitoring.map((m, idx) => (
+                            <li key={idx} className="text-[13px] text-[#344054]">• {m}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {briefing?.escalations && briefing.escalations.length > 0 && (
+                      <div className="border-t border-slate-100 px-4 py-3">
+                        <p className="text-[12px] font-semibold text-[#98A2B3]">Escalation Suggestions</p>
+                        <ul className="mt-1.5 space-y-1">
+                          {briefing.escalations.map((e, idx) => (
+                            <li key={idx} className="text-[13px] text-[#344054]">• {e}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {(briefing?.actions ?? fallbackSuggestions).map((action: any, i: number) => {
+                      const text = typeof action === "string" ? action : action?.text || JSON.stringify(action);
+                      return (
+                        <div key={i} className={`flex items-start gap-3 px-4 py-3 ${i > 0 ? "border-t border-slate-100" : "border-t border-slate-100"}`}>
+                          <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#3B6EF5] text-[10px] font-bold text-white">
+                            {i + 1}
+                          </div>
+                          <div>
+                            <p className="text-[13px] leading-5 text-[#344054]">{text}</p>
+                            {typeof action === "object" && action?.reason && (
+                              <p className="mt-1 text-[11px] text-[#98A2B3]">Reason: {action.reason}</p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+
+              {/* ── Quick Summary ── */}
               <section className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Pill size={14} className="text-[#3B6EF5]" />
-                    <SectionTitle title="Medication Adherence" />
+                    <Activity size={14} className="text-[#3B6EF5]" />
+                    <SectionTitle title="Quick Summary" />
                   </div>
                   <BadgePill label={risk.badge} tone={risk.tone} />
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_2px_8px_rgba(16,24,40,0.06)]">
-                  <div className="flex items-center gap-5">
-                    <AdherenceRing pct={stats.pct} />
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-2">
+                  {/* Today's Medication Stats — same line */}
+                  <div>
+                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-[#98A2B3]">Today's Medication Stats</p>
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle2 size={14} className="text-[#15803D]" />
                         <span className="text-[13px] text-[#667085]">Taken</span>
-                        <span className="text-[15px] font-bold text-[#15803D]">{stats.taken}</span>
+                        <span className="text-[15px] font-bold text-[#15803D]">{todaysDoses.filter(d => d.status === 'taken').length}</span>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <Clock size={14} className="text-[#E7A93B]" />
                         <span className="text-[13px] text-[#667085]">Late</span>
-                        <span className="text-[15px] font-bold text-[#E7A93B]">{stats.late}</span>
+                        <span className="text-[15px] font-bold text-[#E7A93B]">{todaysDoses.filter(d => d.status === 'late').length}</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[13px] text-[#667085]">Not Taken</span>
-                        <span className="text-[15px] font-bold text-[#EF5A5A]">{stats.missed}</span>
+                      <div className="flex items-center gap-1.5">
+                        <XCircle size={14} className="text-[#EF5A5A]" />
+                        <span className="text-[13px] text-[#667085]">Missed</span>
+                        <span className="text-[15px] font-bold text-[#EF5A5A]">{todaysDoses.filter(d => d.status === 'missed').length}</span>
                       </div>
                     </div>
                   </div>
-                  {stats.pct >= 85 && (
-                    <p className="mt-3 text-[12px] italic text-[#15803D]">Great adherence — keep it up!</p>
-                  )}
-                  {stats.pct < 85 && stats.pct >= 70 && (
-                    <p className="mt-3 text-[12px] italic text-[#C18421]">Adherence needs attention — consider a gentle check-in.</p>
-                  )}
-                  {stats.pct < 70 && (
-                    <p className="mt-3 text-[12px] italic text-[#EF5A5A]">Low adherence — please follow up with the patient.</p>
-                  )}
-
-                  {/* Trend sparkline */}
-                  {trend && (
-                    <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
-                      <div>
-                        <p className="text-[11px] font-medium text-[#98A2B3]">7-Day Trend</p>
-                        <p className="text-[12px] font-semibold text-[#344054]">{trend.trendLabel}</p>
+                  {/* Historical Adherence Data — next line */}
+                  <div className="mt-4 border-t border-slate-100 pt-3">
+                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-[#98A2B3]">Historical Adherence</p>
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[13px] text-[#667085]">Total Taken</span>
+                        <span className="text-[14px] font-bold text-[#15803D]">{stats.taken}</span>
                       </div>
-                      <svg viewBox="0 0 100 40" className="h-8 w-24" preserveAspectRatio="none">
-                        <polyline fill="none" stroke="#3B6EF5" strokeWidth={2} points={trend.days.map((d,i)=>`${(i/(trend.days.length-1))*100},${40 - (d/Math.max(...trend.days,1))*30}`).join(' ')} strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[13px] text-[#667085]">Total Late</span>
+                        <span className="text-[14px] font-bold text-[#E7A93B]">{stats.late}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[13px] text-[#667085]">Not Taken</span>
+                        <span className="text-[14px] font-bold text-[#EF5A5A]">{stats.missed}</span>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Adherence Percentage + 7-Day Trend */}
+                  {trend && (
+                    <div className="mt-4 border-t border-slate-100 pt-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-[11px] font-medium text-[#98A2B3]">Adherence Rate</p>
+                          <p className="text-[22px] font-bold text-[#1F2A37]">{stats.pct}%</p>
+                          <span className={`mt-1 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${risk.tone === 'success' ? 'bg-[#ECFDF3] text-[#15803D]' : risk.tone === 'yellow' ? 'bg-[#FFF8E8] text-[#E7A93B]' : 'bg-[#FFF1F1] text-[#EF5A5A]'}`}>
+                            {risk.tone === 'success' ? <CheckCircle2 size={10} /> : <AlertTriangle size={10} />}
+                            {risk.label}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[11px] font-medium text-[#98A2B3]">7-Day Trend</p>
+                          <p className="text-[12px] font-semibold text-[#344054]">{trend.trendLabel === 'Stable' ? 'Stable' : 'Not Stable'}</p>
+                          <svg viewBox="0 0 100 40" className="mt-1 h-8 w-24" preserveAspectRatio="none">
+                            <polyline fill="none" stroke="#3B6EF5" strokeWidth={2} points={trend.days.map((d,i)=>`${(i/(trend.days.length-1))*100},${40-(d/Math.max(...trend.days,1))*30}`).join(' ')} strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </div>
+                      </div>
                     </div>
                   )}
+                  {/* AI Summary — 2 pointers */}
+                  <div className="mt-4 border-t border-slate-100 pt-3 space-y-2">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Sparkles size={11} className="text-[#3B6EF5]" />
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#98A2B3]">AI Summary</p>
+                    </div>
+                    {/* Pointer 1 — Medication adherence */}
+                    <div className="flex items-start gap-2">
+                      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#3B6EF5] text-[9px] font-bold text-white">1</span>
+                      <p className="text-[12px] leading-[1.55] text-[#475467]">
+                        {stats.pct >= 85
+                          ? `Medication adherence is strong at ${stats.pct}% — ${stats.taken} dose${stats.taken !== 1 ? "s" : ""} taken on time with only ${stats.missed} missed overall.`
+                          : stats.pct >= 70
+                          ? `Adherence is at ${stats.pct}%, needing attention — ${stats.missed} dose${stats.missed !== 1 ? "s" : ""} missed and ${stats.late} late across all records. A check-in is advised.`
+                          : `Adherence is low at ${stats.pct}% — ${stats.missed} missed dose${stats.missed !== 1 ? "s" : ""} and ${stats.late} late across all records. Immediate follow-up is recommended.`}
+                      </p>
+                    </div>
+                    {/* Pointer 2 — Memory check */}
+                    <div className="flex items-start gap-2">
+                      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#3B6EF5] text-[9px] font-bold text-white">2</span>
+                      <p className="text-[12px] leading-[1.55] text-[#475467]">
+                        {detail.memory_check && detail.memory_check.session_count > 0
+                          ? detail.memory_check.alert_pattern
+                            ? `Memory check shows a declining pattern — ${detail.memory_check.recent_lower_count} of the last 5 sessions scored below average (avg ${detail.memory_check.average_score}/3). Cognitive support may be needed.`
+                            : `Memory check results are normal across ${detail.memory_check.session_count} session${detail.memory_check.session_count !== 1 ? "s" : ""} with an average score of ${detail.memory_check.average_score}/3. No concerning pattern detected.`
+                          : `No memory check sessions recorded yet for this patient.`}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </section>
 
               {/* ── Today's Doses ── */}
-              <section className="space-y-2">
+              <section id="section-doses" className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Calendar size={14} className="text-[#3B6EF5]" />
                   <SectionTitle title="Today's Doses" />
@@ -541,34 +626,8 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                 </div>
               </section>
 
-              {/* ── Quick AI Summary ── */}
-              <section>
-                <CaregiverAssistantSummary
-                  detail={detail}
-                  briefing={briefing ?? undefined}
-                  stats={stats}
-                  days={trend?.days}
-                  predictedPct={predictedPct}
-                  trendLabel={trend ? `${trend.trendLabel} — ${trend.recent} missed in last 3 days` : undefined}
-                  recommendation={trend && trend.delta > 0 ? 'Check in with the patient and consider sending a reminder.' : 'Maintain regular check-ins to keep this trend.'}
-                />
-              </section>
-
-              {/* ── Medication Eating Patterns ── */}
-              {selectedId && (
-                <section className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Activity size={14} className="text-[#3B6EF5]" />
-                    <SectionTitle title="Medication Eating Patterns" />
-                  </div>
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-                    <MedicationEatingPatternCard accountId={accountId} patientUserId={selectedId} days={14} singleMedId={currentMed ? currentMed.medication_id : null} />
-                  </div>
-                </section>
-              )}
-
               {/* ── Medication Details (Consequences & History) ── */}
-              <section className="space-y-2">
+              <section id="section-med-details" className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Pill size={14} className="text-[#3B6EF5]" />
                   <SectionTitle title="Medication Details" />
@@ -761,33 +820,103 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
               </section>
 
               {/* ── Upcoming Appointment ── */}
-              <section className="space-y-2">
+              <section id="section-appointments" className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <Calendar size={14} className="text-[#3B6EF5]" />
+                  <CalendarDays size={14} className="text-[#3B6EF5]" />
                   <SectionTitle title="Upcoming Appointment" />
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-                  {nextAppt ? (
-                    <div className="flex items-start gap-3">
-                      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#EEF4FF]">
-                        <Calendar size={18} className="text-[#3B6EF5]" />
-                      </div>
-                      <div>
-                        <p className="text-[15px] font-semibold text-[#1F2A37]">
-                          {new Date(nextAppt.datetime).toLocaleDateString("en-SG", {
-                            weekday: "short", day: "numeric", month: "short", year: "numeric",
-                          })}
-                        </p>
-                        <p className="text-[13px] text-[#667085]">{nextAppt.location}</p>
-                        {nextAppt.notes && (
-                          <p className="mt-1 text-[12px] text-[#98A2B3]">{nextAppt.notes}</p>
+                {nextAppt ? (() => {
+                  const daysRemaining = Math.ceil((new Date(nextAppt.datetime).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                  return (
+                    <div className="relative overflow-hidden rounded-[2rem] bg-[#3670e2] px-5 py-5 text-white shadow-[0_16px_36px_rgba(54,112,226,0.3)]">
+                      <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-3xl" />
+                      <div className="relative z-10 space-y-4">
+                        {/* Header row */}
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <CalendarDays size={16} className="opacity-90" />
+                              <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-100/80">Upcoming Visit</span>
+                            </div>
+                            <p className="text-lg font-bold leading-tight">
+                              {new Date(nextAppt.datetime).toLocaleString("en-SG", { weekday: "short", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                            </p>
+                          </div>
+                          <div className="flex flex-col items-end">
+                            <span className="text-3xl font-black leading-none">{daysRemaining > 0 ? daysRemaining : 0}</span>
+                            <span className="text-[11px] opacity-80">days to go</span>
+                          </div>
+                        </div>
+                        {/* Details */}
+                        <div className="space-y-2 border-t border-white/10 pt-3">
+                          <div className="flex items-center gap-2.5">
+                            <MapPin size={15} className="shrink-0 text-blue-200" />
+                            <p className="text-sm font-medium">{nextAppt.location}</p>
+                          </div>
+                          {nextAppt.notes && (
+                            <div className="flex items-center gap-2.5">
+                              <Clock3 size={15} className="shrink-0 text-blue-200" />
+                              <p className="text-sm text-blue-50/90">{nextAppt.notes}</p>
+                            </div>
+                          )}
+                        </div>
+                        {/* Prep note */}
+                        <div className="flex items-start gap-2.5 rounded-[1.2rem] border border-white/20 bg-white/10 px-3 py-3">
+                          <TriangleAlert size={15} className="mt-0.5 shrink-0 text-white" />
+                          <p className="text-xs leading-relaxed text-blue-50">{appointmentPrepNote(nextAppt)}</p>
+                        </div>
+                        {/* Reschedule panel */}
+                        {showReschedule && !rescheduleSent && (
+                          <div className="rounded-[1.35rem] border border-white/15 bg-white/10 p-4 space-y-3">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-blue-100">Available slots</p>
+                            <div className="grid grid-cols-1 gap-2">
+                              {[
+                                { label: "Mon 13 Apr, 9:00 AM", value: "2026-04-13T09:00" },
+                                { label: "Mon 13 Apr, 2:30 PM", value: "2026-04-13T14:30" },
+                                { label: "Wed 15 Apr, 10:00 AM", value: "2026-04-15T10:00" },
+                                { label: "Thu 16 Apr, 11:30 AM", value: "2026-04-16T11:30" },
+                                { label: "Fri 17 Apr, 3:00 PM", value: "2026-04-17T15:00" },
+                              ].map(slot => (
+                                <button
+                                  key={slot.value}
+                                  type="button"
+                                  className={`rounded-[0.85rem] px-3 py-2 text-sm font-medium text-left transition ${rescheduleSlot === slot.value ? "bg-white text-[#3670e2] font-semibold" : "bg-white/15 text-white hover:bg-white/25"}`}
+                                  onClick={() => setRescheduleSlot(slot.value)}
+                                >
+                                  {slot.label}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="flex gap-2 pt-1">
+                              <button type="button" className="flex-1 rounded-[0.85rem] bg-white/15 px-3 py-2 text-sm font-medium text-white transition hover:bg-white/25" onClick={() => { setShowReschedule(false); setRescheduleSlot(null); }}>Cancel</button>
+                              <button type="button" disabled={!rescheduleSlot} className="flex-1 rounded-[0.85rem] bg-white px-3 py-2 text-sm font-semibold text-[#3670e2] transition disabled:opacity-40" onClick={() => { if (rescheduleSlot) setRescheduleSent(true); }}>Send Request</button>
+                            </div>
+                          </div>
                         )}
+                        {/* Sent confirmation */}
+                        {rescheduleSent && (
+                          <div className="flex items-center gap-2.5 rounded-[1.2rem] bg-white/15 px-3 py-3">
+                            <CheckCircle2 size={16} className="shrink-0 text-emerald-300" />
+                            <p className="text-xs text-blue-50">Reschedule request sent. The clinician will confirm shortly.</p>
+                          </div>
+                        )}
+                        {/* Action buttons */}
+                        <div className="flex gap-2">
+                          <button type="button" className="flex-1 rounded-[1.25rem] bg-white/15 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/25" onClick={() => { setShowReschedule(v => !v); setRescheduleSent(false); setRescheduleSlot(null); }}>
+                            {showReschedule ? "Hide" : "Reschedule"}
+                          </button>
+                          <button type="button" className="flex-1 rounded-[1.25rem] bg-white px-4 py-2.5 text-sm font-semibold text-[#3670e2] shadow-[0_10px_20px_rgba(15,23,42,0.12)] transition hover:bg-slate-50" onClick={() => window.open(buildCalendarUrl(nextAppt), "_blank", "noopener,noreferrer")}>
+                            Add to calendar
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  ) : (
-                    <p className="text-[13px] text-[#98A2B3]">No upcoming appointments scheduled.</p>
-                  )}
-                </div>
+                  );
+                })() : (
+                  <div className="rounded-[2rem] border border-slate-200/80 bg-white px-5 py-5 text-sm text-slate-500 shadow-sm">
+                    No upcoming appointments scheduled.
+                  </div>
+                )}
               </section>
 
               {/* ── All Appointments List ── */}
@@ -818,130 +947,100 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                 </section>
               )}
 
-              {/* ── AI Caregiver Briefing — What to do today ── */}
-              <section className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Sparkles size={14} className="text-[#3B6EF5]" />
-                  <SectionTitle title="What to do today" />
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[#EEF4FF] px-2 py-0.5 text-[10px] font-bold text-[#3B6EF5]">AI</span>
-                </div>
-
-                {briefingLoading && (
-                  <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-[13px] text-[#98A2B3]">
-                    <Sparkles size={14} className="animate-pulse text-[#3B6EF5]" />
-                    Generating personalised action plan…
-                  </div>
-                )}
-
-                {!briefingLoading && (briefing ?? fallbackSuggestions.length > 0) && (
-                  <div className="overflow-hidden rounded-2xl border border-[#D8E5FF] bg-white shadow-[0_2px_8px_rgba(16,24,40,0.06)]">
-                    <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <Sparkles size={14} className="text-[#3B6EF5]" />
-                        <span className="text-[13px] font-semibold text-[#1F2A37]">
-                          {briefing ? `For ${briefing.patient_name.split(" ")[0]} today` : "Suggested actions"}
-                        </span>
-                      </div>
-                      {briefing && (
-                        <span className="text-[10px] font-medium text-[#98A2B3]">
-                          {briefing.source === "llm" ? "AI-generated" : "smart suggestions"}
-                        </span>
-                      )}
+              {/* ── Recent Alerts ── */}
+              {detail.interventions.length > 0 && (
+                <section id="section-alerts" className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle size={14} className="text-[#E7A93B]" />
+                      <SectionTitle title="Recent Alerts" />
                     </div>
-                    {briefing?.today_summary && (
-                      <div className="px-4 py-3">
-                        <p className="text-[13px] text-[#475467]">{briefing.today_summary}</p>
-                      </div>
-                    )}
-                    {briefing?.monitoring && briefing.monitoring.length > 0 && (
-                      <div className="border-t border-slate-100 px-4 py-3">
-                        <p className="text-[12px] font-semibold text-[#98A2B3]">Monitor</p>
-                        <ul className="mt-1.5 space-y-1">
-                          {briefing.monitoring.map((m, idx) => (
-                            <li key={idx} className="text-[13px] text-[#344054]">• {m}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {briefing?.escalations && briefing.escalations.length > 0 && (
-                      <div className="border-t border-slate-100 px-4 py-3">
-                        <p className="text-[12px] font-semibold text-[#98A2B3]">Escalation Suggestions</p>
-                        <ul className="mt-1.5 space-y-1">
-                          {briefing.escalations.map((e, idx) => (
-                            <li key={idx} className="text-[13px] text-[#344054]">• {e}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {(briefing?.actions ?? fallbackSuggestions).map((action: any, i: number) => {
-                      const text = typeof action === "string" ? action : action?.text || JSON.stringify(action);
+                    <span className="text-[11px] text-[#98A2B3]">{detail.interventions.length} alert{detail.interventions.length !== 1 ? "s" : ""}</span>
+                  </div>
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+                    {/* AI insight — caregiver-addressed summary */}
+                    {(() => {
+                      const ivs = detail.interventions;
+                      const firstName = detail.patient.name.split(" ")[0];
+                      const urgentAlerts = ivs.filter(iv => iv.action_type === "caregiver_alert" && (Date.now() - new Date(iv.timestamp).getTime()) / (1000 * 60 * 60 * 24) <= 2);
+                      const typeCounts: Record<string, number> = {};
+                      ivs.forEach(iv => { typeCounts[iv.action_type] = (typeCounts[iv.action_type] || 0) + 1; });
+                      const missed = (typeCounts["dose_missed"] || 0) + (typeCounts["missed_dose"] || 0);
+                      const late = typeCounts["dose_late"] || 0;
+                      const lowSupply = (typeCounts["refill_needed"] || 0) + (typeCounts["low_supply"] || 0);
+                      const cognitive = (typeCounts["memory_alert"] || 0) + (typeCounts["cognitive_alert"] || 0);
+                      const escalated = (typeCounts["escalation"] || 0) + (typeCounts["clinical_escalation"] || 0);
+
+                      let insight = "";
+                      if (urgentAlerts.length > 0) {
+                        const reasonParts = [
+                          missed > 0 ? `${missed} missed dose${missed > 1 ? "s" : ""}` : "",
+                          late > 0 ? `${late} late dose${late > 1 ? "s" : ""}` : "",
+                          stats.pct < 85 ? `overall adherence at ${stats.pct}%` : "",
+                        ].filter(Boolean);
+                        const situation = reasonParts.length > 0 ? reasonParts.join(", ") : "medication adherence below the safe threshold";
+                        insight = `${firstName}'s adherence has triggered an urgent alert — ${situation}. Please check in with ${firstName} today to understand what is preventing them from taking their medication on time.`;
+                      } else if (missed > 0 || late > 0) {
+                        const parts = [
+                          missed > 0 ? `${missed} missed dose${missed > 1 ? "s" : ""}` : "",
+                          late > 0 ? `${late} late dose${late > 1 ? "s" : ""}` : "",
+                        ].filter(Boolean).join(" and ");
+                        insight = `Your patient ${firstName} has had ${parts} recorded recently. You may want to reach out to understand if there are any barriers — such as forgetting, side effects, or difficulty accessing medication.`;
+                      } else if (lowSupply > 0) {
+                        insight = `${firstName}'s medication supply is running low. As the caregiver, please help arrange a refill soon to avoid any unplanned gaps in treatment.`;
+                      } else if (cognitive > 0) {
+                        insight = `A cognitive concern has been flagged for ${firstName}. This may affect their ability to manage medication independently — consider increasing your check-in frequency.`;
+                      } else if (escalated > 0) {
+                        insight = `${escalated > 1 ? `${escalated} alerts have` : "An alert has"} been escalated to the clinical team regarding ${firstName}. You do not need to take clinical action, but stay available in case the clinician needs your input.`;
+                      } else {
+                        insight = `${ivs.length} alert${ivs.length > 1 ? "s have" : " has"} been logged for ${firstName}. No urgent patterns detected — review the list below and follow up on anything that looks unusual.`;
+                      }
                       return (
-                        <div key={i} className={`flex items-start gap-3 px-4 py-3 ${i > 0 ? "border-t border-slate-100" : "border-t border-slate-100"}`}>
-                          <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#3B6EF5] text-[10px] font-bold text-white">
-                            {i + 1}
-                          </div>
+                        <div className="flex items-start gap-2 border-b border-slate-100 bg-[#FAFBFF] px-4 py-3">
+                          <Sparkles size={12} className="mt-0.5 shrink-0 text-[#3B6EF5]" />
                           <div>
-                            <p className="text-[13px] leading-5 text-[#344054]">{text}</p>
-                            {typeof action === "object" && action?.reason && (
-                              <p className="mt-1 text-[11px] text-[#98A2B3]">Reason: {action.reason}</p>
-                            )}
+                            <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-[#98A2B3] mb-0.5">AI Insight</p>
+                            <p className="text-[12px] leading-[1.55] text-[#475467]">{insight}</p>
                           </div>
                         </div>
                       );
-                    })}
-                  </div>
-                )}
-              </section>
-
-              {/* ── Caregiver Alert Banner ── */}
-              {(() => {
-                const latestAlert = detail.interventions.find(iv => iv.action_type === "caregiver_alert");
-                if (!latestAlert) return null;
-                const daysDiff = (Date.now() - new Date(latestAlert.timestamp).getTime()) / (1000 * 60 * 60 * 24);
-                if (daysDiff > 2) return null;
-                return (
-                  <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
-                    <Siren size={16} className="mt-0.5 shrink-0 text-red-500" />
-                    <div>
-                      <p className="text-[13px] font-bold text-red-700">Action Required</p>
-                      <p className="text-[12px] text-red-600">
-                        {latestAlert.message || "This patient's medication adherence needs your attention."}
-                      </p>
-                      <p className="mt-0.5 text-[11px] text-red-400">{new Date(latestAlert.timestamp).toLocaleDateString("en-SG")}</p>
+                    })()}
+                    {/* Vertically scrollable alert list */}
+                    <div className="max-h-[320px] overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+                      {detail.interventions.slice(0, 8).map((iv, i) => {
+                        const isActionRequired = iv.action_type === "caregiver_alert" &&
+                          (Date.now() - new Date(iv.timestamp).getTime()) / (1000 * 60 * 60 * 24) <= 2;
+                        return (
+                          <div key={iv.intervention_id ?? i} className={`flex items-start gap-3 px-4 py-3 ${i > 0 ? "border-t border-slate-100" : ""} ${isActionRequired ? "bg-red-50" : ""}`}>
+                            <div className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg ${isActionRequired ? "bg-red-100" : "bg-[#FFF8E8]"}`}>
+                              <Siren size={13} className={isActionRequired ? "text-red-500" : "text-[#E7A93B]"} />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className={`text-[13px] font-semibold capitalize ${isActionRequired ? "text-red-700" : "text-[#344054]"}`}>
+                                  {isActionRequired ? "Action Required" : iv.action_type.replace(/_/g, " ")}
+                                </p>
+                                {isActionRequired && (
+                                  <span className="shrink-0 rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold uppercase text-white">Urgent</span>
+                                )}
+                              </div>
+                              {isActionRequired && (
+                                <p className="text-[12px] text-red-600">{(iv as any).message || "This patient's medication adherence needs your attention."}</p>
+                              )}
+                              {!isActionRequired && iv.reason && <p className="text-[12px] text-[#667085]">{iv.reason}</p>}
+                              <p className={`text-[11px] ${isActionRequired ? "text-red-400" : "text-[#C0C8D6]"}`}>{new Date(iv.timestamp).toLocaleDateString("en-SG")}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
-                );
-              })()}
-
-              {/* ── Recent Alerts ── */}
-              {detail.interventions.length > 0 && (
-                <section className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle size={14} className="text-[#E7A93B]" />
-                    <SectionTitle title="Recent Alerts" />
-                  </div>
-                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-                    {detail.interventions.slice(0, 5).map((iv, i) => (
-                      <div key={iv.intervention_id ?? i} className={`flex items-start gap-3 px-4 py-3 ${i > 0 ? "border-t border-slate-100" : ""}`}>
-                        <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#FFF8E8]">
-                          <Siren size={13} className="text-[#E7A93B]" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-[13px] font-semibold capitalize text-[#344054]">
-                            {iv.action_type.replace(/_/g, " ")}
-                          </p>
-                          {iv.reason && <p className="text-[12px] text-[#667085]">{iv.reason}</p>}
-                          <p className="text-[11px] text-[#C0C8D6]">{new Date(iv.timestamp).toLocaleDateString("en-SG")}</p>
-                        </div>
-                      </div>
-                    ))}
                   </div>
                 </section>
               )}
 
               {/* ── Memory & Focus Check ── */}
               {detail.memory_check && detail.memory_check.session_count > 0 && (
-                <section className="space-y-2">
+                <section id="section-memory" className="space-y-2">
                   <div className="flex items-center gap-2">
                     <BrainCircuit size={14} className="text-[#3B6EF5]" />
                     <SectionTitle title="Memory & Focus Check" />
@@ -1072,24 +1171,12 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                 <div className="flex flex-col">
                   <button
                     type="button"
-                    onClick={() => setActiveTab("home")}
-                    className="flex items-center justify-between border-b border-slate-50 px-5 py-4 text-left transition hover:bg-slate-50"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Home size={20} className="text-slate-400" />
-                      <span className="text-sm font-medium text-slate-700">Dashboard</span>
-                    </div>
-                    <ChevronRight size={18} className="text-slate-300" />
-                  </button>
-
-                  <button
-                    type="button"
                     onClick={() => {
                       sessionStorage.removeItem("bytecare_account");
                       localStorage.removeItem("bytecare_account");
                       router.replace("/auth/signin");
                     }}
-                    className="flex items-center justify-between px-5 py-4 text-left transition hover:bg-red-50"
+                    className="flex items-center justify-between bg-slate-50 px-5 py-4 text-left transition hover:bg-slate-100"
                   >
                     <div className="flex items-center gap-3">
                       <LogOut size={20} className="text-red-500" />
