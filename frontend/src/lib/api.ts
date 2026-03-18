@@ -518,6 +518,9 @@ export const api = {
   clinicianGetAISummary: (accountId: string, patientUserId: string) =>
     apiRequest<ClinicianAISummary>(`/clinician/patients/${patientUserId}/ai-summary?account_id=${encodeURIComponent(accountId)}`),
 
+  clinicianGetAIOverview: (accountId: string) =>
+    apiRequest<ClinicianAIOverview>(`/clinician/patients/ai-overview?account_id=${encodeURIComponent(accountId)}`),
+
   // --- Phase 11: MEE / Orchestrator / Chat messages / Caregiver ---
   getMEEScore: (userId: string) =>
     apiRequest<MEEScoreResponse>(`/users/${userId}/mee`),
@@ -679,6 +682,13 @@ export type TCMWarningItem = {
 
 export type ClinicianAISummary = {
   patient_name: string;
+  summary: string;
+  provider: string;
+  status: string;
+};
+
+export type ClinicianAIOverview = {
+  patient_count: number;
   summary: string;
   provider: string;
   status: string;

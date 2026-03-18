@@ -169,6 +169,93 @@ def assign_patient(payload: AssignPatientRequest, account_id: str, db: Session =
     return {"status": "assigned", "patient_user_id": patient.user_id, "clinician_user_id": clinician_user.user_id}
 
 
+@router.get("/patients/ai-overview")
+def get_panel_ai_overview(account_id: str, db: Session = Depends(get_db)):
+    """Generate an AI-powered overview summary across ALL assigned patients."""
+    account = _require_clinician(account_id, db)
+    clinician_user = _get_clinician_user(account, db)
+
+    assignments = (
+        db.query(User)
+        .filter(User.assigned_clinician_id == clinician_user.user_id)
+        .all()
+    )
+    if not assignments:
+        return {"patient_count": 0, "summary": "No patients currently assigned.", "provider": "none", "status": "success"}
+
+    now = datetime.utcnow()
+    current_start = (now - timedelta(days=7)).isoformat(timespec="seconds")
+    prior_start = (now - timedelta(days=14)).isoformat(timespec="seconds")
+    current_end = now.isoformat(timespec="seconds")
+
+    patients_data: List[Dict[str, Any]] = []
+    for pt in assignments:
+        pid = pt.user_id
+        meds = db.query(Medication).filter_by(user_id=pid).all()
+        med_names = [m.name for m in meds]
+
+        current_counts = _adherence_counts_for_window(db, pid, current_start, current_end)
+        prior_counts = _adherence_counts_for_window(db, pid, prior_start, current_start)
+        current_score = _adherence_score_from_counts(current_counts)
+        prior_score = _adherence_score_from_counts(prior_counts)
+
+        try:
+            from app.services.drift_engine import detect_adherence_drift
+            drift = detect_adherence_drift(pid)
+        except Exception:
+            drift = {}
+
+        since_7d = current_start
+        recent_interventions = [
+            i.to_dict() for i in
+            db.query(InterventionLog).filter(
+                InterventionLog.user_id == pid,
+                InterventionLog.timestamp >= since_7d,
+            ).order_by(InterventionLog.timestamp.desc()).all()
+        ]
+
+        tcm_warnings: List[Dict[str, Any]] = []
+        try:
+            from app.services.tcm_engine import HERB_INTERACTIONS, _check_medication_overlap
+            for herb_key, info in HERB_INTERACTIONS.items():
+                flagged = _check_medication_overlap(herb_key, med_names)
+                if flagged:
+                    tcm_warnings.append({
+                        "herb": info["display_name"],
+                        "risk_level": info["risk_level"],
+                        "flagged_medications": flagged,
+                    })
+        except Exception:
+            pass
+
+        overall = "On track" if current_score >= 80 and not drift.get("drift_detected") else "Needs attention" if current_score >= 60 else "At risk"
+
+        patients_data.append({
+            "patient": pt.to_dict(),
+            "medications": [m.to_dict() for m in meds],
+            "adherence": {
+                "current_score": current_score,
+                "prior_score": prior_score,
+                "delta": round(current_score - prior_score, 1),
+                "taken": current_counts["taken"],
+                "missed": current_counts["missed"],
+                "late": current_counts["late"],
+            },
+            "drift": drift,
+            "interventions": recent_interventions,
+            "tcm_warnings": tcm_warnings,
+            "overall_status": overall,
+        })
+
+    from app.services.clinician_ai import generate_overall_summary
+    try:
+        result = generate_overall_summary(patients_data)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    return result
+
+
 @router.delete("/patients/{patient_user_id}/unassign", status_code=200)
 def unassign_patient(patient_user_id: str, account_id: str, db: Session = Depends(get_db)):
     """Remove a patient from this clinician's list."""
