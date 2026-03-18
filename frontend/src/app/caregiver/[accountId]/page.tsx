@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bell,
   BrainCircuit,
   Calendar,
+  Clock,
   Heart,
+  ChevronRight,
+  HelpCircle,
+  Home,
+  LogOut,
   MessageSquare,
   Phone,
   Pill,
@@ -14,22 +19,30 @@ import {
   Sparkles,
   ArrowRight,
   Users,
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  User,
+  FileText,
+  ShieldCheck,
 } from "lucide-react";
+
+type CaregiverTab = "home" | "profile";
 
 import { api, type Account, type CaregiverBriefing, type CaregiverPatientDetail, type CaregiverPatientSummary } from "../../../lib/api";
 import {
   ActionTile,
-  AlertCard,
   BadgePill,
-  ChartCard,
-  Header,
   QuickActionRow,
   SectionTitle,
-  TabBar,
 } from "../../../components/mobile/DashboardPrimitives";
 import ConsequenceModalCompact from "../../../components/ConsequenceModalCompact";
 import CaregiverAssistantSummary from "../../../components/CaregiverAssistantSummary";
 import MedicationEatingPatternCard from "../../../components/MedicationEatingPatternCard";
+
+/* ────────────────────── helpers ────────────────────── */
+
 function loadAccount(router: ReturnType<typeof useRouter>, setAccount: (value: Account) => void) {
   const raw = sessionStorage.getItem("bytecare_account") || localStorage.getItem("bytecare_account");
   if (!raw) { router.replace("/auth/signin"); return; }
@@ -44,9 +57,8 @@ function calcAdherence(detail: CaregiverPatientDetail) {
   const events = detail.dose_events;
   const taken = events.filter(e => e.response_status === "taken" || ['tap_confirm','voice_confirm'].includes(e.event_type)).length;
   const late = events.filter(e => e.response_status === "late" || e.event_type === "dose_late").length;
-  const missed = events.filter(e =>
-    ["not_taken", "missed", "skipped"].includes(e.response_status) ||
-    ["dose_not_taken", "dose_missed", "dose_skipped"].includes(e.event_type)
+  const missed = events.filter(
+    e => ["not_taken", "missed", "skipped"].includes(e.response_status)
   ).length;
   const total = taken + late + missed;
   const pct = total > 0 ? Math.round(((taken + 0.5 * late) / total) * 100) : 100;
@@ -99,8 +111,8 @@ function formatShortDate(iso?: string | null) {
   try {
     const d = new Date(iso);
     return d.toLocaleString("en-SG", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
-  } catch (e) {
-    return iso as any;
+  } catch {
+    return iso;
   }
 }
 
@@ -116,7 +128,6 @@ function computeMedStats(detail: CaregiverPatientDetail, medId: string) {
 }
 
 function computeTrend(detail: CaregiverPatientDetail) {
-  // Build missed counts per day for the last 7 days (oldest -> newest)
   const days: number[] = [];
   const now = new Date();
   for (let i = 6; i >= 0; i--) {
@@ -131,20 +142,86 @@ function computeTrend(detail: CaregiverPatientDetail) {
     }).length;
     days.push(count);
   }
-
-  const recent = days.slice(4).reduce((s, v) => s + v, 0); // last 3 days
-  const prior = days.slice(0,4).reduce((s, v) => s + v, 0); // previous 4 days
+  const recent = days.slice(4).reduce((s, v) => s + v, 0);
+  const prior = days.slice(0,4).reduce((s, v) => s + v, 0);
   const delta = recent - prior;
   let trendLabel = 'Stable';
   if (delta > 0) trendLabel = 'Slightly worsening';
   else if (delta < 0) trendLabel = 'Improving';
-
   return { days, recent, prior, delta, trendLabel };
 }
+
+/** Get today's doses grouped by medication with their status */
+function getTodaysDoses(detail: CaregiverPatientDetail) {
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const todayEnd = new Date(today);
+  todayEnd.setHours(23,59,59,999);
+
+  return detail.medications.map(med => {
+    const todayEvents = detail.dose_events.filter(ev => {
+      const t = new Date(ev.timestamp || '');
+      return ev.medication_id === med.medication_id && t >= today && t <= todayEnd;
+    });
+    const scheduledTimes = med.schedule?.times || ["08:00"];
+    const taken = todayEvents.filter(e => e.response_status === "taken" || ['tap_confirm','voice_confirm'].includes(e.event_type));
+    const late = todayEvents.filter(e => e.response_status === "late" || e.event_type === "dose_late");
+    const missed = todayEvents.filter(e => ["not_taken", "missed", "skipped"].includes(e.response_status));
+
+    let status: "taken" | "late" | "missed" | "pending" = "pending";
+    if (taken.length > 0) status = "taken";
+    else if (late.length > 0) status = "late";
+    else if (missed.length > 0) status = "missed";
+
+    const lastEvent = todayEvents.sort((a,b) => b.timestamp.localeCompare(a.timestamp))[0];
+    const takenTime = lastEvent ? new Date(lastEvent.timestamp).toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit" }) : null;
+
+    return {
+      medication: med,
+      scheduledTimes,
+      status,
+      takenTime,
+      eventCount: todayEvents.length,
+    };
+  });
+}
+
+/** SVG circular progress ring */
+function AdherenceRing({ pct, size = 100, stroke = 8 }: { pct: number; size?: number; stroke?: number }) {
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (pct / 100) * circumference;
+  const color = pct >= 85 ? "#15803D" : pct >= 70 ? "#E7A93B" : "#EF5A5A";
+  return (
+    <svg width={size} height={size} className="shrink-0">
+      <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke="#E9EEF7" strokeWidth={stroke} />
+      <circle
+        cx={size/2} cy={size/2} r={radius} fill="none"
+        stroke={color} strokeWidth={stroke} strokeLinecap="round"
+        strokeDasharray={circumference} strokeDashoffset={offset}
+        transform={`rotate(-90 ${size/2} ${size/2})`}
+        className="transition-all duration-700"
+      />
+      <text x="50%" y="50%" textAnchor="middle" dy="0.35em" className="text-[22px] font-bold" fill="#1F2A37">
+        {pct}%
+      </text>
+    </svg>
+  );
+}
+
+const statusConfig = {
+  taken:   { icon: CheckCircle2, color: "text-[#15803D]", bg: "bg-[#ECFDF3]", label: "Taken" },
+  late:    { icon: Clock,        color: "text-[#E7A93B]", bg: "bg-[#FFF8E8]", label: "Late" },
+  missed:  { icon: XCircle,      color: "text-[#EF5A5A]", bg: "bg-[#FFF1F1]", label: "Missed" },
+  pending: { icon: Clock,        color: "text-[#98A2B3]", bg: "bg-[#F2F4F7]", label: "Pending" },
+};
+
+/* ────────────────────── main page ────────────────────── */
 
 export default function CaregiverDashboardPage({ params }: { params: { accountId: string } }) {
   const router = useRouter();
   const { accountId } = params;
+  const [activeTab, setActiveTab] = useState<CaregiverTab>("home");
   const [account, setAccount] = useState<Account | null>(null);
   const [patients, setPatients] = useState<CaregiverPatientSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -162,8 +239,22 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
 
   useEffect(() => { loadAccount(router, setAccount); }, [router]);
   const shellRef = useRef<HTMLDivElement>(null);
+  const bottomNavRef = useRef<HTMLDivElement>(null);
+  const [bottomNavBounds, setBottomNavBounds] = useState<{ left: number; width: number } | null>(null);
 
-  
+  useEffect(() => {
+    const update = () => {
+      const shell = shellRef.current;
+      if (!shell) return;
+      const rect = shell.getBoundingClientRect();
+      setBottomNavBounds({ left: rect.left, width: rect.width });
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, { passive: true });
+    return () => { window.removeEventListener("resize", update); window.removeEventListener("scroll", update); };
+  }, []);
+
   useEffect(() => {
     if (!account) return;
     api.caregiverGetPatients(accountId)
@@ -185,21 +276,17 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
       .catch(err => { setError(String(err?.message ?? err)); setLoading(false); });
   }, [selectedId, accountId]);
 
-  // Load AI briefing after detail is ready
   useEffect(() => {
     if (!selectedId || !detail) return;
     setBriefingLoading(true);
     api.caregiverGetBriefing(accountId, selectedId)
       .then(b => { setBriefing(b); setBriefingLoading(false); })
       .catch(() => setBriefingLoading(false));
-
-    // Load refill status for medications
     api.getRefillStatus(selectedId)
       .then(r => { setRefillStatus(r.items); })
       .catch(() => setRefillStatus(null));
   }, [selectedId, accountId, detail]);
 
-  // index of currently-displayed medication in the Consequences view
   const [medIndex, setMedIndex] = useState(0);
   useEffect(() => { setMedIndex(0); }, [detail]);
   const [consequenceOpen, setConsequenceOpen] = useState(false);
@@ -207,53 +294,50 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
 
   const stats = useMemo(() => detail ? calcAdherence(detail) : null, [detail]);
   const risk = useMemo(() => stats ? getRisk(stats.pct) : null, [stats]);
-  const missedMeds = useMemo(() => detail ? getMissedMedNames(detail) : [], [detail]);
+  const _missedMeds = useMemo(() => detail ? getMissedMedNames(detail) : [], [detail]);
   const nextAppt = useMemo(() => detail ? getNextAppointment(detail) : null, [detail]);
   const fallbackSuggestions = useMemo(() => stats ? getEncouragementSuggestions(stats.pct, stats.missed) : [], [stats]);
+  const todaysDoses = useMemo(() => detail ? getTodaysDoses(detail) : [], [detail]);
 
   const currentMed = detail && detail.medications && detail.medications.length > 0 ? detail.medications[medIndex % detail.medications.length] : null;
   const currentMedStats = currentMed ? computeMedStats(detail!, currentMed.medication_id) : null;
   const trend = detail ? computeTrend(detail) : null;
   const predictedPct = (() => {
     if (!stats || !trend) return null;
-    // simple conservative prediction: reduce pct by 2% per additional missed dose in recent window
     const adj = Math.max(0, trend.delta) * 2;
     return Math.max(0, stats.pct - adj);
   })();
 
-  const tabs = useMemo(() => [
-    { key: "dashboard", label: "Dashboard", icon: <Heart size={18} strokeWidth={2.1} /> },
-    { key: "patients", label: "Patients", icon: <Users size={18} strokeWidth={2.1} /> },
-    { key: "messages", label: "Messages", icon: <MessageSquare size={18} strokeWidth={2.1} /> },
-  ], []);
-
   if (!account) return null;
 
   return (
-    <main className="flex min-h-screen justify-center bg-white">
-      <div ref={shellRef} className="relative min-h-screen w-full max-w-md bg-[#F8FAFC] pb-24">
-        <Header
-          title="Caregiver"
-          left={
-            <div className="grid h-11 w-11 place-items-center rounded-xl border border-[#C9D9FF] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.06)]">
-              <Heart size={19} className="text-[#3B6EF5]" />
+    <main className="flex min-h-screen justify-center bg-slate-100">
+      <div ref={shellRef} className="relative min-h-screen w-full max-w-md bg-slate-50 pb-24 md:border-x md:border-slate-200 md:shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+
+        {/* ── Header ── */}
+        <header className="sticky top-0 z-20 border-b border-slate-200/60 bg-white/86 backdrop-blur-[12px]">
+          <div className="mx-auto flex h-[78px] w-full max-w-md items-center justify-between px-4">
+            <div className="flex items-center gap-3">
+              <div className="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-blue-100 to-blue-200 shadow-sm">
+                <User size={20} className="text-[#3B6EF5]" />
+              </div>
+              <div>
+                <h1 className="text-[18px] font-bold leading-none text-[#1F2A37]">ByteCare</h1>
+                <p className="text-[12px] text-[#98A2B3]">{account.name}</p>
+              </div>
             </div>
-          }
-          right={
-            <button type="button" className="relative grid h-11 w-11 place-items-center rounded-full bg-[#3B6EF5] text-white shadow-[0_4px_10px_rgba(59,110,245,0.24)]">
-              <Bell size={19} />
+            <button type="button" className="relative grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-[#667085] shadow-sm">
+              <Bell size={18} />
             </button>
-          }
-        />
-
-        <section className="space-y-5 px-3 pb-8 pt-4">
-
-          {/* Debug banner - shows live counts from API while developing */}
-          <div className="mb-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800">
-            Debug: account: {account?.name} · selectedId: {selectedId ?? '—'} · patients: {patients.length} · meds: {detail?.medications?.length ?? 0} · events: {detail?.dose_events?.length ?? 0}
           </div>
+        </header>
 
-          {/* Patient selector — only shown when caregiver has multiple patients */}
+        <section className="space-y-4 px-4 pb-8 pt-5">
+
+          {/* ══ HOME TAB ══ */}
+          {activeTab === "home" && <>
+
+          {/* ── Patient selector ── */}
           {patients.length > 1 && (
             <section className="space-y-2">
               <SectionTitle title="My Patients" />
@@ -266,7 +350,7 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                     className={`shrink-0 rounded-2xl border px-4 py-2 text-[13px] font-semibold transition-colors ${
                       selectedId === p.user_id
                         ? "border-[#3B6EF5] bg-[#3B6EF5] text-white"
-                        : "border-[#E9EEF7] bg-white text-[#344054]"
+                        : "border-slate-200 bg-white text-[#344054]"
                     }`}
                   >
                     {p.name}
@@ -290,36 +374,175 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
 
           {!loading && !error && detail && stats && risk && (
             <>
-              {/* Patient identity card */}
-              <section className="overflow-hidden rounded-2xl border border-[#D7E2F3] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-                <div className="relative h-[90px] bg-[#235B6A] px-4 pt-4">
-                  <BadgePill label={risk.badge} tone={risk.tone} />
-                </div>
-                <div className="space-y-2 border-t border-[#E9EEF7] px-4 py-4">
-                  <h2 className="text-[28px] font-bold leading-none text-[#1F2A37]">{detail.patient.name}</h2>
-                  <p className="text-[13px] text-[#667085]">
-                    Age {detail.patient.age}
-                    {(detail.patient as { conditions?: string[] }).conditions?.length
-                      ? ` · ${(detail.patient as { conditions?: string[] }).conditions!.join(", ")}`
-                      : ""}
-                  </p>
-                  <p className={`text-[13px] font-semibold ${
-                    risk.tone === "red" ? "text-[#EF5A5A]"
-                    : risk.tone === "yellow" ? "text-[#C18421]"
-                    : "text-[#15803D]"
-                  }`}>
-                    STATUS: {risk.label.toUpperCase()}
-                  </p>
-                  <p className="text-[12px] text-[#98A2B3]">
-                    {detail.medications.length} active medication{detail.medications.length !== 1 ? "s" : ""}
-                    {" · "}
-                    {detail.appointments.length} appointment{detail.appointments.length !== 1 ? "s" : ""}
-                  </p>
+              {/* ── Patient identity card ── */}
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_2px_8px_rgba(16,24,40,0.06)]">
+                <div className="flex items-center gap-4 px-5 py-5">
+                  <div className="grid h-16 w-16 shrink-0 place-items-center rounded-full bg-gradient-to-br from-blue-50 to-blue-100">
+                    <User size={28} className="text-[#3B6EF5]" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-[22px] font-bold leading-tight text-[#1F2A37]">
+                      {detail.patient.name}, {detail.patient.age}
+                    </h2>
+                    {(detail.patient as { conditions?: string[] }).conditions?.length ? (
+                      <p className="mt-0.5 text-[13px] text-[#667085]">
+                        {(detail.patient as { conditions?: string[] }).conditions!.join(", ")}
+                      </p>
+                    ) : null}
+                    <p className="mt-1 text-[13px] font-semibold text-[#3B6EF5]">
+                      {detail.medications.length} Medications Active
+                    </p>
+                  </div>
                 </div>
               </section>
 
-              {/* Quick AI summary (moved above adherence) */}
-              <section className="mt-3">
+              {/* ── Quick Access Grid ── */}
+              <section className="space-y-2">
+                <SectionTitle title="Quick Access" />
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+                  <QuickActionRow>
+                    <ActionTile
+                      icon={<Siren size={18} />}
+                      label={actionLoading === 'reminder' ? 'Sending…' : actionSuccess === 'reminder' ? 'Sent' : 'Remind'}
+                      onClick={async () => {
+                        if (!selectedId || !detail || !account) return;
+                        const suggested = briefing?.actions && briefing.actions.length > 0
+                          ? (typeof briefing.actions[0] === 'string' ? briefing.actions[0] : briefing.actions[0].text)
+                          : `Hi ${detail.patient.name}, this is ${account.name}. Have you taken your medication today?`;
+                        const message = window.prompt('Edit reminder message to send to patient:', suggested);
+                        if (message === null) return;
+                        setActionLoading('reminder');
+                        try {
+                          await api.postChat(selectedId, message);
+                          try { await api.postVoiceAgent(selectedId, message); } catch {}
+                          setActionSuccess('reminder');
+                          setTimeout(() => setActionSuccess(null), 2500);
+                        } catch {} finally { setActionLoading(null); }
+                      }}
+                    />
+                    <ActionTile
+                      icon={<Phone size={18} />}
+                      label={actionLoading === 'call' ? 'Calling…' : actionSuccess === 'call' ? 'Notified' : 'Call'}
+                      onClick={async () => {
+                        if (!selectedId || !detail || !account) return;
+                        setActionLoading('call');
+                        try {
+                          await api.postChat(selectedId, `${account.name} would like to call you. Are you available for a short call?`);
+                          setActionSuccess('call');
+                          setTimeout(() => setActionSuccess(null), 2500);
+                        } catch {} finally { setActionLoading(null); }
+                      }}
+                    />
+                    <ActionTile
+                      icon={<Calendar size={18} />}
+                      label={actionLoading === 'visit' ? 'Booking…' : actionSuccess === 'visit' ? 'Requested' : 'Book Visit'}
+                      onClick={async () => {
+                        if (!selectedId || !detail || !account) return;
+                        setActionLoading('visit');
+                        try {
+                          await api.postChat(selectedId, `${account.name} would like to schedule a visit this week. Are you available?`);
+                          setActionSuccess('visit');
+                          setTimeout(() => setActionSuccess(null), 2500);
+                        } catch {} finally { setActionLoading(null); }
+                      }}
+                    />
+                  </QuickActionRow>
+                </div>
+              </section>
+
+              {/* ── Medication Adherence with circular chart ── */}
+              <section className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Pill size={14} className="text-[#3B6EF5]" />
+                    <SectionTitle title="Medication Adherence" />
+                  </div>
+                  <BadgePill label={risk.badge} tone={risk.tone} />
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_2px_8px_rgba(16,24,40,0.06)]">
+                  <div className="flex items-center gap-5">
+                    <AdherenceRing pct={stats.pct} />
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] text-[#667085]">Taken</span>
+                        <span className="text-[15px] font-bold text-[#15803D]">{stats.taken}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] text-[#667085]">Late</span>
+                        <span className="text-[15px] font-bold text-[#E7A93B]">{stats.late}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] text-[#667085]">Not Taken</span>
+                        <span className="text-[15px] font-bold text-[#EF5A5A]">{stats.missed}</span>
+                      </div>
+                    </div>
+                  </div>
+                  {stats.pct >= 85 && (
+                    <p className="mt-3 text-[12px] italic text-[#15803D]">Great adherence — keep it up!</p>
+                  )}
+                  {stats.pct < 85 && stats.pct >= 70 && (
+                    <p className="mt-3 text-[12px] italic text-[#C18421]">Adherence needs attention — consider a gentle check-in.</p>
+                  )}
+                  {stats.pct < 70 && (
+                    <p className="mt-3 text-[12px] italic text-[#EF5A5A]">Low adherence — please follow up with the patient.</p>
+                  )}
+
+                  {/* Trend sparkline */}
+                  {trend && (
+                    <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
+                      <div>
+                        <p className="text-[11px] font-medium text-[#98A2B3]">7-Day Trend</p>
+                        <p className="text-[12px] font-semibold text-[#344054]">{trend.trendLabel}</p>
+                      </div>
+                      <svg viewBox="0 0 100 40" className="h-8 w-24" preserveAspectRatio="none">
+                        <polyline fill="none" stroke="#3B6EF5" strokeWidth={2} points={trend.days.map((d,i)=>`${(i/(trend.days.length-1))*100},${40 - (d/Math.max(...trend.days,1))*30}`).join(' ')} strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* ── Today's Doses ── */}
+              <section className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Calendar size={14} className="text-[#3B6EF5]" />
+                  <SectionTitle title="Today's Doses" />
+                </div>
+                <div className="space-y-2">
+                  {todaysDoses.length > 0 ? todaysDoses.map(dose => {
+                    const cfg = statusConfig[dose.status];
+                    const Icon = cfg.icon;
+                    return (
+                      <div key={dose.medication.medication_id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+                        <div className="flex items-start justify-between">
+                          <div className="min-w-0">
+                            <p className="text-[14px] font-semibold text-[#1F2A37]">{dose.medication.name}</p>
+                            <p className="mt-0.5 text-[12px] text-[#667085]">
+                              {dose.scheduledTimes.join(", ")} · {dose.medication.dose_text}
+                            </p>
+                            {dose.takenTime && (
+                              <p className="mt-0.5 text-[11px] text-[#98A2B3]">
+                                Recorded at {dose.takenTime}
+                              </p>
+                            )}
+                          </div>
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold ${cfg.bg} ${cfg.color}`}>
+                            <Icon size={12} />
+                            {cfg.label}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }) : (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center text-[13px] text-[#98A2B3]">
+                      No doses scheduled for today.
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* ── Quick AI Summary ── */}
+              <section>
                 <CaregiverAssistantSummary
                   detail={detail}
                   briefing={briefing ?? undefined}
@@ -331,52 +554,54 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                 />
               </section>
 
+              {/* ── Medication Eating Patterns ── */}
+              {selectedId && (
+                <section className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Activity size={14} className="text-[#3B6EF5]" />
+                    <SectionTitle title="Medication Eating Patterns" />
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+                    <MedicationEatingPatternCard accountId={accountId} patientUserId={selectedId} days={14} singleMedId={currentMed ? currentMed.medication_id : null} />
+                  </div>
+                </section>
+              )}
 
-              {/* Medication adherence — read-only, no prescribing */}
+              {/* ── Medication Details (Consequences & History) ── */}
               <section className="space-y-2">
-                <SectionTitle title="Medication Adherence (Last 7 Days)" />
-                <ChartCard>
-                  <div className="flex items-start justify-between">
-
-              
-
-                    <div>
-                      <p className="text-[12px] font-medium text-[#98A2B3]">Adherence Rate</p>
-                      <p className="mt-1 text-[44px] font-bold leading-none text-[#1F2A37]">{stats.pct}%</p>
+                <div className="flex items-center gap-2">
+                  <Pill size={14} className="text-[#3B6EF5]" />
+                  <SectionTitle title="Medication Details" />
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_2px_8px_rgba(16,24,40,0.06)]">
+                  <div className="flex items-start gap-3">
+                    <div className="grid h-10 w-10 place-items-center rounded-lg bg-[#FFF1F1]">
+                      <Pill size={16} className="text-[#EF5A5A]" />
                     </div>
-                    <BadgePill label={risk.badge} tone={risk.tone} />
-                  </div>
-                  <div className="mt-4 grid grid-cols-3 border-t border-[#E9EEF7] pt-3 text-center">
-                    <div>
-                      <p className="text-[24px] font-bold leading-none text-[#EF5A5A]">{stats.missed}</p>
-                      <p className="mt-1 text-[11px] text-[#98A2B3]">Missed</p>
-                    </div>
-                    <div>
-                      <p className="text-[24px] font-bold leading-none text-[#E7A93B]">{stats.late}</p>
-                      <p className="mt-1 text-[11px] text-[#98A2B3]">Late</p>
-                    </div>
-                    <div>
-                      <p className="text-[24px] font-bold leading-none text-[#15803D]">{stats.taken}</p>
-                      <p className="mt-1 text-[11px] text-[#98A2B3]">On-time</p>
+                    <div className="min-w-0">
+                      <p className="text-[15px] font-semibold text-[#1F2A37]">{stats.missed} missed dose{stats.missed !== 1 ? 's' : ''} in past week</p>
+                      <p className="mt-1 text-[13px] text-[#667085]">View specific medication histories and suggested actions.</p>
                     </div>
                   </div>
+
+                  {/* Medications list with refill status */}
                   {detail.medications.length > 0 && (
-                    <div className="mt-4 border-t border-[#E9EEF7] pt-3">
-                      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-[#98A2B3]">Medications (view only)</p>
-                      <div className="flex flex-wrap gap-1.5">
+                    <div className="mt-4 border-t border-slate-100 pt-3">
+                      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-[#98A2B3]">Active Medications</p>
+                      <div className="space-y-2">
                         {detail.medications.map(m => {
                           const status = refillStatus?.find(s => s.medication_id === m.medication_id);
                           return (
-                            <div key={m.medication_id} className="flex items-center gap-2">
-                              <span className="inline-flex items-center gap-1 rounded-lg bg-[#F2F4F7] px-2.5 py-1 text-[12px] font-medium text-[#344054]">
+                            <div key={m.medication_id} className="flex items-center justify-between">
+                              <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[#344054]">
                                 <Pill size={10} className="text-[#667085]" />
                                 {m.name} · {m.dose_text}
                               </span>
-                              {status && status.tracking_enabled && (
-                                <span className="text-[12px] text-[#98A2B3]">{status.doses_remaining} left (~{status.days_remaining ?? 'n/a'} days)</span>
-                              )}
-                              {status && status.needs_refill && (
-                                <div className="ml-2 inline-flex items-center">
+                              <div className="flex items-center gap-2">
+                                {status && status.tracking_enabled && (
+                                  <span className="text-[11px] text-[#98A2B3]">{status.doses_remaining} left{status.days_remaining ? ` (~${status.days_remaining}d)` : ''}</span>
+                                )}
+                                {status && status.needs_refill && (
                                   <button
                                     type="button"
                                     onClick={async () => {
@@ -389,216 +614,159 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                                         setRequestedMedIds((s) => Array.from(new Set([...s, m.medication_id])));
                                         setActionSuccess(m.medication_id);
                                         setTimeout(() => setActionSuccess(null), 2500);
-                                      } catch (e) {
-                                        // ignore
-                                      } finally {
-                                        setActionLoading(null);
-                                      }
+                                      } catch {} finally { setActionLoading(null); }
                                     }}
                                     disabled={actionLoading === m.medication_id}
-                                    className={`ml-2 inline-flex items-center rounded-2xl px-3 py-1 text-[13px] font-semibold text-white shadow-[0_1px_2px_rgba(16,24,40,0.04)] ${actionLoading === m.medication_id ? 'bg-[#172554] opacity-80' : 'bg-[#3B6EF5]'}`}
+                                    className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold text-white ${actionLoading === m.medication_id ? 'bg-[#172554] opacity-80' : 'bg-[#3B6EF5]'}`}
                                   >
-                                    {actionLoading === m.medication_id ? 'Requesting…' : (requestedMedIds.includes(m.medication_id) || actionSuccess === m.medication_id) ? 'Requested' : 'Request Refill'}
+                                    {actionLoading === m.medication_id ? '…' : (requestedMedIds.includes(m.medication_id) || actionSuccess === m.medication_id) ? 'Requested' : 'Refill'}
                                   </button>
-                                </div>
-                              )}
+                                )}
+                              </div>
                             </div>
                           );
                         })}
                       </div>
                     </div>
                   )}
-                </ChartCard>
-              </section>
 
-              {/* Medication eating-with-meal inference (caregiver-only) — same layout as Consequences */}
-              {selectedId && (
-                <section className="space-y-2 mt-3">
-                  <SectionTitle title="Medication Eating Patterns" />
-                  <ChartCard>
-                    <MedicationEatingPatternCard accountId={accountId} patientUserId={selectedId} days={14} singleMedId={currentMed ? currentMed.medication_id : null} />
-                  </ChartCard>
-                </section>
-              )}
-
-              {/* Missed dose alert + medication history (agentic) */}
-              <section className="space-y-2">
-                <SectionTitle title="Medication Consequences & History" />
-
-                {/* High-level consequence summary */}
-                <ChartCard>
-                  <div className="flex items-start gap-3">
-                    <div className="grid h-10 w-10 place-items-center rounded-lg bg-[#FFF1F1]">
-                      <Pill size={16} className="text-[#EF5A5A]" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[15px] font-semibold text-[#1F2A37]">{stats.missed} missed dose{stats.missed !== 1 ? 's' : ''} in past week</p>
-                      <p className="mt-1 text-[13px] text-[#667085]">Below are specific medication histories, likely consequences, and suggested near-term actions for the caregiver.</p>
-                    </div>
-                  </div>
-                    <div className="mt-3 border-t border-[#E9EEF7] pt-3">
-                      <div className="mb-3 flex items-center justify-between">
-                        <div className="text-[13px] text-[#667085]">View:</div>
-                        <div className="flex gap-2 items-center">
-                          <button type="button" onClick={() => setMedViewMode('consequences')} className={`rounded-2xl px-2 py-1 text-[12px] font-semibold ${medViewMode === 'consequences' ? 'bg-[#3B6EF5] text-white' : 'bg-white text-[#344054] border border-[#E9EEF7]'}`}>Consequences</button>
-                          <button type="button" onClick={() => setMedViewMode('history')} className={`rounded-2xl px-2 py-1 text-[12px] font-semibold ${medViewMode === 'history' ? 'bg-[#3B6EF5] text-white' : 'bg-white text-[#344054] border border-[#E9EEF7]'}`}>History</button>
-                          <div className="ml-3 flex items-center gap-3">
-                            <div className="relative">
-                              <div className="h-14 w-14 rounded-full border border-[#E9EEF7] bg-white flex flex-col items-center justify-center text-center">
-                                <div className="text-[16px] font-semibold text-[#3B6EF5] leading-tight">{detail.medications.length > 0 ? ((medIndex % detail.medications.length) + 1) : '-'}</div>
-                                <div className="text-[11px] text-[#98A2B3] mt-1">of {detail.medications.length}</div>
-                              </div>
-                            </div>
-                            <button type="button" onClick={() => { if (detail.medications.length > 0) setMedIndex(i => (i + 1) % detail.medications.length); }} className="h-10 w-10 rounded-full border border-[#EEF4FF] bg-white grid place-items-center shadow-sm">
-                              <div className="h-8 w-8 rounded-full bg-[#F2F6FF] grid place-items-center">
-                                <ArrowRight size={16} className="text-[#3B6EF5]" />
-                              </div>
-                            </button>
-                          </div>
-                        </div>
+                  {/* Consequence / History toggle */}
+                  <div className="mt-4 border-t border-slate-100 pt-3">
+                    <div className="mb-3 flex items-center justify-between">
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setMedViewMode('consequences')} className={`rounded-full px-3 py-1 text-[12px] font-semibold ${medViewMode === 'consequences' ? 'bg-[#3B6EF5] text-white' : 'bg-slate-100 text-[#344054]'}`}>Consequences</button>
+                        <button type="button" onClick={() => setMedViewMode('history')} className={`rounded-full px-3 py-1 text-[12px] font-semibold ${medViewMode === 'history' ? 'bg-[#3B6EF5] text-white' : 'bg-slate-100 text-[#344054]'}`}>History</button>
                       </div>
-                      {currentMed && (
-                        (() => {
-                          const m = currentMed;
-                          const st = currentMedStats!;
-                          const status = refillStatus?.find(s => s.medication_id === m.medication_id);
-                          const expectedPerDay = (m.schedule?.times?.length ?? 1);
-                          const expected7d = expectedPerDay * 7;
-                          const adherencePct = expected7d > 0 ? Math.round((st.taken / expected7d) * 100) : 100;
-                          const isHighRisk = /(warfarin|insulin|anticoag)/i.test(m.name);
-                          const urgent = (status && (status.doses_remaining === 0 || status.is_low)) || (isHighRisk && st.missed > 0) || adherencePct < 50;
-
-                          let consequence = "";
-                          if (isHighRisk && st.missed > 0) {
-                            if (/insulin/i.test(m.name)) consequence = "Missed insulin can cause high blood sugar and dehydration; seek advice if unwell.";
-                            else if (/warfarin|anticoag/i.test(m.name)) consequence = "Missing anticoagulants increases clot/stroke risk — contact clinician promptly.";
-                            else consequence = "This is a high-risk medication — seek clinical advice if multiple doses missed.";
-                          } else if (st.missed > 0) {
-                            consequence = "Missed doses can reduce treatment effectiveness; encourage timely intake and monitor symptoms.";
-                          } else if (st.taken > expected7d) {
-                            consequence = "More doses than scheduled were recorded — check for duplicate intake or dosing confusion.";
-                          } else {
-                            consequence = "No immediate concerns — continue regular check-ins and monitor for changes.";
-                          }
-
-                          return (
-                            <div key={m.medication_id} className="mb-3">
-                              <div className="flex items-center justify-between">
-                                <div className="min-w-0">
-                                  <p className="text-[14px] font-semibold text-[#1F2A37]">{m.name} · {m.dose_text}</p>
-                                  <p className="mt-1 text-[12px] text-[#98A2B3]">Last taken: {formatShortDate(st.lastTaken)} · {st.taken} taken · {st.missed} missed · {st.late} late</p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold ${urgent ? 'bg-[#FFF1F1] text-[#EF5A5A] border border-[#FFD8D8]' : 'bg-[#F2F4F7] text-[#667085] border border-[#E4E7EC]'}`}>{adherencePct}%</span>
-                                  {status && status.tracking_enabled && (
-                                    <span className={`text-[12px] font-medium ${status.doses_remaining === 0 ? 'text-[#EF5A5A]' : 'text-[#98A2B3]'}`}>{status.doses_remaining} left</span>
-                                  )}
-                                </div>
-                              </div>
-                              {medViewMode === 'consequences' && (
-                                <>
-                                  <div className="mt-2 text-[13px] text-[#344054]">• {consequence}</div>
-                                  <div className="mt-2">
-                                    {medRecommendations[m.medication_id]?.recommendations ? (
-                                      <div className="mt-2">
-                                        <p className="text-[12px] text-[#98A2B3]">Recommended next step:</p>
-                                        <div className="mt-1 text-[13px] text-[#344054]">• {medRecommendations[m.medication_id].recommendations[0]}</div>
-                                      </div>
-                                    ) : (
-                                      <div className="mt-2">
-                                        <button
-                                          type="button"
-                                          onClick={async () => {
-                                            if (!selectedId) return;
-                                            setMedRecommendations(prev => ({ ...prev, [m.medication_id]: { recommendations: [], loading: true } }));
-                                            try {
-                                              const res = await api.caregiverGetMedRecommendations(accountId, selectedId, m.medication_id);
-                                              setMedRecommendations(prev => ({ ...prev, [m.medication_id]: { recommendations: (res.recommendations || []).slice(0,1), confidence: res.confidence ?? null } }));
-                                            } catch (e) {
-                                              const localFallback: string[] = [];
-                                              if (isHighRisk) {
-                                                localFallback.push(`This is a high-risk medication. If multiple doses are missed or patient shows worrying symptoms, contact clinician immediately.`);
-                                                localFallback.push(`Check for signs like dizziness, bleeding, fainting or extreme thirst. Arrange clinician review if present.`);
-                                              } else if (st.missed > 0) {
-                                                localFallback.push(`Call ${detail.patient.name.split(' ')[0]} to check why ${m.name} was missed and whether they have it available.`);
-                                                localFallback.push(`Help them take the missed dose now only if it's within schedule; otherwise document and contact clinician.`);
-                                              } else {
-                                                localFallback.push(`Confirm ${m.name} supply and help set a reminder to take doses on time.`);
-                                                localFallback.push(`Check in tomorrow to ensure doses are taken as scheduled.`);
-                                              }
-                                              localFallback.push(`If supply is low or zero, request a refill or assist with pharmacy order.`);
-                                              setMedRecommendations(prev => ({ ...prev, [m.medication_id]: { recommendations: localFallback.slice(0,1), confidence: null } }));
-                                            }
-                                          }}
-                                          className="mt-2 inline-flex items-center rounded-2xl bg-[#3B6EF5] px-3 py-1 text-[13px] font-semibold text-white"
-                                        >
-                                          Get recommended next steps
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                  {urgent && (
-                                    <div className="mt-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setPendingRefillMedId(m.medication_id);
-                                          setConsequenceOpen(true);
-                                        }}
-                                        className="mt-2 w-full inline-flex items-center justify-center rounded-2xl bg-[#EF5A5A] px-4 py-2 text-[14px] font-semibold text-white shadow-sm"
-                                      >
-                                        Request urgent refill
-                                      </button>
-                                    </div>
-                                  )}
-                                </>
-                              )}
-                              {medViewMode === 'history' && (
-                                <div className="mt-2 text-[13px] text-[#344054]">
-                                  <p className="mb-1 text-[12px] text-[#98A2B3]">Recent events (7d)</p>
-                                  <ul className="list-disc pl-4">
-                                    {detail.dose_events.filter(ev => ev.medication_id === m.medication_id).slice(0,7).map(ev => (
-                                      <li key={ev.event_id} className="text-[13px]">{formatShortDate(ev.timestamp)} — {ev.response_status}</li>
-                                    ))}
-                                    {detail.dose_events.filter(ev => ev.medication_id === m.medication_id).length === 0 && <li className="text-[13px] text-[#98A2B3]">No events in the last 7 days.</li>}
-                                  </ul>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()
-                      )}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[12px] text-[#98A2B3]">{detail.medications.length > 0 ? ((medIndex % detail.medications.length) + 1) : '-'}/{detail.medications.length}</span>
+                        <button type="button" onClick={() => { if (detail.medications.length > 0) setMedIndex(i => (i + 1) % detail.medications.length); }} className="grid h-8 w-8 place-items-center rounded-full bg-slate-100">
+                          <ArrowRight size={14} className="text-[#3B6EF5]" />
+                        </button>
+                      </div>
                     </div>
-                    <ConsequenceModalCompact
-                      open={consequenceOpen}
-                      text={currentMed ? `Request urgent refill for ${currentMed.name}?` : 'Request urgent refill?'}
-                      onClose={() => { setConsequenceOpen(false); setPendingRefillMedId(null); }}
-                      onConfirm={async () => {
-                        if (!selectedId || !pendingRefillMedId) return;
-                        setConsequenceOpen(false);
-                        setActionLoading(pendingRefillMedId);
-                        try {
-                          await api.requestRefill(selectedId, pendingRefillMedId);
-                          const r = await api.getRefillStatus(selectedId);
-                          setRefillStatus(r.items);
-                          setRequestedMedIds((s) => Array.from(new Set([...s, pendingRefillMedId])));
-                          setActionSuccess(pendingRefillMedId);
-                          setTimeout(() => setActionSuccess(null), 2500);
-                        } catch (e) {
-                          // ignore
-                        } finally {
-                          setActionLoading(null);
-                          setPendingRefillMedId(null);
-                        }
-                      }}
-                    />
-                </ChartCard>
+                    {currentMed && (() => {
+                      const m = currentMed;
+                      const st = currentMedStats!;
+                      const status = refillStatus?.find(s => s.medication_id === m.medication_id);
+                      const expectedPerDay = (m.schedule?.times?.length ?? 1);
+                      const expected7d = expectedPerDay * 7;
+                      const adherencePct = expected7d > 0 ? Math.round((st.taken / expected7d) * 100) : 100;
+                      const isHighRisk = /(warfarin|insulin|anticoag)/i.test(m.name);
+                      const urgent = (status && (status.doses_remaining === 0 || status.is_low)) || (isHighRisk && st.missed > 0) || adherencePct < 50;
+
+                      let consequence = "";
+                      if (isHighRisk && st.missed > 0) {
+                        if (/insulin/i.test(m.name)) consequence = "Missed insulin can cause high blood sugar and dehydration; seek advice if unwell.";
+                        else if (/warfarin|anticoag/i.test(m.name)) consequence = "Missing anticoagulants increases clot/stroke risk — contact clinician promptly.";
+                        else consequence = "This is a high-risk medication — seek clinical advice if multiple doses missed.";
+                      } else if (st.missed > 0) {
+                        consequence = "Missed doses can reduce treatment effectiveness; encourage timely intake and monitor symptoms.";
+                      } else if (st.taken > expected7d) {
+                        consequence = "More doses than scheduled were recorded — check for duplicate intake or dosing confusion.";
+                      } else {
+                        consequence = "No immediate concerns — continue regular check-ins and monitor for changes.";
+                      }
+
+                      return (
+                        <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3">
+                          <div className="flex items-center justify-between">
+                            <div className="min-w-0">
+                              <p className="text-[14px] font-semibold text-[#1F2A37]">{m.name} · {m.dose_text}</p>
+                              <p className="mt-1 text-[12px] text-[#98A2B3]">Last taken: {formatShortDate(st.lastTaken)} · {st.taken} taken · {st.missed} missed · {st.late} late</p>
+                            </div>
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold ${urgent ? 'bg-[#FFF1F1] text-[#EF5A5A] border border-[#FFD8D8]' : 'bg-[#ECFDF3] text-[#15803D] border border-[#B7EACB]'}`}>{adherencePct}%</span>
+                          </div>
+                          {medViewMode === 'consequences' && (
+                            <>
+                              <p className="mt-2 text-[13px] text-[#344054]">• {consequence}</p>
+                              <div className="mt-2">
+                                {medRecommendations[m.medication_id]?.recommendations ? (
+                                  <div>
+                                    <p className="text-[12px] text-[#98A2B3]">Recommended next step:</p>
+                                    <p className="mt-1 text-[13px] text-[#344054]">• {medRecommendations[m.medication_id].recommendations[0]}</p>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (!selectedId) return;
+                                      setMedRecommendations(prev => ({ ...prev, [m.medication_id]: { recommendations: [], loading: true } }));
+                                      try {
+                                        const res = await api.caregiverGetMedRecommendations(accountId, selectedId, m.medication_id);
+                                        setMedRecommendations(prev => ({ ...prev, [m.medication_id]: { recommendations: (res.recommendations || []).slice(0,1), confidence: res.confidence ?? null } }));
+                                      } catch {
+                                        const localFallback: string[] = [];
+                                        if (isHighRisk) {
+                                          localFallback.push(`This is a high-risk medication. If multiple doses are missed, contact clinician immediately.`);
+                                        } else if (st.missed > 0) {
+                                          localFallback.push(`Call ${detail.patient.name.split(' ')[0]} to check why ${m.name} was missed.`);
+                                        } else {
+                                          localFallback.push(`Confirm ${m.name} supply and help set a reminder.`);
+                                        }
+                                        setMedRecommendations(prev => ({ ...prev, [m.medication_id]: { recommendations: localFallback.slice(0,1), confidence: null } }));
+                                      }
+                                    }}
+                                    className="inline-flex items-center gap-1 rounded-full bg-[#3B6EF5] px-3 py-1 text-[12px] font-semibold text-white"
+                                  >
+                                    <Sparkles size={10} /> Get next steps
+                                  </button>
+                                )}
+                              </div>
+                              {urgent && (
+                                <button
+                                  type="button"
+                                  onClick={() => { setPendingRefillMedId(m.medication_id); setConsequenceOpen(true); }}
+                                  className="mt-3 w-full rounded-xl bg-[#EF5A5A] px-4 py-2 text-[13px] font-semibold text-white shadow-sm"
+                                >
+                                  Request urgent refill
+                                </button>
+                              )}
+                            </>
+                          )}
+                          {medViewMode === 'history' && (
+                            <div className="mt-2">
+                              <p className="mb-1 text-[12px] text-[#98A2B3]">Recent events (7d)</p>
+                              <ul className="list-disc pl-4">
+                                {detail.dose_events.filter(ev => ev.medication_id === m.medication_id).slice(0,7).map(ev => (
+                                  <li key={ev.event_id} className="text-[13px] text-[#344054]">{formatShortDate(ev.timestamp)} — {ev.response_status}</li>
+                                ))}
+                                {detail.dose_events.filter(ev => ev.medication_id === m.medication_id).length === 0 && <li className="text-[13px] text-[#98A2B3]">No events in the last 7 days.</li>}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  <ConsequenceModalCompact
+                    open={consequenceOpen}
+                    text={currentMed ? `Request urgent refill for ${currentMed.name}?` : 'Request urgent refill?'}
+                    onClose={() => { setConsequenceOpen(false); setPendingRefillMedId(null); }}
+                    onConfirm={async () => {
+                      if (!selectedId || !pendingRefillMedId) return;
+                      setConsequenceOpen(false);
+                      setActionLoading(pendingRefillMedId);
+                      try {
+                        await api.requestRefill(selectedId, pendingRefillMedId);
+                        const r = await api.getRefillStatus(selectedId);
+                        setRefillStatus(r.items);
+                        setRequestedMedIds((s) => Array.from(new Set([...s, pendingRefillMedId])));
+                        setActionSuccess(pendingRefillMedId);
+                        setTimeout(() => setActionSuccess(null), 2500);
+                      } catch {} finally { setActionLoading(null); setPendingRefillMedId(null); }
+                    }}
+                  />
+                </div>
               </section>
 
-              {/* Appointment reminder */}
+              {/* ── Upcoming Appointment ── */}
               <section className="space-y-2">
-                <SectionTitle title="Upcoming Appointment" />
-                <ChartCard>
+                <div className="flex items-center gap-2">
+                  <Calendar size={14} className="text-[#3B6EF5]" />
+                  <SectionTitle title="Upcoming Appointment" />
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
                   {nextAppt ? (
                     <div className="flex items-start gap-3">
                       <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#EEF4FF]">
@@ -619,107 +787,55 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                   ) : (
                     <p className="text-[13px] text-[#98A2B3]">No upcoming appointments scheduled.</p>
                   )}
-                </ChartCard>
+                </div>
               </section>
 
-              {/* Caregiver support actions */}
-              <section className="space-y-2">
-                <SectionTitle title="Caregiver Actions" />
-                <QuickActionRow>
-                  <ActionTile
-                    icon={<Siren size={18} />}
-                    label={actionLoading === 'reminder' ? 'Sending…' : actionSuccess === 'reminder' ? 'Sent' : 'Send Reminder'}
-                    onClick={async () => {
-                      if (!selectedId || !detail || !account) return;
-                      // Prefill suggested message from AI briefing if available
-                      const suggested = briefing?.actions && briefing.actions.length > 0
-                        ? (typeof briefing.actions[0] === 'string' ? briefing.actions[0] : briefing.actions[0].text)
-                        : `Hi ${detail.patient.name}, this is ${account.name}. Have you taken your medication today?`;
+              {/* ── All Appointments List ── */}
+              {detail.appointments.length > 1 && (
+                <section className="space-y-2">
+                  <SectionTitle title="All Appointments" />
+                  <div className="rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+                    {detail.appointments.slice(0, 5).map((appt, i) => {
+                      const isPast = new Date(appt.datetime) < new Date();
+                      return (
+                        <div key={appt.appointment_id ?? i} className={`flex items-center gap-3 px-4 py-3 ${i > 0 ? "border-t border-slate-100" : ""}`}>
+                          <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${isPast ? 'bg-slate-100' : 'bg-[#EEF4FF]'}`}>
+                            <Calendar size={14} className={isPast ? 'text-[#98A2B3]' : 'text-[#3B6EF5]'} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className={`text-[13px] font-medium ${isPast ? 'text-[#98A2B3]' : 'text-[#1F2A37]'}`}>
+                              {new Date(appt.datetime).toLocaleDateString("en-SG", { weekday: "short", day: "numeric", month: "short" })}
+                              {" · "}
+                              {new Date(appt.datetime).toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit" })}
+                            </p>
+                            <p className="text-[12px] text-[#667085]">{appt.location}</p>
+                          </div>
+                          {isPast && <span className="text-[10px] font-medium text-[#98A2B3]">Past</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
 
-                      const message = window.prompt('Edit reminder message to send to patient:', suggested);
-                      if (message === null) return; // cancelled
-
-                      setActionLoading('reminder');
-                      try {
-                        // send as chat message (patient will receive notification)
-                        await api.postChat(selectedId, message);
-
-                        // Ask backend to generate a friendly voice-agent reply for the patient (no local playback)
-                        try {
-                          await api.postVoiceAgent(selectedId, message);
-                        } catch (err) {
-                          // ignore voice-agent errors
-                        }
-
-                        setActionSuccess('reminder');
-                        setTimeout(() => setActionSuccess(null), 2500);
-                      } catch (e) {
-                        // ignore
-                      } finally {
-                        setActionLoading(null);
-                      }
-                    }}
-                  />
-                  <ActionTile
-                    icon={<Phone size={18} />}
-                    label={actionLoading === 'call' ? 'Notifying…' : actionSuccess === 'call' ? 'Notified' : 'Call Patient'}
-                    onClick={async () => {
-                      if (!selectedId || !detail || !account) return;
-                      setActionLoading('call');
-                      try {
-                        const message = `${account.name} would like to call you. Are you available for a short call?`;
-                        await api.postChat(selectedId, message);
-                        setActionSuccess('call');
-                        setTimeout(() => setActionSuccess(null), 2500);
-                      } catch (e) {
-                        // ignore
-                      } finally {
-                        setActionLoading(null);
-                      }
-                    }}
-                  />
-                  <ActionTile
-                    icon={<Calendar size={18} />}
-                    label={actionLoading === 'visit' ? 'Requesting…' : actionSuccess === 'visit' ? 'Requested' : 'Book Visit'}
-                    onClick={async () => {
-                      if (!selectedId || !detail || !account) return;
-                      setActionLoading('visit');
-                      try {
-                        const message = `${account.name} would like to schedule a visit this week. Are you available?`;
-                        await api.postChat(selectedId, message);
-                        setActionSuccess('visit');
-                        setTimeout(() => setActionSuccess(null), 2500);
-                      } catch (e) {
-                        // ignore
-                      } finally {
-                        setActionLoading(null);
-                      }
-                    }}
-                  />
-                </QuickActionRow>
-              </section>
-
-              {/* AI Caregiver Briefing — What to do today */}
+              {/* ── AI Caregiver Briefing — What to do today ── */}
               <section className="space-y-2">
                 <div className="flex items-center gap-2">
+                  <Sparkles size={14} className="text-[#3B6EF5]" />
                   <SectionTitle title="What to do today" />
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[#EEF4FF] px-2 py-0.5 text-[10px] font-bold text-[#3B6EF5]">
-                    <Sparkles size={9} />
-                    AI
-                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#EEF4FF] px-2 py-0.5 text-[10px] font-bold text-[#3B6EF5]">AI</span>
                 </div>
 
                 {briefingLoading && (
-                  <div className="flex items-center gap-2 rounded-2xl border border-[#E9EEF7] bg-white px-4 py-4 text-[13px] text-[#98A2B3]">
+                  <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-[13px] text-[#98A2B3]">
                     <Sparkles size={14} className="animate-pulse text-[#3B6EF5]" />
                     Generating personalised action plan…
                   </div>
                 )}
 
                 {!briefingLoading && (briefing ?? fallbackSuggestions.length > 0) && (
-                  <section className="overflow-hidden rounded-2xl border border-[#D8E5FF] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-                    {/* Header row */}
-                    <div className="flex items-center justify-between border-b border-[#E9EEF7] px-4 py-3">
+                  <div className="overflow-hidden rounded-2xl border border-[#D8E5FF] bg-white shadow-[0_2px_8px_rgba(16,24,40,0.06)]">
+                    <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
                       <div className="flex items-center gap-2">
                         <Sparkles size={14} className="text-[#3B6EF5]" />
                         <span className="text-[13px] font-semibold text-[#1F2A37]">
@@ -737,34 +853,30 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                         <p className="text-[13px] text-[#475467]">{briefing.today_summary}</p>
                       </div>
                     )}
-
                     {briefing?.monitoring && briefing.monitoring.length > 0 && (
-                      <div className="px-4 py-2 border-t border-[#E9EEF7]">
+                      <div className="border-t border-slate-100 px-4 py-3">
                         <p className="text-[12px] font-semibold text-[#98A2B3]">Monitor</p>
-                        <ul className="mt-2 space-y-1">
+                        <ul className="mt-1.5 space-y-1">
                           {briefing.monitoring.map((m, idx) => (
                             <li key={idx} className="text-[13px] text-[#344054]">• {m}</li>
                           ))}
                         </ul>
                       </div>
                     )}
-
                     {briefing?.escalations && briefing.escalations.length > 0 && (
-                      <div className="px-4 py-2 border-t border-[#E9EEF7]">
+                      <div className="border-t border-slate-100 px-4 py-3">
                         <p className="text-[12px] font-semibold text-[#98A2B3]">Escalation Suggestions</p>
-                        <ul className="mt-2 space-y-1">
+                        <ul className="mt-1.5 space-y-1">
                           {briefing.escalations.map((e, idx) => (
-                            <li key={idx} className="text-[13px] text-[#84454]">• {e}</li>
+                            <li key={idx} className="text-[13px] text-[#344054]">• {e}</li>
                           ))}
                         </ul>
                       </div>
                     )}
-
-                    {/* Action bullets */}
                     {(briefing?.actions ?? fallbackSuggestions).map((action: any, i: number) => {
                       const text = typeof action === "string" ? action : action?.text || JSON.stringify(action);
                       return (
-                        <div key={i} className={`flex items-start gap-3 px-4 py-3 ${i > 0 ? "border-t border-[#E9EEF7]" : ""}`}>
+                        <div key={i} className={`flex items-start gap-3 px-4 py-3 ${i > 0 ? "border-t border-slate-100" : "border-t border-slate-100"}`}>
                           <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#3B6EF5] text-[10px] font-bold text-white">
                             {i + 1}
                           </div>
@@ -777,37 +889,40 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                         </div>
                       );
                     })}
-                  </section>
+                  </div>
                 )}
               </section>
 
-              {/* Prominent banner when caregiver_alert fired within last 2 days */}
+              {/* ── Caregiver Alert Banner ── */}
               {(() => {
                 const latestAlert = detail.interventions.find(iv => iv.action_type === "caregiver_alert");
                 if (!latestAlert) return null;
                 const daysDiff = (Date.now() - new Date(latestAlert.timestamp).getTime()) / (1000 * 60 * 60 * 24);
                 if (daysDiff > 2) return null;
                 return (
-                  <div className="flex items-start gap-3 rounded-xl bg-red-50 border border-red-200 px-4 py-3">
-                    <Siren size={16} className="text-red-500 mt-0.5 shrink-0" />
+                  <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
+                    <Siren size={16} className="mt-0.5 shrink-0 text-red-500" />
                     <div>
                       <p className="text-[13px] font-bold text-red-700">Action Required</p>
                       <p className="text-[12px] text-red-600">
                         {latestAlert.message || "This patient's medication adherence needs your attention."}
                       </p>
-                      <p className="text-[11px] text-red-400 mt-0.5">{new Date(latestAlert.timestamp).toLocaleDateString("en-SG")}</p>
+                      <p className="mt-0.5 text-[11px] text-red-400">{new Date(latestAlert.timestamp).toLocaleDateString("en-SG")}</p>
                     </div>
                   </div>
                 );
               })()}
 
-              {/* Recent system alerts from orchestrator */}
+              {/* ── Recent Alerts ── */}
               {detail.interventions.length > 0 && (
                 <section className="space-y-2">
-                  <SectionTitle title="Recent Alerts" />
-                  <section className="overflow-hidden rounded-2xl border border-[#E9EEF7] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle size={14} className="text-[#E7A93B]" />
+                    <SectionTitle title="Recent Alerts" />
+                  </div>
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
                     {detail.interventions.slice(0, 5).map((iv, i) => (
-                      <div key={iv.intervention_id ?? i} className={`flex items-start gap-3 px-4 py-3 ${i > 0 ? "border-t border-[#E9EEF7]" : ""}`}>
+                      <div key={iv.intervention_id ?? i} className={`flex items-start gap-3 px-4 py-3 ${i > 0 ? "border-t border-slate-100" : ""}`}>
                         <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#FFF8E8]">
                           <Siren size={13} className="text-[#E7A93B]" />
                         </div>
@@ -815,24 +930,23 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                           <p className="text-[13px] font-semibold capitalize text-[#344054]">
                             {iv.action_type.replace(/_/g, " ")}
                           </p>
-                          {iv.reason && (
-                            <p className="text-[12px] text-[#667085]">{iv.reason}</p>
-                          )}
-                          <p className="text-[11px] text-[#C0C8D6]">
-                            {new Date(iv.timestamp).toLocaleDateString("en-SG")}
-                          </p>
+                          {iv.reason && <p className="text-[12px] text-[#667085]">{iv.reason}</p>}
+                          <p className="text-[11px] text-[#C0C8D6]">{new Date(iv.timestamp).toLocaleDateString("en-SG")}</p>
                         </div>
                       </div>
                     ))}
-                  </section>
+                  </div>
                 </section>
               )}
 
-              {/* Memory & Focus Check */}
+              {/* ── Memory & Focus Check ── */}
               {detail.memory_check && detail.memory_check.session_count > 0 && (
                 <section className="space-y-2">
-                  <SectionTitle title="Memory & Focus Check" />
-                  <section className="overflow-hidden rounded-2xl border border-[#E9EEF7] bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+                  <div className="flex items-center gap-2">
+                    <BrainCircuit size={14} className="text-[#3B6EF5]" />
+                    <SectionTitle title="Memory & Focus Check" />
+                  </div>
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <BrainCircuit size={16} className="text-[#3B6EF5]" />
@@ -846,15 +960,15 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                         tone={detail.memory_check.alert_pattern ? "red" : "success"}
                       />
                     </div>
-                    {detail.memory_check.alert_pattern ? (
-                      <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                    {detail.memory_check.alert_pattern && (
+                      <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2">
                         <p className="text-[12px] font-semibold text-red-700">Cognitive Pattern Detected</p>
                         <p className="text-[11px] text-red-600">
                           {detail.memory_check.recent_lower_count} of last 5 check-ins scored lower than usual.
                           The clinician has been notified.
                         </p>
                       </div>
-                    ) : null}
+                    )}
                     <div className="mt-3 space-y-1.5">
                       {detail.memory_check.sessions.slice(0, 5).map((s) => (
                         <div key={s.session_id} className="flex items-center justify-between text-[12px]">
@@ -865,14 +979,14 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                         </div>
                       ))}
                     </div>
-                  </section>
+                  </div>
                 </section>
               )}
             </>
           )}
 
           {!loading && patients.length === 0 && !error && (
-            <div className="rounded-2xl border border-[#E9EEF7] bg-white p-8 text-center">
+            <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
               <Users size={32} className="mx-auto mb-3 text-[#C0C8D6]" />
               <p className="text-[14px] font-semibold text-[#344054]">No patients linked</p>
               <p className="mt-1 text-[12px] text-[#98A2B3]">
@@ -881,9 +995,145 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
             </div>
           )}
 
+          </>}
+
+          {/* ══ PROFILE TAB ══ */}
+          {activeTab === "profile" && (
+            <div className="space-y-4">
+              {/* Profile header */}
+              <section className="flex flex-col items-center pb-1 pt-2">
+                <div className="grid h-24 w-24 place-items-center rounded-full border-4 border-white bg-gradient-to-br from-blue-100 to-blue-200 shadow-[0_10px_30px_rgba(15,23,42,0.12)]">
+                  <User size={36} className="text-[#3B6EF5]" />
+                </div>
+                <div className="mt-4 text-center">
+                  <h2 className="text-[1.65rem] font-bold leading-tight tracking-tight text-slate-900">
+                    {account.name}
+                  </h2>
+                  <p className="mt-1 text-sm font-medium text-slate-500">Caregiver · ID: {accountId}</p>
+                </div>
+              </section>
+
+              {/* Personal info */}
+              <section className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex items-center gap-2">
+                  <User size={20} className="text-[#3670e2]" />
+                  <h3 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Personal Information</h3>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Role</p>
+                    <p className="mt-1 text-sm font-medium text-slate-900">Caregiver</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Patients</p>
+                    <p className="mt-1 text-sm font-medium text-slate-900">{patients.length}</p>
+                  </div>
+                  {account.email && (
+                    <div className="col-span-2">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Email</p>
+                      <p className="mt-1 text-sm font-medium text-slate-900">{account.email}</p>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* Patient overview */}
+              {patients.length > 0 && (
+                <section className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-4 flex items-center gap-2">
+                    <FileText size={20} className="text-[#3670e2]" />
+                    <h3 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">Patients Under Care</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {patients.map(p => (
+                      <div key={p.user_id} className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-slate-900">{p.name}</p>
+                          <p className="text-[12px] text-slate-500">Age {p.age} · {p.medication_count} medication{p.medication_count !== 1 ? "s" : ""}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => { setActiveTab("home"); setSelectedId(p.user_id); }}
+                          className="rounded-full bg-[#EEF4FF] px-3 py-1 text-[12px] font-semibold text-[#3B6EF5]"
+                        >
+                          View
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* App settings */}
+              <section className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
+                <div className="border-b border-slate-100 px-5 py-4">
+                  <h3 className="text-[1.05rem] font-bold leading-none tracking-tight text-slate-900">App Settings</h3>
+                </div>
+                <div className="flex flex-col">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("home")}
+                    className="flex items-center justify-between border-b border-slate-50 px-5 py-4 text-left transition hover:bg-slate-50"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Home size={20} className="text-slate-400" />
+                      <span className="text-sm font-medium text-slate-700">Dashboard</span>
+                    </div>
+                    <ChevronRight size={18} className="text-slate-300" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sessionStorage.removeItem("bytecare_account");
+                      localStorage.removeItem("bytecare_account");
+                      router.replace("/auth/signin");
+                    }}
+                    className="flex items-center justify-between px-5 py-4 text-left transition hover:bg-red-50"
+                  >
+                    <div className="flex items-center gap-3">
+                      <LogOut size={20} className="text-red-500" />
+                      <span className="text-sm font-bold text-red-500">Log Out</span>
+                    </div>
+                  </button>
+                </div>
+              </section>
+            </div>
+          )}
+
         </section>
 
-        <TabBar tabs={tabs} active="dashboard" containerRef={shellRef} />
+        {/* ── Bottom nav (matches patient page exactly) ── */}
+        <div
+          ref={bottomNavRef}
+          className="pointer-events-none fixed bottom-0 z-50 pb-[max(env(safe-area-inset-bottom),0px)]"
+          style={bottomNavBounds ? { left: `${bottomNavBounds.left}px`, width: `${bottomNavBounds.width}px` } : undefined}
+        >
+          <div className="w-full">
+            <nav className="tc-bottom-nav pointer-events-auto flex w-full items-center justify-between border-t border-slate-200 bg-white px-6 pb-6 pt-2">
+              <button
+                type="button"
+                className="group flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition"
+                onClick={() => setActiveTab("home")}
+              >
+                <span className={activeTab === "home" ? "text-blue-500" : "text-slate-400 group-hover:text-blue-500"}>
+                  <Home size={activeTab === "home" ? 24 : 22} strokeWidth={activeTab === "home" ? 2.15 : 1.95} />
+                </span>
+                <span className={`text-[11px] ${activeTab === "home" ? "font-medium text-blue-500" : "font-normal text-slate-400 group-hover:text-blue-500"}`}>Home</span>
+              </button>
+              <button
+                type="button"
+                className="group flex flex-1 flex-col items-center gap-1 rounded-xl px-3 py-1.5 transition"
+                onClick={() => setActiveTab("profile")}
+              >
+                <span className={activeTab === "profile" ? "text-blue-500" : "text-slate-400 group-hover:text-blue-500"}>
+                  <User size={activeTab === "profile" ? 24 : 22} strokeWidth={activeTab === "profile" ? 2.15 : 1.95} />
+                </span>
+                <span className={`text-[11px] ${activeTab === "profile" ? "font-medium text-blue-500" : "font-normal text-slate-400 group-hover:text-blue-500"}`}>Profile</span>
+              </button>
+            </nav>
+          </div>
+        </div>
       </div>
     </main>
   );
