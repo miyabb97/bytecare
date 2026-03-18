@@ -820,6 +820,50 @@ export default function ClinicianDashboardPage() {
               </div>
             </div>
           </header>
+        ) : tab === "ai-insights" ? (
+          <header className="sticky top-0 z-20 border-b border-[#E9EEF7] bg-white/90 px-4 pb-2 pt-6 backdrop-blur-md">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 place-items-center rounded-full bg-[#3670e2]/10 text-[#3670e2]">
+                  <BrainCircuit size={18} strokeWidth={2.1} />
+                </div>
+                <h1 className="text-[1.75rem] font-bold tracking-[-0.03em] text-[#1F2A37]">AI Insights</h1>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  style={{ width: "auto", marginTop: 0, background: "transparent", padding: "0.5rem" }}
+                  className="rounded-full text-[#667085] transition hover:bg-slate-100"
+                  onClick={() => setTab("profile")}
+                  aria-label="Open profile"
+                >
+                  <Bell size={18} />
+                </button>
+              </div>
+            </div>
+          </header>
+        ) : tab === "profile" ? (
+          <header className="sticky top-0 z-20 border-b border-[#E9EEF7] bg-white/90 px-4 pb-2 pt-6 backdrop-blur-md">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 place-items-center rounded-full bg-[#3670e2]/10 text-[#3670e2]">
+                  <UserRound size={18} strokeWidth={2.1} />
+                </div>
+                <h1 className="text-[1.75rem] font-bold tracking-[-0.03em] text-[#1F2A37]">Profile</h1>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  style={{ width: "auto", marginTop: 0, background: "transparent", padding: "0.5rem" }}
+                  className="rounded-full text-[#667085] transition hover:bg-slate-100"
+                  onClick={() => setTab("patients")}
+                  aria-label="Back to patients"
+                >
+                  <Bell size={18} />
+                </button>
+              </div>
+            </div>
+          </header>
         ) : (
           <Header
             title="ByteCare - Clinician"
