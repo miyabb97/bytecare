@@ -1964,44 +1964,44 @@ export default function ClinicianDashboardPage() {
                           className={`mt-0 flex h-11 flex-1 items-center justify-center rounded-lg px-4 text-sm font-semibold ${patient.riskTone === "red"
                             ? "bg-[#3670e2] text-white"
                             : "bg-slate-100 text-slate-700"
-                        }`}
-                      >
-                        View Care Plan
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleUnassign(patient.summary.user_id)}
-                        className="mt-0 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-600"
-                        aria-label={`Remove ${patient.summary.name}`}
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                            }`}
+                        >
+                          View Care Plan
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleUnassign(patient.summary.user_id)}
+                          className="mt-0 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-600"
+                          aria-label={`Remove ${patient.summary.name}`}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+
+                  {!loading && remainingPatients.length === 0 ? (
+                    <div className="rounded-xl border border-slate-100 bg-white p-4 text-sm text-[#667085] shadow-sm">
+                      {patients.length === 0
+                        ? "No assigned patients yet. Use the add button to start a care plan."
+                        : filteredPatients.length > 0
+                          ? "All matching patients are already shown in the priority watchlist."
+                          : "No patients match the current search or filter."}
                     </div>
-                  </article>
-                ))}
+                  ) : null}
+                </div>
+              </>
+            ) : null}
 
-                {!loading && remainingPatients.length === 0 ? (
-                  <div className="rounded-xl border border-slate-100 bg-white p-4 text-sm text-[#667085] shadow-sm">
-                    {patients.length === 0
-                      ? "No assigned patients yet. Use the add button to start a care plan."
-                      : filteredPatients.length > 0
-                        ? "All matching patients are already shown in the priority watchlist."
-                        : "No patients match the current search or filter."}
-                  </div>
+            {tab === "care-plan" ? (
+              <>
+                {!selectedPatientId ? (
+                  <ChartCard>
+                    <p className="text-sm text-[#667085]">Select a patient in Patients tab to set up their care plan.</p>
+                  </ChartCard>
                 ) : null}
-              </div>
-            </>
-          ) : null}
 
-          {tab === "care-plan" ? (
-            <>
-              {!selectedPatientId ? (
-                <ChartCard>
-                  <p className="text-sm text-[#667085]">Select a patient in Patients tab to set up their care plan.</p>
-                </ChartCard>
-              ) : null}
-
-              {loading ? <p className="text-sm text-[#667085]">Loading care plan...</p> : null}
+                {loading ? <p className="text-sm text-[#667085]">Loading care plan...</p> : null}
 
                 {selectedPatientId && detail ? (
                   <>
