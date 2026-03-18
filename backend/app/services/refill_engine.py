@@ -69,7 +69,7 @@ def compute_refill_status(user_id: str) -> List[Dict[str, Any]]:
             remaining = max(0, total_supply - taken_count)
             dpd = _doses_per_day(med.schedule)
             days_remaining = round(remaining / dpd, 1) if dpd > 0 else None
-            is_low = days_remaining is not None and days_remaining <= 7
+            is_low = remaining < 20
             needs_refill = days_remaining is not None and days_remaining <= 3
 
             results.append({

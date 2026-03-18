@@ -17,35 +17,40 @@
             "dose_text": "20 units at bedtime",
             "schedule": { "frequency": "once_daily", "times": ["22:00"] },
             "time_window_minutes": 120,
-            "criticality": "high"
+            "criticality": "high",
+            "total_supply": 50
         },
         {
             "name": "metformin 500 MG Oral Tablet",
             "dose_text": "500mg twice daily",
             "schedule": { "frequency": "twice_daily", "times": ["08:00", "20:00"] },
             "time_window_minutes": 120,
-            "criticality": "high"
+            "criticality": "high",
+            "total_supply": 50
         },
         {
             "name": "aspirin 100 MG Oral Tablet",
             "dose_text": "100mg once daily",
             "schedule": { "frequency": "once_daily", "times": ["08:00"] },
             "time_window_minutes": 180,
-            "criticality": "medium"
+            "criticality": "medium",
+            "total_supply": 50
         },
         {
             "name": "amLODIPine 5 MG Oral Tablet",
             "dose_text": "5mg once daily",
             "schedule": { "frequency": "once_daily", "times": ["08:00"] },
             "time_window_minutes": 120,
-            "criticality": "high"
+            "criticality": "high",
+            "total_supply": 50
         },
         {
             "name": "atorvastatin 20 MG Oral Tablet",
             "dose_text": "20mg at night",
             "schedule": { "frequency": "once_daily", "times": ["22:00"] },
             "time_window_minutes": 120,
-            "criticality": "medium"
+            "criticality": "medium",
+            "total_supply": 50
         }
     ],
     "appointments": [

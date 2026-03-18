@@ -18,35 +18,40 @@
             "dose_text": "10mg once daily",
             "schedule": { "frequency": "once_daily", "times": ["08:00"] },
             "time_window_minutes": 120,
-            "criticality": "high"
+            "criticality": "high",
+            "total_supply": 30
         },
         {
             "name": "hydrochlorothiazide 25 MG Oral Tablet",
             "dose_text": "25mg once daily",
             "schedule": { "frequency": "once_daily", "times": ["08:00"] },
             "time_window_minutes": 120,
-            "criticality": "high"
+            "criticality": "high",
+            "total_supply": 30
         },
         {
             "name": "metoprolol 50 MG Oral Tablet",
             "dose_text": "50mg twice daily",
             "schedule": { "frequency": "twice_daily", "times": ["08:00", "20:00"] },
             "time_window_minutes": 120,
-            "criticality": "high"
+            "criticality": "high",
+            "total_supply": 30
         },
         {
             "name": "metformin 500 MG Oral Tablet",
             "dose_text": "500mg once daily",
             "schedule": { "frequency": "once_daily", "times": ["08:00"] },
             "time_window_minutes": 120,
-            "criticality": "medium"
+            "criticality": "medium",
+            "total_supply": 30
         },
         {
             "name": "lorazepam 0.5 MG Oral Tablet",
             "dose_text": "0.5mg as needed",
             "schedule": { "frequency": "as_needed", "times": [] },
             "time_window_minutes": 240,
-            "criticality": "medium"
+            "criticality": "medium",
+            "total_supply": 30
         }
     ],
     "appointments": [

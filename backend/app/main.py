@@ -493,6 +493,7 @@ class MedicationCreate(BaseModel):
     schedule: Schedule
     time_window_minutes: int = 120
     criticality: Literal["low", "medium", "high"] = "medium"
+    total_supply: int = 0
 
 
 class MedicationOut(BaseModel):
@@ -924,6 +925,7 @@ def add_medication(user_id: str, payload: MedicationCreate, account_id: Optional
         schedule_json=json.dumps(payload.schedule.model_dump()),
         time_window_minutes=payload.time_window_minutes,
         criticality=payload.criticality,
+        total_supply=payload.total_supply,
         created_at=now_iso(),
     )
     db.add(med)

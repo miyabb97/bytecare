@@ -56,6 +56,7 @@ def seed_patient(seed_path: Path) -> str:
             "schedule": med["schedule"],
             "time_window_minutes": med.get("time_window_minutes", 120),
             "criticality": med.get("criticality", "medium"),
+            "total_supply": med.get("total_supply", 0),
         }
         post_json(f"/users/{user_id}/medications", med_payload)
         print(f"      Medication: {med['name']}")

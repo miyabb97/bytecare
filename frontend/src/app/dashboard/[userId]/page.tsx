@@ -712,6 +712,7 @@ export default function DashboardPage() {
   const [supplyLoading, setSupplyLoading] = useState<string | null>(null);
   const [refillCheckLoading, setRefillCheckLoading] = useState(false);
   const [refillOrdered, setRefillOrdered] = useState<Record<string, boolean>>({});
+  const [refillPopup, setRefillPopup] = useState(false);
 
   // True when the user should not edit the care plan (caregiver or clinician-locked patient)
   const carePlanReadOnly = carePlanLocked || accountRole === "caregiver";
@@ -1675,32 +1676,8 @@ export default function DashboardPage() {
     if (!userId) return;
     setRefillCheckLoading(true);
     try {
-      const result = await api.runRefillCheck(userId);
-      const [statusRes, countRes] = await Promise.all([
-        api.getRefillStatus(userId),
-        api.getUnreadCount(userId),
-      ]);
+      const statusRes = await api.getRefillStatus(userId);
       setRefillStatus(statusRes.items);
-      setUnreadCount(countRes.unread_count);
-
-      if (result.triggered && result.low_medications?.length > 0) {
-        // Inject the system message into chat and navigate there
-        const msgText = (result as any).message ??
-          `Refill Reminder:\n${result.low_medications.join(", ")} running low. Please arrange a refill soon.`;
-        setChatMessages((prev) => {
-          const withoutRefill = prev.filter((m) => !(m.sender === "system" && m.text.includes("Refill")));
-          return [{
-            id: Date.now(),
-            sender: "system" as const,
-            text: msgText,
-            originalText: msgText,
-            timestamp: new Date(),
-          }, ...withoutRefill];
-        });
-        // Reset chatLoadedRef so the latest message is fetched from DB too
-        chatLoadedRef.current = false;
-        setActiveTab("chat");
-      }
     } catch { /* ignore */ } finally {
       setRefillCheckLoading(false);
     }
@@ -1787,6 +1764,28 @@ export default function DashboardPage() {
 
   return (
     <main className="flex min-h-screen justify-center bg-slate-100">
+      {/* Refill Requested Popup */}
+      {refillPopup ? (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 px-6">
+          <div className="w-full max-w-xs rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex flex-col items-center gap-3 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50">
+                <CheckCircle2 className="text-emerald-500" size={32} />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900">Requested!</h3>
+              <p className="text-sm leading-relaxed text-slate-500">Your refill request has been sent. The care team will arrange your medication soon.</p>
+              <button
+                type="button"
+                className="mt-2 w-full rounded-2xl bg-[#3670e2] px-4 py-3 text-sm font-semibold text-white shadow-[0_10px_20px_rgba(54,112,226,0.2)] transition hover:bg-[#2f62ca]"
+                onClick={() => setRefillPopup(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div
         ref={shellRef}
         className={`relative min-h-screen w-full max-w-md bg-slate-50 ${
@@ -3118,10 +3117,11 @@ export default function DashboardPage() {
                                         try {
                                           await api.requestRefill(userId, item.medication_id);
                                           setRefillOrdered((prev) => ({ ...prev, [item.medication_id]: true }));
+                                          setRefillPopup(true);
                                         } catch { }
                                       }}
                                     >
-                                      {refillOrdered[item.medication_id] ? "Sent to Clinician" : "Order Refill"}
+                                      {refillOrdered[item.medication_id] ? "Requested" : "Order Refill"}
                                     </button>
                                   ) : null}
                                 </div>
@@ -3167,7 +3167,7 @@ export default function DashboardPage() {
                       <div className="flex gap-3 rounded-[1.5rem] border border-blue-100 bg-blue-50 p-4">
                         <Info className="mt-0.5 shrink-0 text-[#3670e2]" size={18} />
                         <p className="text-xs leading-relaxed text-slate-600">
-                          Running low. Tap <span className="font-semibold text-[#3670e2]">Check</span> to refresh your supply status, or <span className="font-semibold text-[#3670e2]">Order Refill</span> to send a refill request.
+                          Some medications are running low. Tap <span className="font-semibold text-[#3670e2]">Order Refill</span> next to the medication to send a refill request.
                         </p>
                       </div>
                     ) : null}

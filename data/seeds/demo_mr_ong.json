@@ -18,28 +18,32 @@
             "dose_text": "5mg once daily",
             "schedule": { "frequency": "once_daily", "times": ["18:00"] },
             "time_window_minutes": 60,
-            "criticality": "high"
+            "criticality": "high",
+            "total_supply": 50
         },
         {
             "name": "atenolol 50 MG Oral Tablet",
             "dose_text": "50mg once daily",
             "schedule": { "frequency": "once_daily", "times": ["08:00"] },
             "time_window_minutes": 120,
-            "criticality": "high"
+            "criticality": "high",
+            "total_supply": 50
         },
         {
             "name": "simvastatin 20 MG Oral Tablet",
             "dose_text": "20mg at night",
             "schedule": { "frequency": "once_daily", "times": ["22:00"] },
             "time_window_minutes": 120,
-            "criticality": "medium"
+            "criticality": "medium",
+            "total_supply": 50
         },
         {
             "name": "sertraline 50 MG Oral Tablet",
             "dose_text": "50mg once daily",
             "schedule": { "frequency": "once_daily", "times": ["08:00"] },
             "time_window_minutes": 120,
-            "criticality": "medium"
+            "criticality": "medium",
+            "total_supply": 50
         }
     ],
     "appointments": [
