@@ -230,6 +230,12 @@ def _seed_demo_patients(db) -> None:
     # --- Seed demo caregivers and link to patients ---
     _seed_demo_caregivers(db)
 
+    # --- Assign all demo patients to Dr Chan ---
+    _seed_clinician_assignments(db)
+
+    # --- Seed memory check sessions for demo patients ---
+    _seed_memory_check_sessions(db)
+
 
 def _seed_demo_caregivers(db) -> None:
     """Create demo caregiver accounts and link each to a demo patient."""
@@ -278,3 +284,229 @@ def _seed_demo_caregivers(db) -> None:
                 patient_user.caregiver_id = cg_user_id
 
         db.commit()
+
+
+def _seed_clinician_assignments(db) -> None:
+    """Assign all 3 demo patients to Dr Chan."""
+    from app.models import Account, User
+
+    clinician_account = db.query(Account).filter_by(email="drchan@bytecare.com").first()
+    if not clinician_account:
+        return
+    clinician_user = db.query(User).filter_by(account_id=clinician_account.account_id).first()
+    if not clinician_user:
+        return
+
+    for email in ["mdm.lim@demo.com", "mr.ong@demo.com", "mrs.wong@demo.com"]:
+        patient_account = db.query(Account).filter_by(email=email).first()
+        if not patient_account:
+            continue
+        patient_user = db.query(User).filter_by(account_id=patient_account.account_id).first()
+        if patient_user and not patient_user.assigned_clinician_id:
+            patient_user.assigned_clinician_id = clinician_user.user_id
+
+    db.commit()
+
+
+def _seed_memory_check_sessions(db) -> None:
+    """Seed memory check history for the 3 demo patients.
+
+    - Mdm Lim & Mr Ong: good scores (2-3), all within_range
+    - Mrs Wong: bad scores (0-1), mostly slightly_lower → triggers cognitive alert
+    """
+    import json
+    from datetime import datetime as _dt, timedelta
+    from uuid import uuid4 as _uuid4
+
+    from app.models import Account, ChatMessage, InterventionLog, MemoryCheckSession, User
+
+    # Only seed once — check if any memory sessions already exist for a demo patient
+    mdm_lim_account = db.query(Account).filter_by(email="mdm.lim@demo.com").first()
+    if not mdm_lim_account:
+        return
+    mdm_lim_user = db.query(User).filter_by(account_id=mdm_lim_account.account_id).first()
+    if not mdm_lim_user:
+        return
+    existing = db.query(MemoryCheckSession).filter_by(user_id=mdm_lim_user.user_id).first()
+    if existing:
+        return  # already seeded
+
+    # Look up all 3 patients
+    patients = {}
+    for email, key in [("mdm.lim@demo.com", "mdm_lim"), ("mr.ong@demo.com", "mr_ong"), ("mrs.wong@demo.com", "mrs_wong")]:
+        acct = db.query(Account).filter_by(email=email).first()
+        if acct:
+            user = db.query(User).filter_by(account_id=acct.account_id).first()
+            if user:
+                patients[key] = user
+
+    if len(patients) < 3:
+        return
+
+    now = _dt.utcnow()
+
+    # ---- Helper to create a session ----
+    def _make_session(user_id, day_offset, orient_q, orient_hint, orient_ans, orient_correct,
+                      recall_words, recall_ans, recall_correct,
+                      attn_q, attn_expected, attn_ans, attn_correct,
+                      score, status):
+        ts = (now - timedelta(days=day_offset, hours=10)).isoformat(timespec="seconds")
+        questions = [
+            {"type": "orientation", "question": orient_q, "answer_hint": orient_hint},
+            {"type": "recall", "question": f"Remember these three words: {', '.join(recall_words)}.", "words": recall_words},
+            {"type": "attention", "question": attn_q, "answer": attn_expected},
+        ]
+        expected = [orient_ans, ", ".join(recall_words), attn_expected]
+        responses = [
+            orient_ans if orient_correct else "I'm not sure",
+            recall_ans,
+            attn_ans,
+        ]
+        insight = ("Great job today! Your focus is looking steady. Keep it up!"
+                   if status == "within_range"
+                   else "A little harder than usual today \u2014 that\u2019s okay. Everyone has off days!")
+        return MemoryCheckSession(
+            session_id=str(_uuid4()),
+            user_id=user_id,
+            questions_json=json.dumps(questions),
+            expected_answers_json=json.dumps(expected),
+            user_responses_json=json.dumps(responses),
+            score=score,
+            status=status,
+            insight=insight,
+            completed=1,
+            created_at=ts,
+        )
+
+    # ======================================================================
+    # Mdm Lim — GOOD data: scores 2-3, all within_range
+    # ======================================================================
+    mdm_id = patients["mdm_lim"].user_id
+    mdm_sessions = [
+        _make_session(mdm_id, 7, "What day of the week is it today?", "day_of_week", "tuesday", True,
+                      ["apple", "table", "penny"], "apple, table, penny", True,
+                      "What is 20 minus 7?", "13", "13", True, 3, "within_range"),
+        _make_session(mdm_id, 6, "What month are we in right now?", "current_month", "march", True,
+                      ["river", "chair", "sunset"], "river, chair", True,
+                      "What is 15 plus 8?", "23", "23", True, 3, "within_range"),
+        _make_session(mdm_id, 5, "What year is it?", "current_year", "2026", True,
+                      ["garden", "blanket", "orange"], "garden, blanket, orange", True,
+                      "What is 30 minus 12?", "18", "18", True, 3, "within_range"),
+        _make_session(mdm_id, 4, "What day of the week is it today?", "day_of_week", "saturday", True,
+                      ["window", "rabbit", "candle"], "window, rabbit", True,
+                      "What is 9 plus 14?", "23", "23", True, 3, "within_range"),
+        _make_session(mdm_id, 3, "What month are we in right now?", "current_month", "march", True,
+                      ["mountain", "pencil", "basket"], "mountain, pencil", True,
+                      "What is 50 minus 17?", "33", "30", False, 2, "within_range"),
+        _make_session(mdm_id, 2, "What year is it?", "current_year", "2026", True,
+                      ["ocean", "pillow", "lemon"], "ocean, pillow, lemon", True,
+                      "What is 7 plus 6?", "13", "13", True, 3, "within_range"),
+        _make_session(mdm_id, 1, "What day of the week is it today?", "day_of_week", "tuesday", True,
+                      ["forest", "bottle", "clock"], "forest, bottle, clock", True,
+                      "What is 100 minus 7?", "93", "93", True, 3, "within_range"),
+    ]
+
+    # ======================================================================
+    # Mr Ong — GOOD data: scores 2-3, all within_range
+    # ======================================================================
+    ong_id = patients["mr_ong"].user_id
+    ong_sessions = [
+        _make_session(ong_id, 7, "What month are we in right now?", "current_month", "march", True,
+                      ["bridge", "mirror", "cherry"], "bridge, mirror, cherry", True,
+                      "What is 20 minus 7?", "13", "13", True, 3, "within_range"),
+        _make_session(ong_id, 6, "What day of the week is it today?", "day_of_week", "wednesday", True,
+                      ["apple", "table", "penny"], "apple, table, penny", True,
+                      "What is 15 plus 8?", "23", "23", True, 3, "within_range"),
+        _make_session(ong_id, 5, "What year is it?", "current_year", "2026", True,
+                      ["river", "chair", "sunset"], "river, chair", True,
+                      "What is 30 minus 12?", "18", "18", True, 3, "within_range"),
+        _make_session(ong_id, 4, "What month are we in right now?", "current_month", "march", True,
+                      ["garden", "blanket", "orange"], "garden, orange", True,
+                      "What is 9 plus 14?", "23", "25", False, 2, "within_range"),
+        _make_session(ong_id, 3, "What day of the week is it today?", "day_of_week", "sunday", True,
+                      ["window", "rabbit", "candle"], "window, rabbit, candle", True,
+                      "What is 50 minus 17?", "33", "33", True, 3, "within_range"),
+        _make_session(ong_id, 2, "What year is it?", "current_year", "2026", True,
+                      ["mountain", "pencil", "basket"], "mountain, pencil, basket", True,
+                      "Spell the word 'WORLD' backwards.", "dlrow", "dlrow", True, 3, "within_range"),
+        _make_session(ong_id, 1, "What month are we in right now?", "current_month", "march", True,
+                      ["ocean", "pillow", "lemon"], "ocean, pillow, lemon", True,
+                      "What is 100 minus 7?", "93", "93", True, 3, "within_range"),
+    ]
+
+    # ======================================================================
+    # Mrs Wong — BAD data: scores 0-1, mostly slightly_lower → triggers alert
+    # ======================================================================
+    wong_id = patients["mrs_wong"].user_id
+    wong_sessions = [
+        _make_session(wong_id, 7, "What day of the week is it today?", "day_of_week", "tuesday", True,
+                      ["apple", "table", "penny"], "apple, table, penny", True,
+                      "What is 20 minus 7?", "13", "13", True, 3, "within_range"),
+        _make_session(wong_id, 6, "What month are we in right now?", "current_month", "march", True,
+                      ["river", "chair", "sunset"], "river, chair", True,
+                      "What is 15 plus 8?", "23", "23", True, 3, "within_range"),
+        _make_session(wong_id, 5, "What year is it?", "current_year", "2026", False,
+                      ["garden", "blanket", "orange"], "garden", False,
+                      "What is 30 minus 12?", "18", "16", False, 0, "slightly_lower"),
+        _make_session(wong_id, 4, "What day of the week is it today?", "day_of_week", "saturday", False,
+                      ["window", "rabbit", "candle"], "window", False,
+                      "What is 9 plus 14?", "23", "21", False, 0, "slightly_lower"),
+        _make_session(wong_id, 3, "What month are we in right now?", "current_month", "march", True,
+                      ["mountain", "pencil", "basket"], "mountain", False,
+                      "What is 50 minus 17?", "33", "30", False, 1, "slightly_lower"),
+        _make_session(wong_id, 2, "What year is it?", "current_year", "2026", False,
+                      ["ocean", "pillow", "lemon"], "ocean", False,
+                      "What is 7 plus 6?", "13", "15", False, 0, "slightly_lower"),
+        _make_session(wong_id, 1, "What day of the week is it today?", "day_of_week", "tuesday", False,
+                      ["forest", "bottle", "clock"], "forest", False,
+                      "What is 100 minus 7?", "93", "90", False, 0, "slightly_lower"),
+    ]
+
+    for s in mdm_sessions + ong_sessions + wong_sessions:
+        db.add(s)
+    db.flush()
+
+    # --- Fire cognitive alert for Mrs Wong (5 of last 5 are slightly_lower) ---
+    alert_reason = (
+        "memory_check: 5 of last 5 sessions 'slightly_lower' "
+        "(scores: [0, 0, 1, 0, 0], dates: recent). "
+        "Possible cognitive pattern flagged for clinical review."
+    )
+    alert_message = (
+        "Hi Mrs Wong, we've noticed that your memory check-in scores have been "
+        "lower than usual over your last few check-ins. Don't worry \u2014 your "
+        "clinician and caregiver have been informed and will follow up with you soon."
+    )
+    alert_ts = (now - timedelta(hours=6)).isoformat(timespec="seconds")
+
+    db.add(InterventionLog(
+        intervention_id=str(_uuid4()),
+        user_id=wong_id,
+        action_type="clinician_alert",
+        risk_level="MEDIUM",
+        reason=alert_reason,
+        message=alert_message,
+        timestamp=alert_ts,
+    ))
+    db.add(InterventionLog(
+        intervention_id=str(_uuid4()),
+        user_id=wong_id,
+        action_type="caregiver_alert",
+        risk_level="MEDIUM",
+        reason=alert_reason,
+        message=alert_message,
+        timestamp=alert_ts,
+    ))
+
+    # Inject unread system chat message for Mrs Wong
+    db.add(ChatMessage(
+        message_id=str(_uuid4()),
+        user_id=wong_id,
+        role="system",
+        content=alert_message,
+        language="en",
+        is_read=0,
+        created_at=alert_ts,
+    ))
+
+    db.commit()

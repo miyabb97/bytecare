@@ -716,6 +716,14 @@ export type ClinicianAllPatientList = {
   items: ClinicianAllPatientItem[];
 };
 
+export type MemoryCheckSummary = {
+  sessions: MemoryCheckResult[];
+  session_count: number;
+  average_score: number | null;
+  alert_pattern: boolean;
+  recent_lower_count: number;
+};
+
 export type ClinicianPatientDetail = {
   patient: UserProfile & { conditions?: string[] };
   medications: MedicationItem[];
@@ -727,6 +735,7 @@ export type ClinicianPatientDetail = {
   food_recommendations: { condition?: string; recommendations?: string[] } | null;
   community_events: { joined: CommunityEventItem[]; saved: CommunityEventItem[] };
   tcm_warnings: TCMWarningItem[];
+  memory_check?: MemoryCheckSummary;
 };
 
 export type TCMWarningItem = {
@@ -774,6 +783,7 @@ export type WeeklySummaryResponse = {
   community_events_joined: CommunityEventItem[];
   food_summary: string;
   food_recommendations: string[];
+  memory_check?: MemoryCheckSummary;
 };
 
 // --- Phase 11: Adherence / MEE / Orchestrator / Caregiver types ---
@@ -888,6 +898,7 @@ export type CaregiverPatientDetail = {
   appointments: AppointmentItem[];
   dose_events: DoseEventItem[];
   interventions: InterventionItem[];
+  memory_check?: MemoryCheckSummary;
 };
 
 // --- Admin types ---

@@ -866,12 +866,34 @@ def caregiver_get_patient_detail(account_id: str, patient_user_id: str, db: Sess
         .order_by(InterventionLog.timestamp.desc()).limit(10).all()
     ]
 
+    # Memory check summary
+    from app.models import MemoryCheckSession
+    mc_sessions = (
+        db.query(MemoryCheckSession)
+        .filter_by(user_id=patient_user_id, completed=1)
+        .order_by(MemoryCheckSession.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    mc_scores = [s.score for s in mc_sessions if s.score is not None]
+    mc_avg = round(sum(mc_scores) / len(mc_scores), 1) if mc_scores else None
+    mc_recent5 = mc_sessions[:5]
+    mc_lower = sum(1 for s in mc_recent5 if s.status == "slightly_lower")
+    memory_check = {
+        "sessions": [s.to_dict() for s in mc_sessions],
+        "session_count": len(mc_sessions),
+        "average_score": mc_avg,
+        "alert_pattern": mc_lower >= 3,
+        "recent_lower_count": mc_lower,
+    }
+
     return {
         "patient": patient.to_dict(),
         "medications": meds,
         "appointments": appts,
         "dose_events": dose_events,
         "interventions": interventions,
+        "memory_check": memory_check,
     }
 
 

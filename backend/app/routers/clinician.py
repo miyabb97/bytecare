@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Account, Appointment, DoseEvent, InterventionLog, Medication, MesScore, User
+from app.models import Account, Appointment, DoseEvent, InterventionLog, Medication, MemoryCheckSession, MesScore, User
 
 router = APIRouter(prefix="/clinician", tags=["clinician"])
 
@@ -343,6 +343,7 @@ def get_patient_detail(patient_user_id: str, account_id: str, db: Session = Depe
         "food_recommendations": food,
         "community_events": community,
         "tcm_warnings": tcm_warnings,
+        "memory_check": _memory_check_summary(db, patient_user_id),
     }
 
 
@@ -693,6 +694,29 @@ def get_patient_weekly_summary(patient_user_id: str, account_id: str, db: Sessio
         "community_events_joined": community_events_joined,
         "food_summary": food_summary,
         "food_recommendations": food_recommendations,
+        "memory_check": _memory_check_summary(db, patient_user_id),
+    }
+
+
+def _memory_check_summary(db: Session, patient_user_id: str) -> Dict[str, Any]:
+    """Build a compact memory check summary for a patient."""
+    sessions = (
+        db.query(MemoryCheckSession)
+        .filter_by(user_id=patient_user_id, completed=1)
+        .order_by(MemoryCheckSession.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    scores = [s.score for s in sessions if s.score is not None]
+    avg = round(sum(scores) / len(scores), 1) if scores else None
+    recent5 = sessions[:5]
+    lower_count = sum(1 for s in recent5 if s.status == "slightly_lower")
+    return {
+        "sessions": [s.to_dict() for s in sessions],
+        "session_count": len(sessions),
+        "average_score": avg,
+        "alert_pattern": lower_count >= 3,
+        "recent_lower_count": lower_count,
     }
 
 

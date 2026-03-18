@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bell,
+  BrainCircuit,
   Calendar,
   Heart,
   MessageSquare,
@@ -823,6 +824,47 @@ export default function CaregiverDashboardPage({ params }: { params: { accountId
                         </div>
                       </div>
                     ))}
+                  </section>
+                </section>
+              )}
+
+              {/* Memory & Focus Check */}
+              {detail.memory_check && detail.memory_check.session_count > 0 && (
+                <section className="space-y-2">
+                  <SectionTitle title="Memory & Focus Check" />
+                  <section className="overflow-hidden rounded-2xl border border-[#E9EEF7] bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <BrainCircuit size={16} className="text-[#3B6EF5]" />
+                        <p className="text-[13px] text-[#475467]">
+                          {detail.memory_check.session_count} session{detail.memory_check.session_count !== 1 ? "s" : ""} •
+                          Avg {detail.memory_check.average_score}/3
+                        </p>
+                      </div>
+                      <BadgePill
+                        label={detail.memory_check.alert_pattern ? "Alert" : "Normal"}
+                        tone={detail.memory_check.alert_pattern ? "red" : "success"}
+                      />
+                    </div>
+                    {detail.memory_check.alert_pattern ? (
+                      <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                        <p className="text-[12px] font-semibold text-red-700">Cognitive Pattern Detected</p>
+                        <p className="text-[11px] text-red-600">
+                          {detail.memory_check.recent_lower_count} of last 5 check-ins scored lower than usual.
+                          The clinician has been notified.
+                        </p>
+                      </div>
+                    ) : null}
+                    <div className="mt-3 space-y-1.5">
+                      {detail.memory_check.sessions.slice(0, 5).map((s) => (
+                        <div key={s.session_id} className="flex items-center justify-between text-[12px]">
+                          <span className="text-[#667085]">{new Date(s.created_at).toLocaleDateString("en-SG")}</span>
+                          <span className={`font-semibold ${s.status === "slightly_lower" ? "text-red-600" : "text-green-600"}`}>
+                            {s.score}/3 — {s.status === "slightly_lower" ? "Lower" : "Normal"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </section>
                 </section>
               )}

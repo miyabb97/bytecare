@@ -1436,7 +1436,7 @@ export default function ClinicianDashboardPage() {
                         </SummaryCard>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-6">
+                      <div className="grid grid-cols-2 items-start gap-6">
                         <SummaryCard title="Intervention History" icon={<Activity size={16} className="text-[#3B6EF5]" />}>
                           {weeklySummary.interventions.length === 0 ? (
                             <p className="text-sm text-[#667085]">No interventions in this period.</p>
@@ -1455,17 +1455,55 @@ export default function ClinicianDashboardPage() {
                           )}
                         </SummaryCard>
 
-                        <SummaryCard title="Lifestyle Summary" icon={<ClipboardList size={16} className="text-[#3B6EF5]" />}>
-                          <p className="text-sm text-[#475467]">{weeklySummary.food_summary}</p>
-                          <p className="mt-2 text-sm text-[#475467]">Joined {weeklySummary.community_joined_count} community activities this week.</p>
-                          {weeklySummary.food_recommendations.length > 0 ? (
-                            <ul className="mt-2 list-disc pl-5 text-sm text-[#667085]">
-                              {weeklySummary.food_recommendations.map((item, idx) => (
-                                <li key={idx}>{item}</li>
-                              ))}
-                            </ul>
-                          ) : null}
-                        </SummaryCard>
+                        <div className="space-y-4">
+                          <SummaryCard title="Memory & Focus Check" icon={<BrainCircuit size={16} className="text-[#3B6EF5]" />}>
+                            {weeklySummary.memory_check && weeklySummary.memory_check.session_count > 0 ? (
+                              <>
+                                <div className="flex items-center justify-between">
+                                  <p className="text-xs text-[#475467]">
+                                    {weeklySummary.memory_check.session_count} session{weeklySummary.memory_check.session_count !== 1 ? "s" : ""} • Avg {weeklySummary.memory_check.average_score}/3
+                                  </p>
+                                  <BadgePill
+                                    label={weeklySummary.memory_check.alert_pattern ? "Pattern Detected" : "Normal"}
+                                    tone={weeklySummary.memory_check.alert_pattern ? "red" : "success"}
+                                  />
+                                </div>
+                                {weeklySummary.memory_check.alert_pattern ? (
+                                  <div className="mt-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5">
+                                    <p className="text-[11px] font-semibold text-red-700">Cognitive Alert</p>
+                                    <p className="text-[11px] text-red-600">
+                                      {weeklySummary.memory_check.recent_lower_count} of last 5 check-ins scored lower than usual.
+                                    </p>
+                                  </div>
+                                ) : null}
+                                <div className="mt-1 space-y-px">
+                                  {weeklySummary.memory_check.sessions.slice(0, 5).map((s) => (
+                                    <div key={s.session_id} className="flex items-center justify-between text-[11px] leading-tight">
+                                      <span className="text-[#667085]">{new Date(s.created_at).toLocaleDateString("en-SG")}</span>
+                                      <span className={`font-semibold ${s.status === "slightly_lower" ? "text-red-600" : "text-green-600"}`}>
+                                        {s.score}/3 {s.status === "slightly_lower" ? "▼" : "●"}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </>
+                            ) : (
+                              <p className="text-xs text-[#667085]">No memory check sessions recorded.</p>
+                            )}
+                          </SummaryCard>
+
+                          <SummaryCard title="Lifestyle Summary" icon={<ClipboardList size={16} className="text-[#3B6EF5]" />}>
+                            <p className="text-sm text-[#475467]">{weeklySummary.food_summary}</p>
+                            <p className="mt-2 text-sm text-[#475467]">Joined {weeklySummary.community_joined_count} community activities this week.</p>
+                            {weeklySummary.food_recommendations.length > 0 ? (
+                              <ul className="mt-2 list-disc pl-5 text-sm text-[#667085]">
+                                {weeklySummary.food_recommendations.map((item, idx) => (
+                                  <li key={idx}>{item}</li>
+                                ))}
+                              </ul>
+                            ) : null}
+                          </SummaryCard>
+                        </div>
                       </div>
                     </>
                   ) : null}
@@ -2294,11 +2332,139 @@ export default function ClinicianDashboardPage() {
                       </ul>
                     </SummaryCard>
 
-          {tab === "ai-insights" ? (
-            <>
-              {/* ── Section 1: Panel Overview (all patients) ── */}
-              <SummaryCard
-                title="Panel Overview"
+                    <ChartCard>
+                      <SectionTitle title="Adherence Trends" />
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        <div className="rounded-xl border border-[#E9EEF7] bg-white p-2 text-center">
+                          <p className="text-xs text-[#667085]">Current</p>
+                          <p className="text-2xl font-bold text-[#1F2A37]">{weeklySummary.adherence.current_score}%</p>
+                        </div>
+                        <div className="rounded-xl border border-[#E9EEF7] bg-white p-2 text-center">
+                          <p className="text-xs text-[#667085]">Prior</p>
+                          <p className="text-2xl font-bold text-[#1F2A37]">{weeklySummary.adherence.prior_score}%</p>
+                        </div>
+                        <div className="rounded-xl border border-[#E9EEF7] bg-white p-2 text-center">
+                          <p className="text-xs text-[#667085]">Delta</p>
+                          <p className={`text-2xl font-bold ${weeklySummary.adherence.delta >= 0 ? "text-green-600" : "text-red-600"}`}>
+                            {weeklySummary.adherence.delta >= 0 ? `+${weeklySummary.adherence.delta}` : weeklySummary.adherence.delta}%
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs text-[#667085]">
+                        <div>Taken: <strong>{weeklySummary.adherence.taken}</strong></div>
+                        <div>Missed: <strong>{weeklySummary.adherence.missed}</strong></div>
+                        <div>Late: <strong>{weeklySummary.adherence.late}</strong></div>
+                      </div>
+                    </ChartCard>
+
+                    <SummaryCard title="Drift Detection" icon={<ShieldAlert size={16} className="text-[#3B6EF5]" />}>
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm text-[#475467]">{weeklySummary.drift.trigger || "No trigger"}</p>
+                        <BadgePill
+                          label={weeklySummary.drift.severity.toUpperCase()}
+                          tone={weeklySummary.drift.severity === "red" ? "red" : weeklySummary.drift.severity === "orange" ? "yellow" : "blue"}
+                        />
+                      </div>
+                      <p className="mt-1 text-xs text-[#667085]">
+                        {weeklySummary.drift.details?.missed_doses ?? 0} missed • {weeklySummary.drift.details?.late_doses ?? 0} late • Avg MES {weeklySummary.drift.details?.avg_mes ?? 0}
+                      </p>
+                    </SummaryCard>
+
+                    <SummaryCard title="Intervention History" icon={<CalendarClock size={16} className="text-[#3B6EF5]" />}>
+                      {weeklySummary.interventions.length === 0 ? (
+                        <p className="text-sm text-[#667085]">No interventions in this period.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {weeklySummary.interventions.slice(0, 10).map((iv) => (
+                            <div key={iv.intervention_id} className="rounded-xl border border-[#E9EEF7] bg-white p-2">
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm font-semibold text-[#1F2A37]">{iv.action_type.replace(/_/g, " ")}</p>
+                                <BadgePill label={iv.risk_level} tone={iv.risk_level === "HIGH" ? "red" : iv.risk_level === "MEDIUM" ? "yellow" : "success"} />
+                              </div>
+                              <p className="mt-1 text-xs text-[#667085]">{iv.message}</p>
+                              <p className="mt-1 text-[11px] text-[#98A2B3]">{new Date(iv.timestamp).toLocaleString()}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </SummaryCard>
+
+                    <SummaryCard title="Memory & Focus Check" icon={<BrainCircuit size={16} className="text-[#3B6EF5]" />}>
+                      {weeklySummary.memory_check && weeklySummary.memory_check.session_count > 0 ? (
+                        <>
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm text-[#475467]">
+                              {weeklySummary.memory_check.session_count} session{weeklySummary.memory_check.session_count !== 1 ? "s" : ""} •
+                              Avg {weeklySummary.memory_check.average_score}/3
+                            </p>
+                            <BadgePill
+                              label={weeklySummary.memory_check.alert_pattern ? "Pattern Detected" : "Normal"}
+                              tone={weeklySummary.memory_check.alert_pattern ? "red" : "success"}
+                            />
+                          </div>
+                          {weeklySummary.memory_check.alert_pattern ? (
+                            <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                              <p className="text-xs font-semibold text-red-700">Cognitive Alert</p>
+                              <p className="text-xs text-red-600">
+                                {weeklySummary.memory_check.recent_lower_count} of last 5 check-ins scored lower than usual — review recommended.
+                              </p>
+                            </div>
+                          ) : null}
+                          <div className="mt-2 space-y-1">
+                            {weeklySummary.memory_check.sessions.slice(0, 5).map((s) => (
+                              <div key={s.session_id} className="flex items-center justify-between text-xs">
+                                <span className="text-[#667085]">{new Date(s.created_at).toLocaleDateString("en-SG")}</span>
+                                <span className={`font-semibold ${s.status === "slightly_lower" ? "text-red-600" : "text-green-600"}`}>
+                                  {s.score}/3 — {s.status === "slightly_lower" ? "Lower" : "Normal"}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-sm text-[#667085]">No memory check sessions recorded.</p>
+                      )}
+                    </SummaryCard>
+
+                    <SummaryCard title="TCM Safety" icon={<ShieldAlert size={16} className="text-[#3B6EF5]" />}>
+                      <p className="text-sm text-[#475467]">{weeklySummary.tcm_status}</p>
+                      {weeklySummary.tcm_warnings.length > 0 ? (
+                        <div className="mt-2 space-y-2">
+                          {weeklySummary.tcm_warnings.map((w, idx) => (
+                            <div key={`${w.herb}-${idx}`} className="rounded-xl border border-red-200 bg-red-50 p-2">
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm font-semibold text-red-700">{w.herb}</p>
+                                <BadgePill label={w.risk_level.toUpperCase()} tone={w.risk_level === "high" ? "red" : "yellow"} />
+                              </div>
+                              <p className="text-xs text-red-700">Affects: {w.flagged_medications.join(", ")}</p>
+                              {w.guidance ? <p className="text-xs text-red-600">{w.guidance}</p> : null}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </SummaryCard>
+
+                    <SummaryCard title="Lifestyle Summary" icon={<ClipboardList size={16} className="text-[#3B6EF5]" />}>
+                      <p className="text-sm text-[#475467]">{weeklySummary.food_summary}</p>
+                      <p className="mt-1 text-sm text-[#475467]">Joined {weeklySummary.community_joined_count} community activities this week.</p>
+                      {weeklySummary.food_recommendations.length > 0 ? (
+                        <ul className="mt-2 list-disc pl-5 text-sm text-[#667085]">
+                          {weeklySummary.food_recommendations.map((item, idx) => (
+                            <li key={idx}>{item}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </SummaryCard>
+                  </>
+                ) : null}
+              </>
+            ) : null}
+
+            {tab === "ai-insights" ? (
+              <>
+                {/* ── Section 1: Panel Overview (all patients) ── */}
+                <SummaryCard
+                  title="Panel Overview"
                 icon={<BrainCircuit size={16} className="text-[#6366F1]" />}
               >
                 <p className="text-xs text-[#667085]">
@@ -2478,98 +2644,37 @@ export default function ClinicianDashboardPage() {
                             <div className="h-3 w-5/6 rounded bg-slate-100" />
                             <div className="h-3 w-4/6 rounded bg-slate-100" />
                           </div>
-                    <ChartCard>
-                      <SectionTitle title="Adherence Trends" />
-                      <div className="mt-2 grid grid-cols-3 gap-2">
-                        <div className="rounded-xl border border-[#E9EEF7] bg-white p-2 text-center">
-                          <p className="text-xs text-[#667085]">Current</p>
-                          <p className="text-2xl font-bold text-[#1F2A37]">{weeklySummary.adherence.current_score}%</p>
                         </div>
-                        <div className="rounded-xl border border-[#E9EEF7] bg-white p-2 text-center">
-                          <p className="text-xs text-[#667085]">Prior</p>
-                          <p className="text-2xl font-bold text-[#1F2A37]">{weeklySummary.adherence.prior_score}%</p>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {aiSummary && !aiLoading ? (
+                    <div className="rounded-xl border border-[#6366F1]/20 bg-gradient-to-br from-[#EEF2FF] to-white p-4 shadow-sm">
+                      <div className="mb-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <BrainCircuit size={18} className="text-[#6366F1]" />
+                          <h3 className="text-base font-bold text-[#1F2A37]">AI Summary — {aiSummary.patient_name}</h3>
                         </div>
-                        <div className="rounded-xl border border-[#E9EEF7] bg-white p-2 text-center">
-                          <p className="text-xs text-[#667085]">Delta</p>
-                          <p className={`text-2xl font-bold ${weeklySummary.adherence.delta >= 0 ? "text-green-600" : "text-red-600"}`}>
-                            {weeklySummary.adherence.delta >= 0 ? `+${weeklySummary.adherence.delta}` : weeklySummary.adherence.delta}%
-                          </p>
-                        </div>
+                        <span className="rounded-full bg-[#6366F1]/10 px-2.5 py-0.5 text-[10px] font-semibold text-[#6366F1]">
+                          {aiSummary.provider.toUpperCase()}
+                        </span>
                       </div>
-                      <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs text-[#667085]">
-                        <div>Taken: <strong>{weeklySummary.adherence.taken}</strong></div>
-                        <div>Missed: <strong>{weeklySummary.adherence.missed}</strong></div>
-                        <div>Late: <strong>{weeklySummary.adherence.late}</strong></div>
+                      <div className="space-y-2 text-sm leading-relaxed text-[#475467]">
+                        {aiSummary.summary.split("\n").map((line, idx) => {
+                          const trimmed = line.trim().replace(/\*\*/g, "");
+                          if (!trimmed) return null;
+                          return <p key={idx}>{trimmed}</p>;
+                        })}
                       </div>
-                    </ChartCard>
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </>
+          ) : null}
 
-                    <SummaryCard title="Drift Detection" icon={<ShieldAlert size={16} className="text-[#3B6EF5]" />}>
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm text-[#475467]">{weeklySummary.drift.trigger || "No trigger"}</p>
-                        <BadgePill
-                          label={weeklySummary.drift.severity.toUpperCase()}
-                          tone={weeklySummary.drift.severity === "red" ? "red" : weeklySummary.drift.severity === "orange" ? "yellow" : "blue"}
-                        />
-                      </div>
-                      <p className="mt-1 text-xs text-[#667085]">
-                        {weeklySummary.drift.details?.missed_doses ?? 0} missed • {weeklySummary.drift.details?.late_doses ?? 0} late • Avg MES {weeklySummary.drift.details?.avg_mes ?? 0}
-                      </p>
-                    </SummaryCard>
-
-                    <SummaryCard title="Intervention History" icon={<CalendarClock size={16} className="text-[#3B6EF5]" />}>
-                      {weeklySummary.interventions.length === 0 ? (
-                        <p className="text-sm text-[#667085]">No interventions in this period.</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {weeklySummary.interventions.slice(0, 10).map((iv) => (
-                            <div key={iv.intervention_id} className="rounded-xl border border-[#E9EEF7] bg-white p-2">
-                              <div className="flex items-center justify-between">
-                                <p className="text-sm font-semibold text-[#1F2A37]">{iv.action_type.replace(/_/g, " ")}</p>
-                                <BadgePill label={iv.risk_level} tone={iv.risk_level === "HIGH" ? "red" : iv.risk_level === "MEDIUM" ? "yellow" : "success"} />
-                              </div>
-                              <p className="mt-1 text-xs text-[#667085]">{iv.message}</p>
-                              <p className="mt-1 text-[11px] text-[#98A2B3]">{new Date(iv.timestamp).toLocaleString()}</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </SummaryCard>
-
-                    <SummaryCard title="TCM Safety" icon={<ShieldAlert size={16} className="text-[#3B6EF5]" />}>
-                      <p className="text-sm text-[#475467]">{weeklySummary.tcm_status}</p>
-                      {weeklySummary.tcm_warnings.length > 0 ? (
-                        <div className="mt-2 space-y-2">
-                          {weeklySummary.tcm_warnings.map((w, idx) => (
-                            <div key={`${w.herb}-${idx}`} className="rounded-xl border border-red-200 bg-red-50 p-2">
-                              <div className="flex items-center justify-between">
-                                <p className="text-sm font-semibold text-red-700">{w.herb}</p>
-                                <BadgePill label={w.risk_level.toUpperCase()} tone={w.risk_level === "high" ? "red" : "yellow"} />
-                              </div>
-                              <p className="text-xs text-red-700">Affects: {w.flagged_medications.join(", ")}</p>
-                              {w.guidance ? <p className="text-xs text-red-600">{w.guidance}</p> : null}
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                    </SummaryCard>
-
-                    <SummaryCard title="Lifestyle Summary" icon={<ClipboardList size={16} className="text-[#3B6EF5]" />}>
-                      <p className="text-sm text-[#475467]">{weeklySummary.food_summary}</p>
-                      <p className="mt-1 text-sm text-[#475467]">Joined {weeklySummary.community_joined_count} community activities this week.</p>
-                      {weeklySummary.food_recommendations.length > 0 ? (
-                        <ul className="mt-2 list-disc pl-5 text-sm text-[#667085]">
-                          {weeklySummary.food_recommendations.map((item, idx) => (
-                            <li key={idx}>{item}</li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </SummaryCard>
-                  </>
-                ) : null}
-              </>
-            ) : null}
-
-            {tab === "ai-insights" ? (
+          {tab === "ai-insights" ? (
               <>
                 {!selectedPatientId ? (
                   <ChartCard>
